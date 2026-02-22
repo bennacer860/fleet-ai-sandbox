@@ -688,6 +688,19 @@ Examples:
     print(f"\n  Order size: {order_size} shares @ ${UNFILLABLE_PRICE}")
     print(f"  Max capital locked per test: ${locked_capital:.4f} (returned on cancel)")
 
+    # Warm up: The first signature in Python often takes ~500ms due to 
+    # lazy-loading of crypto libraries. Signing a dummy order once 
+    # keeps subsequent signings fast (~10-15ms).
+    print("\nWarming up signing engine…")
+    dummy_args = OrderArgs(
+        price=UNFILLABLE_PRICE,
+        size=order_size,
+        side=BUY,
+        token_id=token_id,
+    )
+    client.create_order(dummy_args)
+    print("  Signing engine hot ✓")
+
     # ── Run tests ────────────────────────────────────────────────────────
     asyncio.run(
         run_latency_tests(
