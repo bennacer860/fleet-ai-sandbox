@@ -862,6 +862,16 @@ class MultiEventMonitor:
         old_tick_size = str(data.get("old_tick_size", ""))
         new_tick_size = str(data.get("new_tick_size", ""))
         market_resolved = not self.market_active.get(slug, True)
+
+        formatted_slug = self._format_slug_with_est_time(slug, timestamp_ms)
+        logger.info(
+            "TICK SIZE CHANGE: %s  %s -> %s  (token=%s…)",
+            formatted_slug,
+            old_tick_size,
+            new_tick_size,
+            asset_id[:20],
+        )
+
         self.log_unified_event(
             slug=slug,
             event_type="tick_size_change",
