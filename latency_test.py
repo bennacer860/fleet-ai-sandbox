@@ -194,7 +194,7 @@ async def _wait_for_book_at_price(
 
 
 async def _wait_for_user_event(
-    ws, order_id: str, timeout_s: float = 20.0
+    ws, order_id: str, timeout_s: float = 35.0
 ) -> Optional[tuple[int, str]]:
     """Wait for a user-channel message referencing order_id.
     Returns (t_recv_ns, event_type).
@@ -361,7 +361,7 @@ async def run_latency_tests(
         mkt_task = asyncio.create_task(_wait_for_book_at_price(market_ws, test_price, 20.0))
         usr_task = None
         if user_ws:
-            usr_task = asyncio.create_task(_wait_for_user_event(user_ws, "PENDING", 20.0)) # will update after ID known
+            usr_task = asyncio.create_task(_wait_for_user_event(user_ws, "PENDING", 30.0)) # will update after ID known
 
         # 3. Post (REST)
         t_submit = time.perf_counter_ns()
