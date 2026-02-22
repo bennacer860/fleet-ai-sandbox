@@ -268,12 +268,14 @@ class SweeperBot:
         logger.info("Initial slugs (%d): %s", len(initial_slugs), ", ".join(initial_slugs))
 
         # Create the single shared monitor (verbose=False to reduce noise)
+        # keep_alive=True ensures the WS stays open between market windows
         self.monitor = MultiEventMonitor(
             event_slugs=initial_slugs,
             output_file=self.output_file,
             ws_url=self.ws_url,
             check_interval=DEFAULT_MARKET_STATUS_CHECK_INTERVAL,
             verbose=False,
+            keep_alive=True,
         )
 
         # Register strategy callback

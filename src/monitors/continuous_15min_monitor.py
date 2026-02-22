@@ -190,12 +190,14 @@ class ContinuousCryptoMonitor:
         )
         
         # Create monitor that will run continuously
+        # keep_alive=True prevents the WS from closing when current markets end
         self.monitor = MultiEventMonitor(
             event_slugs=initial_slugs,
             output_file=self.output_file,
             ws_url=self.ws_url,
             check_interval=DEFAULT_MARKET_STATUS_CHECK_INTERVAL,
             market_events_file=self.market_events_file,
+            keep_alive=True,
         )
         
         # Start subscription management task

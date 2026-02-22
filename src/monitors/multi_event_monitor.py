@@ -63,6 +63,7 @@ class MultiEventMonitor:
         check_interval: int = DEFAULT_CHECK_INTERVAL,
         market_events_file: Optional[str] = None,  # Deprecated, kept for backward compatibility
         verbose: bool = True,
+        keep_alive: bool = False,
     ):
         """
         Initialize the multi-event monitor.
@@ -74,12 +75,16 @@ class MultiEventMonitor:
             check_interval: How often to check if markets are still active (seconds)
             market_events_file: Deprecated - kept for backward compatibility, ignored
             verbose: If True, print detailed order-book and event data to stdout (default True)
+            keep_alive: If True, do **not** close the WebSocket when all current
+                markets have ended.  Used by continuous monitors / sweeper bot
+                where new markets are added dynamically.
         """
         self.event_slugs = event_slugs
         self.output_file = output_file
         self.ws_url = ws_url or WS_URL
         self.check_interval = check_interval
         self.verbose = verbose
+        self.keep_alive = keep_alive
         
         # Track token IDs and market status
         self.token_ids: dict[str, list[str]] = {}  # slug -> [token_ids]
@@ -449,11 +454,17 @@ class MultiEventMonitor:
             # Check if all markets are inactive
             active_count = sum(1 for active in self.market_active.values() if active)
             if active_count == 0:
-                logger.info("All markets have ended. Closing WebSocket connection.")
-                self.running = False
-                if self.websocket:
-                    await self.websocket.close()
-                break
+                if self.keep_alive:
+                    logger.info(
+                        "All current markets have ended but keep_alive=True – "
+                        "waiting for new markets to be added."
+                    )
+                else:
+                    logger.info("All markets have ended. Closing WebSocket connection.")
+                    self.running = False
+                    if self.websocket:
+                        await self.websocket.close()
+                    break
             else:
                 logger.debug("%d/%d markets still active", active_count, len(self.event_slugs))
 
@@ -944,6 +955,11 @@ class MultiEventMonitor:
         # Start market status checking task
         status_task = asyncio.create_task(self.check_market_status())
 
+        # Reconnection back-off (seconds): 5 → 10 → 20 → … capped at 60
+        _BASE_BACKOFF = 5
+        _MAX_BACKOFF = 60
+        backoff = _BASE_BACKOFF
+
         try:
             while self.running:
                 try:
@@ -954,6 +970,10 @@ class MultiEventMonitor:
                         all_token_ids.extend(token_ids)
 
                     if not all_token_ids:
+                        if self.keep_alive:
+                            logger.info("No token IDs yet (keep_alive). Waiting %ds…", backoff)
+                            await asyncio.sleep(backoff)
+                            continue
                         logger.warning("No token IDs to subscribe to. Waiting before retry...")
                         await asyncio.sleep(5)
                         continue
@@ -963,6 +983,8 @@ class MultiEventMonitor:
                     # but keep ping_timeout to ensure we disconnect if the server stops sending pings.
                     async with websockets.connect(self.ws_url, ping_interval=None, ping_timeout=60) as websocket:
                         self.websocket = websocket
+                        # Reset backoff on successful connect
+                        backoff = _BASE_BACKOFF
                         try:
                             logger.info("WebSocket connected.")
 
@@ -1067,37 +1089,34 @@ class MultiEventMonitor:
                             # on a closed connection.
                             self.websocket = None
 
+                except websockets.exceptions.ConnectionClosedOK:
+                    # Server closed the connection normally (e.g. market settlement).
+                    logger.info("WebSocket closed normally by server.")
+                    if self.running:
+                        logger.info("Reconnecting in %ds…", backoff)
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * 2, _MAX_BACKOFF)
+
                 except websockets.exceptions.ConnectionClosedError as e:
                     logger.error("WebSocket connection closed unexpectedly: %s", e)
-                    # Log error for all markets
-                    for slug in self.event_slugs:
-                        self.log_market_event(
-                            slug=slug,
-                            event_type="error",
-                            error_message=f"WebSocket connection closed unexpectedly: {str(e)}"
-                        )
                     if self.running:
-                        logger.info("Attempting to reconnect in 5 seconds...")
-                        await asyncio.sleep(5)  # Wait before reconnecting
+                        logger.info("Reconnecting in %ds…", backoff)
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except websockets.exceptions.WebSocketException as e:
                     logger.error("WebSocket error: %s", e)
-                    # Log error for all markets
-                    for slug in self.event_slugs:
-                        self.log_market_event(
-                            slug=slug,
-                            event_type="error",
-                            error_message=f"WebSocket error: {str(e)}"
-                        )
                     if self.running:
-                        logger.info("Attempting to reconnect in 5 seconds...")
-                        await asyncio.sleep(5)
+                        logger.info("Reconnecting in %ds…", backoff)
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except Exception as e:
                     logger.error("Unexpected error in WebSocket loop: %s", e)
                     if self.running:
-                        logger.info("Attempting to reconnect in 5 seconds...")
-                        await asyncio.sleep(5)
+                        logger.info("Reconnecting in %ds…", backoff)
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * 2, _MAX_BACKOFF)
 
         except asyncio.CancelledError:
             logger.info("Monitoring cancelled")
