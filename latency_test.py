@@ -311,6 +311,7 @@ async def run_latency_tests(
     order_size: float,
     num_tests: int = 10,
     use_user_ws: bool = True,
+    skip_cancel: bool = False,
 ):
     """Run latency tests for order placement and cancellation."""
 
@@ -464,34 +465,37 @@ async def run_latency_tests(
                 print(f"  User WS     :   — timed out")
 
         # ── 5. Cancel the order (REST) ───────────────────────────────────
-        await asyncio.sleep(0.3)  # brief pause
+        if skip_cancel:
+            print(f"  Cancel      : skipped (--no-cancel)")
+        else:
+            await asyncio.sleep(0.3)  # brief pause
 
-        t_cancel = time.perf_counter_ns()
-        try:
-            client.cancel(order_id)
-        except Exception as e:
-            print(f"  ❌ Cancel failed: {e}")
-            result["error"] = f"cancel failed: {e}"
-            results.append(result)
-            continue
-        t_cancel_done = time.perf_counter_ns()
+            t_cancel = time.perf_counter_ns()
+            try:
+                client.cancel(order_id)
+            except Exception as e:
+                print(f"  ❌ Cancel failed: {e}")
+                result["error"] = f"cancel failed: {e}"
+                results.append(result)
+                continue
+            t_cancel_done = time.perf_counter_ns()
 
-        cancel_rest_ms = (t_cancel_done - t_cancel) / 1_000_000
-        result["cancel_rest_ms"] = round(cancel_rest_ms, 2)
-        print(f"  REST cancel : {cancel_rest_ms:8.1f} ms")
+            cancel_rest_ms = (t_cancel_done - t_cancel) / 1_000_000
+            result["cancel_rest_ms"] = round(cancel_rest_ms, 2)
+            print(f"  REST cancel : {cancel_rest_ms:8.1f} ms")
 
-        # ── 6. Wait for cancel confirmation on user WS ───────────────────
-        if user_ws:
-            cancel_usr = await _wait_for_user_event(
-                user_ws, order_id, timeout_s=5.0
-            )
-            if cancel_usr:
-                cancel_ws_ms, evt = cancel_usr
-                result["cancel_user_ws_ms"] = round(cancel_ws_ms, 2)
-                result["cancel_user_ws_event"] = evt
-                print(f"  Cancel WS   : {cancel_ws_ms:8.1f} ms  (event={evt})")
-            else:
-                print(f"  Cancel WS   :   — timed out")
+            # ── 6. Wait for cancel confirmation on user WS ───────────────
+            if user_ws:
+                cancel_usr = await _wait_for_user_event(
+                    user_ws, order_id, timeout_s=5.0
+                )
+                if cancel_usr:
+                    cancel_ws_ms, evt = cancel_usr
+                    result["cancel_user_ws_ms"] = round(cancel_ws_ms, 2)
+                    result["cancel_user_ws_event"] = evt
+                    print(f"  Cancel WS   : {cancel_ws_ms:8.1f} ms  (event={evt})")
+                else:
+                    print(f"  Cancel WS   :   — timed out")
 
         # Drain leftover messages before next iteration
         await _drain_ws(market_ws, timeout=1.0)
@@ -506,7 +510,10 @@ async def run_latency_tests(
             await asyncio.sleep(2)
 
     # ── Cleanup: cancel any leftover orders for this token ──────────────
-    await _cleanup_leftover_orders(client, token_id)
+    if skip_cancel:
+        print(f"\n  ⚠ --no-cancel: {num_tests} order(s) left pending on the book")
+    else:
+        await _cleanup_leftover_orders(client, token_id)
 
     # ── Close WebSockets ─────────────────────────────────────────────────
     await market_ws.close()
@@ -618,6 +625,11 @@ Examples:
         action="store_true",
         help="Skip user WebSocket channel (REST + market WS only)",
     )
+    parser.add_argument(
+        "--no-cancel",
+        action="store_true",
+        help="Leave orders pending — skip cancel step and final cleanup",
+    )
     args = parser.parse_args()
 
     setup_logging()
@@ -647,6 +659,7 @@ Examples:
             order_size=order_size,
             num_tests=args.tests,
             use_user_ws=not args.no_user_ws,
+            skip_cancel=args.no_cancel,
         )
     )
 
