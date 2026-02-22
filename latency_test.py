@@ -53,6 +53,7 @@ MARKET_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 USER_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/user"
 
 LATENCY_CSV = "latency_results.csv"
+WS_LOG_FILE = "ws_messages.log"
 
 
 # ── Market Discovery ─────────────────────────────────────────────────────────
@@ -144,17 +145,30 @@ def create_client() -> ClobClient:
 # ── Latency Tests ────────────────────────────────────────────────────────────
 
 
-async def _drain_ws(ws, timeout: float = 1.0):
+async def _drain_ws(ws, timeout: float = 1.0, log_fp=None, channel: str = "ws"):
     """Drain any buffered messages from a WebSocket."""
     while True:
         try:
-            await asyncio.wait_for(ws.recv(), timeout=timeout)
+            msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
+            if log_fp is not None:
+                _log_ws_message(log_fp, channel, msg)
         except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
             break
 
 
+def _log_ws_message(log_fp, channel: str, msg: Any):
+    """Write the exact WS frame payload to log with timestamp and channel."""
+    ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    if isinstance(msg, bytes):
+        payload = msg.decode("utf-8", errors="replace")
+    else:
+        payload = str(msg)
+    log_fp.write(f"[{ts}] [{channel}] {payload}\n")
+    log_fp.flush()
+
+
 async def _wait_for_book_at_price(
-    ws, target_price: float, timeout_s: float = 20.0
+    ws, target_price: float, timeout_s: float = 20.0, log_fp=None
 ) -> Optional[int]:
     """Wait for a book update that contains a bid at target_price.
     Returns the absolute t_recv (counter_ns).
@@ -172,6 +186,9 @@ async def _wait_for_book_at_price(
             t_recv = time.perf_counter_ns()
         except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
             break
+
+        if log_fp is not None:
+            _log_ws_message(log_fp, "market", msg)
 
         if not isinstance(msg, str) or msg == "INVALID OPERATION":
             continue
@@ -194,7 +211,7 @@ async def _wait_for_book_at_price(
 
 
 async def _wait_for_user_event(
-    ws, order_id: str, timeout_s: float = 35.0
+    ws, order_id: str, timeout_s: float = 35.0, log_fp=None
 ) -> Optional[tuple[int, str]]:
     """Wait for a user-channel message referencing order_id.
     Returns (t_recv_ns, event_type).
@@ -212,6 +229,9 @@ async def _wait_for_user_event(
             t_recv = time.perf_counter_ns()
         except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
             break
+
+        if log_fp is not None:
+            _log_ws_message(log_fp, "user", msg)
 
         if not isinstance(msg, str):
             continue
@@ -278,154 +298,179 @@ async def run_latency_tests(
     """Run latency tests for order placement and cancellation."""
     results: list[dict[str, Any]] = []
 
-    print("\nConnecting to market WebSocket…")
-    market_ws = await websockets.connect(MARKET_WS_URL, ping_interval=None, ping_timeout=60)
-    await market_ws.send(json.dumps({
-        "type": "subscribe",
-        "assets_ids": [token_id],
-        "custom_feature_enabled": False,
-    }))
-    print(f"  Subscribed to market channel for {token_id[:20]}…")
+    with open(WS_LOG_FILE, "a", encoding="utf-8") as ws_log_fp:
+        ws_log_fp.write(
+            f"# ---- test run start {datetime.now(timezone.utc).isoformat()} "
+            f"token={token_id} outcome={outcome} ----\n"
+        )
+        ws_log_fp.flush()
 
-    user_ws = None
-    if use_user_ws:
-        try:
-            print("Connecting to user WebSocket…")
-            user_ws = await websockets.connect(USER_WS_URL, ping_interval=None, ping_timeout=60)
-            api_creds = client.creds
-            await user_ws.send(json.dumps({
-                "auth": {
-                    "apiKey": api_creds.api_key,
-                    "secret": api_creds.api_secret,
-                    "passphrase": api_creds.api_passphrase,
-                },
-                "type": "subscribe",
-                "markets": [token_id],
-                "assets_ids": [token_id],
-                "channels": ["user"],
-            }))
+        print(f"\nWS log file: {WS_LOG_FILE}")
+        print("\nConnecting to market WebSocket…")
+        market_ws = await websockets.connect(MARKET_WS_URL, ping_interval=None, ping_timeout=60)
+        market_sub_msg = json.dumps({
+            "type": "subscribe",
+            "assets_ids": [token_id],
+            "custom_feature_enabled": False,
+        })
+        await market_ws.send(market_sub_msg)
+        _log_ws_message(ws_log_fp, "market-send", market_sub_msg)
+        print(f"  Subscribed to market channel for {token_id[:20]}…")
 
-            # Wait for auth success
+        user_ws = None
+        if use_user_ws:
             try:
-                for _ in range(5):
-                    raw = await asyncio.wait_for(user_ws.recv(), timeout=3.0)
-                    resp = json.loads(raw)
-                    if isinstance(resp, dict) and resp.get("type") == "auth":
-                        if resp.get("success"):
-                            print("  User WS: Authentication successful ✓")
-                        else:
-                            print(f"  User WS: Auth failed: {resp}")
-                        break
-            except:
-                print("  User WS: Auth response timeout (continuing)")
-        except Exception as e:
-            print(f"  ⚠ User WebSocket connection failed: {e}")
-            user_ws = None
+                print("Connecting to user WebSocket…")
+                user_ws = await websockets.connect(USER_WS_URL, ping_interval=None, ping_timeout=60)
+                api_creds = client.creds
+                user_sub_msg = json.dumps({
+                    "auth": {
+                        "apiKey": api_creds.api_key,
+                        "secret": api_creds.api_secret,
+                        "passphrase": api_creds.api_passphrase,
+                    },
+                    "type": "subscribe",
+                    "markets": [token_id],
+                    "assets_ids": [token_id],
+                    "channels": ["user"],
+                })
+                await user_ws.send(user_sub_msg)
+                _log_ws_message(ws_log_fp, "user-send", user_sub_msg)
 
-    await _drain_ws(market_ws, timeout=1.0)
-    if user_ws:
-        await _drain_ws(user_ws, timeout=1.0)
+                # Wait for auth success
+                try:
+                    for _ in range(5):
+                        raw = await asyncio.wait_for(user_ws.recv(), timeout=3.0)
+                        _log_ws_message(ws_log_fp, "user", raw)
+                        resp = json.loads(raw)
+                        if isinstance(resp, dict) and resp.get("type") == "auth":
+                            if resp.get("success"):
+                                print("  User WS: Authentication successful ✓")
+                            else:
+                                print(f"  User WS: Auth failed: {resp}")
+                            break
+                except Exception:
+                    print("  User WS: Auth response timeout (continuing)")
+            except Exception as e:
+                print(f"  ⚠ User WebSocket connection failed: {e}")
+                user_ws = None
 
-    print(f"\n{'=' * 72}")
-    print(f"Starting {num_tests} latency tests")
-    print(f"  Token   : {token_id[:20]}… ({outcome})")
-    print(f"  User WS : {'enabled' if user_ws else 'disabled'}")
-    print(f"{'=' * 72}\n")
-
-    # Visible but unfillable price: 50% of mid
-    test_price = round(mid_price * 0.5, 2)
-    if test_price < 0.01: test_price = 0.01
-
-    for i in range(num_tests):
-        print(f"── Test {i + 1}/{num_tests} ──")
-        result = {
-            "test": i + 1,
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            "sign_ms": None,
-            "order_rest_ms": None,
-            "order_market_ws_ms": None,
-            "order_user_ws_ms": None,
-            "cancel_rest_ms": None,
-            "cancel_user_ws_ms": None,
-        }
-
-        # 1. Sign
-        args = OrderArgs(price=test_price, size=order_size, side=BUY, token_id=token_id)
-        t_start_sign = time.perf_counter_ns()
-        signed = client.create_order(args)
-        t_end_sign = time.perf_counter_ns()
-        result["sign_ms"] = round((t_end_sign - t_start_sign) / 1_000_000, 2)
-        print(f"  Sign        : {result['sign_ms']:8.1f} ms")
-
-        # 2. Start WS tasks
-        mkt_task = asyncio.create_task(_wait_for_book_at_price(market_ws, test_price, 20.0))
-        usr_task = None
+        await _drain_ws(market_ws, timeout=1.0, log_fp=ws_log_fp, channel="market")
         if user_ws:
-            usr_task = asyncio.create_task(_wait_for_user_event(user_ws, "PENDING", 30.0)) # will update after ID known
+            await _drain_ws(user_ws, timeout=1.0, log_fp=ws_log_fp, channel="user")
 
-        # 3. Post (REST)
-        t_submit = time.perf_counter_ns()
-        resp = client.post_order(signed, OrderType.GTC)
-        t_api_done = time.perf_counter_ns()
-        
-        result["order_rest_ms"] = round((t_api_done - t_submit) / 1_000_000, 2)
-        order_id = resp.get("orderID") or resp.get("orderId")
-        
-        if not order_id:
-            print(f"  ❌ Order failed: {resp}")
-            await mkt_task
-            continue
-        
-        print(f"  REST place  : {result['order_rest_ms']:8.1f} ms  (orderId={order_id[:16]}…)")
+        print(f"\n{'=' * 72}")
+        print(f"Starting {num_tests} latency tests")
+        print(f"  Token   : {token_id[:20]}… ({outcome})")
+        print(f"  User WS : {'enabled' if user_ws else 'disabled'}")
+        print(f"{'=' * 72}\n")
 
-        # Re-target user task with actual order_id
-        if usr_task:
-            usr_task.cancel()
-            usr_task = asyncio.create_task(_wait_for_user_event(user_ws, order_id, 20.0))
+        # Visible but unfillable price: 50% of mid
+        test_price = round(mid_price * 0.5, 2)
+        if test_price < 0.01:
+            test_price = 0.01
 
-        # 4. Await WS
-        t_recv_mkt = await mkt_task
-        if t_recv_mkt:
-            result["order_market_ws_ms"] = round((t_recv_mkt - t_submit) / 1_000_000, 2)
-            print(f"  Market WS   : {result['order_market_ws_ms']:8.1f} ms  (bid appeared at {test_price})")
-        else:
-            print("  Market WS   :   — timed out")
+        for i in range(num_tests):
+            print(f"── Test {i + 1}/{num_tests} ──")
+            result = {
+                "test": i + 1,
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "sign_ms": None,
+                "order_rest_ms": None,
+                "order_market_ws_ms": None,
+                "order_user_ws_ms": None,
+                "cancel_rest_ms": None,
+                "cancel_user_ws_ms": None,
+            }
 
-        if usr_task:
-            usr_res = await usr_task
-            if usr_res:
-                t_recv_usr, evt = usr_res
-                result["order_user_ws_ms"] = round((t_recv_usr - t_submit) / 1_000_000, 2)
-                print(f"  User WS     : {result['order_user_ws_ms']:8.1f} ms  (event={evt})")
-            else:
-                print("  User WS     :   — timed out")
+            # 1. Sign
+            args = OrderArgs(price=test_price, size=order_size, side=BUY, token_id=token_id)
+            t_start_sign = time.perf_counter_ns()
+            signed = client.create_order(args)
+            t_end_sign = time.perf_counter_ns()
+            result["sign_ms"] = round((t_end_sign - t_start_sign) / 1_000_000, 2)
+            print(f"  Sign        : {result['sign_ms']:8.1f} ms")
 
-        # 5. Cancel
-        if skip_cancel:
-            print("  Cancel      : skipped (--no-cancel)")
-        else:
-            await asyncio.sleep(0.5)
-            t_cancel_start = time.perf_counter_ns()
-            client.cancel(order_id)
-            t_cancel_api = time.perf_counter_ns()
-            result["cancel_rest_ms"] = round((t_cancel_api - t_cancel_start) / 1_000_000, 2)
-            print(f"  REST cancel : {result['cancel_rest_ms']:8.1f} ms")
-
+            # 2. Start WS tasks
+            mkt_task = asyncio.create_task(
+                _wait_for_book_at_price(market_ws, test_price, 20.0, ws_log_fp)
+            )
+            usr_task = None
             if user_ws:
-                c_res = await _wait_for_user_event(user_ws, order_id, 10.0)
-                if c_res:
-                    t_recv_c, evt = c_res
-                    result["cancel_user_ws_ms"] = round((t_recv_c - t_cancel_start) / 1_000_000, 2)
-                    print(f"  Cancel WS   : {result['cancel_user_ws_ms']:8.1f} ms  (event={evt})")
+                # will update after ID known
+                usr_task = asyncio.create_task(
+                    _wait_for_user_event(user_ws, "PENDING", 30.0, ws_log_fp)
+                )
+
+            # 3. Post (REST)
+            t_submit = time.perf_counter_ns()
+            resp = client.post_order(signed, OrderType.GTC)
+            t_api_done = time.perf_counter_ns()
+
+            result["order_rest_ms"] = round((t_api_done - t_submit) / 1_000_000, 2)
+            order_id = resp.get("orderID") or resp.get("orderId")
+
+            if not order_id:
+                print(f"  ❌ Order failed: {resp}")
+                await mkt_task
+                continue
+
+            print(f"  REST place  : {result['order_rest_ms']:8.1f} ms  (orderId={order_id[:16]}…)")
+
+            # Re-target user task with actual order_id
+            if usr_task:
+                usr_task.cancel()
+                usr_task = asyncio.create_task(
+                    _wait_for_user_event(user_ws, order_id, 20.0, ws_log_fp)
+                )
+
+            # 4. Await WS
+            t_recv_mkt = await mkt_task
+            if t_recv_mkt:
+                result["order_market_ws_ms"] = round((t_recv_mkt - t_submit) / 1_000_000, 2)
+                print(f"  Market WS   : {result['order_market_ws_ms']:8.1f} ms  (bid appeared at {test_price})")
+            else:
+                print("  Market WS   :   — timed out")
+
+            if usr_task:
+                usr_res = await usr_task
+                if usr_res:
+                    t_recv_usr, evt = usr_res
+                    result["order_user_ws_ms"] = round((t_recv_usr - t_submit) / 1_000_000, 2)
+                    print(f"  User WS     : {result['order_user_ws_ms']:8.1f} ms  (event={evt})")
                 else:
-                    print("  Cancel WS   :   — timed out")
+                    print("  User WS     :   — timed out")
 
-        results.append(result)
-        print()
-        await asyncio.sleep(1)
+            # 5. Cancel
+            if skip_cancel:
+                print("  Cancel      : skipped (--no-cancel)")
+            else:
+                await asyncio.sleep(0.5)
+                t_cancel_start = time.perf_counter_ns()
+                client.cancel(order_id)
+                t_cancel_api = time.perf_counter_ns()
+                result["cancel_rest_ms"] = round((t_cancel_api - t_cancel_start) / 1_000_000, 2)
+                print(f"  REST cancel : {result['cancel_rest_ms']:8.1f} ms")
 
-    await market_ws.close()
-    if user_ws: await user_ws.close()
+                if user_ws:
+                    c_res = await _wait_for_user_event(user_ws, order_id, 10.0, ws_log_fp)
+                    if c_res:
+                        t_recv_c, evt = c_res
+                        result["cancel_user_ws_ms"] = round((t_recv_c - t_cancel_start) / 1_000_000, 2)
+                        print(f"  Cancel WS   : {result['cancel_user_ws_ms']:8.1f} ms  (event={evt})")
+                    else:
+                        print("  Cancel WS   :   — timed out")
+
+            results.append(result)
+            print()
+            await asyncio.sleep(1)
+
+        await market_ws.close()
+        if user_ws:
+            await user_ws.close()
+
+        ws_log_fp.write(f"# ---- test run end {datetime.now(timezone.utc).isoformat()} ----\n")
+        ws_log_fp.flush()
     
     save_csv(results)
     print_summary(results)
