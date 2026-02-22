@@ -29,7 +29,7 @@ from typing import Any, Optional
 import websockets
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType
+from py_clob_client.clob_types import OpenOrderParams, OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY
 
 from src.config import (
@@ -259,6 +259,51 @@ async def _wait_for_user_event(
     return None
 
 
+async def _cleanup_leftover_orders(client: ClobClient, token_id: str):
+    """List and cancel any remaining open orders for the test token."""
+    print(f"\n── Cleanup: checking for leftover orders ──")
+    try:
+        params = OpenOrderParams(asset_id=token_id)
+        open_orders = client.get_orders(params)
+
+        # get_orders may return a list or a paginated object
+        orders = open_orders if isinstance(open_orders, list) else []
+
+        if not orders:
+            print("  No leftover orders found ✓")
+            return
+
+        print(f"  Found {len(orders)} leftover order(s) — cancelling…")
+        for order in orders:
+            oid = (
+                order.get("id", "")
+                or order.get("order_id", "")
+                or order.get("orderID", "")
+            )
+            if oid:
+                try:
+                    client.cancel(oid)
+                    print(f"    Cancelled: {oid[:16]}…")
+                except Exception as e:
+                    print(f"    ⚠ Failed to cancel {oid[:16]}…: {e}")
+
+        # As a safety net, also call cancel_market_orders for this asset
+        try:
+            client.cancel_market_orders(asset_id=token_id)
+            print("  Bulk cancel_market_orders completed ✓")
+        except Exception as e:
+            print(f"  ⚠ Bulk cancel_market_orders failed: {e}")
+
+    except Exception as e:
+        # If listing fails, fall back to bulk cancel
+        print(f"  ⚠ Could not list orders ({e}), attempting bulk cancel…")
+        try:
+            client.cancel_market_orders(asset_id=token_id)
+            print("  Bulk cancel_market_orders completed ✓")
+        except Exception as e2:
+            print(f"  ⚠ Bulk cancel also failed: {e2}")
+
+
 async def run_latency_tests(
     client: ClobClient,
     token_id: str,
@@ -460,7 +505,10 @@ async def run_latency_tests(
         if i < num_tests - 1:
             await asyncio.sleep(2)
 
-    # ── Cleanup ──────────────────────────────────────────────────────────
+    # ── Cleanup: cancel any leftover orders for this token ──────────────
+    await _cleanup_leftover_orders(client, token_id)
+
+    # ── Close WebSockets ─────────────────────────────────────────────────
     await market_ws.close()
     if user_ws:
         await user_ws.close()
