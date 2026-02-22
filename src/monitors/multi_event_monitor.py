@@ -272,25 +272,28 @@ class MultiEventMonitor:
         return True
 
     async def add_markets(self, new_slugs: list[str]):
-        """
-        Dynamically add new markets to monitor.
-        
+        """Dynamically add new markets to monitor.
+
+        Token registration (fetching IDs, updating internal dicts) is
+        **always** performed, even if the WebSocket is currently disconnected.
+        The tokens will be picked up on the next reconnect because the
+        connect loop rebuilds the subscription list from ``self.token_ids``.
+
+        The live WS subscription message is only sent when a connection
+        is available.
+
         Args:
             new_slugs: List of new event slugs to add
         """
-        if not self.websocket or not self.running:
-            logger.warning("Cannot add markets: WebSocket not running")
-            return
-        
         logger.info("Adding %d new markets to monitor", len(new_slugs))
-        
+
         new_token_ids = []
         for slug in new_slugs:
             # Skip if already monitoring
             if slug in self.token_ids:
                 logger.debug("Already monitoring %s, skipping", slug)
                 continue
-            
+
             try:
                 # Fetch token IDs for new slug
                 token_ids = await self.fetch_token_ids_for_slug(slug)
@@ -298,11 +301,11 @@ class MultiEventMonitor:
                     self.token_ids[slug] = token_ids
                     self.market_active[slug] = True
                     self.event_slugs.append(slug)
-                    
+
                     # Map token IDs to slugs
                     for token_id in token_ids:
                         self.slug_by_token[token_id] = slug
-                    
+
                     # Log market_open event for each token
                     for token_id in token_ids:
                         self.log_market_event(
@@ -310,12 +313,11 @@ class MultiEventMonitor:
                             event_type="market_open",
                             asset_id=token_id
                         )
-                    
+
                     new_token_ids.extend(token_ids)
                     logger.info("Added market: %s with %d tokens", slug, len(token_ids))
                 else:
                     logger.warning("Failed to add market: %s", slug)
-                    # Log error event
                     self.log_market_event(
                         slug=slug,
                         event_type="error",
@@ -323,17 +325,16 @@ class MultiEventMonitor:
                     )
             except Exception as e:
                 logger.error("Error adding market %s: %s", slug, e)
-                # Log error event
                 self.log_market_event(
                     slug=slug,
                     event_type="error",
                     error_message=f"Error adding market: {str(e)}"
                 )
-        
-        # Subscribe to new token IDs
-        if new_token_ids:
+
+        # Subscribe on the live WS if available; otherwise the tokens are
+        # already in self.token_ids and will be subscribed on reconnect.
+        if new_token_ids and self.websocket:
             try:
-                # Note: 'assets_ids' field name is from Polymarket WebSocket API
                 subscribe_msg = {
                     "type": "subscribe",
                     "assets_ids": new_token_ids,
@@ -343,7 +344,6 @@ class MultiEventMonitor:
                 logger.info("Subscribed to %d new token IDs", len(new_token_ids))
             except Exception as e:
                 logger.error("Error subscribing to new markets: %s", e)
-                # Log error for each new slug
                 for slug in new_slugs:
                     if slug in self.token_ids:
                         self.log_market_event(
@@ -351,45 +351,49 @@ class MultiEventMonitor:
                             event_type="error",
                             error_message=f"Error subscribing to market: {str(e)}"
                         )
+        elif new_token_ids:
+            logger.info(
+                "WebSocket not connected – %d new tokens registered and "
+                "will be subscribed on reconnect",
+                len(new_token_ids),
+            )
     
     async def remove_markets(self, slugs_to_remove: list[str]):
-        """
-        Dynamically remove markets from monitoring.
-        
+        """Dynamically remove markets from monitoring.
+
+        Internal state is **always** updated, even if the WebSocket is
+        currently disconnected.  The WS unsubscribe message is only sent
+        when a live connection is available.
+
         Args:
             slugs_to_remove: List of event slugs to remove
         """
-        if not self.websocket or not self.running:
-            logger.warning("Cannot remove markets: WebSocket not running")
-            return
-        
         logger.info("Removing %d markets from monitor", len(slugs_to_remove))
-        
+
         token_ids_to_unsubscribe = []
         for slug in slugs_to_remove:
             if slug not in self.token_ids:
                 logger.debug("Market %s not in monitor, skipping", slug)
                 continue
-            
+
             # Get token IDs to unsubscribe
             token_ids = self.token_ids[slug]
             token_ids_to_unsubscribe.extend(token_ids)
-            
+
             # Remove from tracking
             for token_id in token_ids:
                 self.slug_by_token.pop(token_id, None)
-            
+
             self.token_ids.pop(slug, None)
             self.market_active.pop(slug, None)
             if slug in self.event_slugs:
                 self.event_slugs.remove(slug)
-            
+
             logger.info("Removed market: %s", slug)
-        
-        # Unsubscribe from token IDs
-        if token_ids_to_unsubscribe:
+
+        # Unsubscribe on the live WS if available
+        if token_ids_to_unsubscribe and self.websocket:
             try:
-                # Note: 'assets_ids' field name is from Polymarket WebSocket API
                 unsubscribe_msg = {
                     "type": "unsubscribe",
                     "assets_ids": token_ids_to_unsubscribe,
@@ -398,6 +402,12 @@ class MultiEventMonitor:
                 logger.info("Unsubscribed from %d token IDs", len(token_ids_to_unsubscribe))
             except Exception as e:
                 logger.error("Error unsubscribing from markets: %s", e)
+        elif token_ids_to_unsubscribe:
+            logger.info(
+                "WebSocket not connected – %d tokens removed from internal state "
+                "(will not be re-subscribed on reconnect)",
+                len(token_ids_to_unsubscribe),
+            )
 
     async def check_market_status(self):
         """Periodically check if markets are still active and close websocket if all ended."""
