@@ -173,25 +173,30 @@ async def _drain_ws(ws, timeout: float = 1.0):
 
 
 async def _wait_for_book_at_price(
-    ws, target_price: float, timeout_s: float = 10.0
-) -> Optional[float]:
-    """Wait for a book update that contains a bid at target_price.
-
-    Returns milliseconds from now until the message is received, or None.
+    ws: websockets.WebSocketClientProtocol, 
+    token_id: str, 
+    target_price: float, 
+    timeout_s: float = 8.0
+) -> Optional[int]:
     """
-    t0 = time.perf_counter_ns()
-    deadline_ns = t0 + int(timeout_s * 1_000_000_000)
+    Wait for a 'book' or 'price_change' event that includes our target_price.
+    Returns the counter_ns timestamp of receipt, or None on timeout.
+    """
+    deadline = time.perf_counter_ns() + (timeout_s * 1_000_000_000)
 
-    while time.perf_counter_ns() < deadline_ns:
-        remaining_s = (deadline_ns - time.perf_counter_ns()) / 1_000_000_000
-        if remaining_s <= 0:
+    while True:
+        now = time.perf_counter_ns()
+        if now >= deadline:
             break
+        
+        remaining_s = (deadline - now) / 1_000_000_000
         try:
             msg = await asyncio.wait_for(ws.recv(), timeout=remaining_s)
+            t_recv = time.perf_counter_ns()
         except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
             break
 
-        if not isinstance(msg, str) or msg == "INVALID OPERATION":
+        if not isinstance(msg, str):
             continue
         try:
             data = json.loads(msg)
@@ -199,37 +204,60 @@ async def _wait_for_book_at_price(
             continue
         if not isinstance(data, dict):
             continue
-        if data.get("event_type") != "book":
-            continue
+        
+        event_type = data.get("event_type")
 
-        bids = data.get("bids", [])
-        for bid in bids:
-            try:
-                if abs(float(bid.get("price", 0)) - target_price) < 0.0001:
-                    elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000
-                    return elapsed_ms
-            except (ValueError, TypeError):
-                pass
+        # 1. Handle 'book' updates
+        if event_type == "book":
+            bids = data.get("bids", [])
+            for bid in bids:
+                try:
+                    price = float(bid.get("price", 0))
+                    if abs(price - target_price) < 0.0001:
+                        return t_recv
+                except (ValueError, TypeError):
+                    pass
 
+        # 2. Handle 'price_change' updates
+        price_changes = data.get("price_changes")
+        if event_type == "price_change" or price_changes:
+            if not price_changes and "price" in data:
+                price_changes = [data]
+            
+            if price_changes:
+                for pc in price_changes:
+                    try:
+                        pc_asset = pc.get("asset_id")
+                        if pc_asset and pc_asset != token_id:
+                            continue
+                        price = float(pc.get("price", 0))
+                        if abs(price - target_price) < 0.0001:
+                            return t_recv
+                    except (ValueError, TypeError):
+                        pass
     return None
 
 
 async def _wait_for_user_event(
-    ws, order_id: str, timeout_s: float = 10.0
-) -> Optional[tuple[float, str]]:
-    """Wait for a user-channel message referencing order_id.
-
-    Returns (elapsed_ms, event_type) or None.
+    ws: websockets.WebSocketClientProtocol, 
+    order_id: str, 
+    timeout_s: float = 10.0
+) -> Optional[tuple[int, str]]:
     """
-    t0 = time.perf_counter_ns()
-    deadline_ns = t0 + int(timeout_s * 1_000_000_000)
+    Wait for a user-channel message referencing order_id.
+    Returns (t_recv, event_type) or None.
+    """
+    deadline = time.perf_counter_ns() + (timeout_s * 1_000_000_000)
 
-    while time.perf_counter_ns() < deadline_ns:
-        remaining_s = (deadline_ns - time.perf_counter_ns()) / 1_000_000_000
-        if remaining_s <= 0:
+    while True:
+        now = time.perf_counter_ns()
+        if now >= deadline:
             break
+        
+        remaining_s = (deadline - now) / 1_000_000_000
         try:
             msg = await asyncio.wait_for(ws.recv(), timeout=remaining_s)
+            t_recv = time.perf_counter_ns()
         except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
             break
 
@@ -240,11 +268,11 @@ async def _wait_for_user_event(
         except json.JSONDecodeError:
             continue
 
-        # The user channel may send single objects or arrays
         items = data if isinstance(data, list) else [data]
         for item in items:
             if not isinstance(item, dict):
                 continue
+            
             oid = (
                 item.get("id", "")
                 or item.get("order_id", "")
@@ -252,9 +280,8 @@ async def _wait_for_user_event(
                 or item.get("orderID", "")
             )
             if oid == order_id:
-                elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000
                 evt = item.get("type", item.get("event_type", "unknown"))
-                return elapsed_ms, evt
+                return t_recv, evt
 
     return None
 
@@ -319,8 +346,15 @@ async def run_latency_tests(
 
     # ── Connect to market WebSocket ──────────────────────────────────────
     print("\nConnecting to market WebSocket…")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Origin": "https://polymarket.com"
+    }
     market_ws = await websockets.connect(
-        MARKET_WS_URL, ping_interval=None, ping_timeout=60
+        MARKET_WS_URL, 
+        ping_interval=10, 
+        ping_timeout=10,
+        additional_headers=headers
     )
     subscribe_msg = {
         "type": "subscribe",
@@ -336,7 +370,10 @@ async def run_latency_tests(
         try:
             print("Connecting to user WebSocket…")
             user_ws = await websockets.connect(
-                USER_WS_URL, ping_interval=None, ping_timeout=60
+                USER_WS_URL, 
+                ping_interval=10, 
+                ping_timeout=10,
+                additional_headers=headers
             )
             api_creds = client.creds
             auth_msg = {
@@ -346,18 +383,18 @@ async def run_latency_tests(
                     "passphrase": api_creds.api_passphrase,
                 },
                 "type": "subscribe",
-                "markets": [token_id],
-                "assets_ids": [token_id],
                 "channels": ["user"],
             }
             await user_ws.send(json.dumps(auth_msg))
 
             # Wait for auth acknowledgment
             try:
-                auth_resp = await asyncio.wait_for(user_ws.recv(), timeout=5)
+                auth_resp = await asyncio.wait_for(user_ws.recv(), timeout=10)
                 print(f"  User WS response: {str(auth_resp)[:200]}")
             except asyncio.TimeoutError:
-                print("  User WS: no auth response within 5 s (continuing)")
+                print("  User WS: no auth response within 10 s (continuing)")
+            except Exception as e:
+                print(f"  User WS auth error: {e}")
         except Exception as e:
             print(f"  ⚠ User WebSocket failed: {e}")
             print("  Continuing with REST + market WS only")
@@ -432,7 +469,7 @@ async def run_latency_tests(
         # ── 3. Wait for market WS confirmation ───────────────────────────
         # We measure from t_submit (when we sent the REST request)
         mkt_task = asyncio.create_task(
-            _wait_for_book_at_price(market_ws, UNFILLABLE_PRICE, timeout_s=10.0)
+            _wait_for_book_at_price(market_ws, token_id, UNFILLABLE_PRICE, timeout_s=10.0)
         )
 
         # ── 4. Wait for user WS confirmation ─────────────────────────────
@@ -443,12 +480,12 @@ async def run_latency_tests(
             )
 
         # Await market WS result
-        mkt_elapsed = await mkt_task
-        if mkt_elapsed is not None:
-            # mkt_elapsed is from when we started waiting; adjust to t_submit
-            total_ms = order_rest_ms + mkt_elapsed
-            result["order_market_ws_ms"] = round(total_ms, 2)
-            print(f"  Market WS   : {total_ms:8.1f} ms  (bid appeared at {UNFILLABLE_PRICE})")
+        t_recv_mkt = await mkt_task
+        if t_recv_mkt is not None:
+            # Calculate from t_submit (when REST call started) to t_recv
+            mkt_latency_ms = (t_recv_mkt - t_submit) / 1_000_000
+            result["order_market_ws_ms"] = round(mkt_latency_ms, 2)
+            print(f"  Market WS   : {mkt_latency_ms:8.1f} ms  (bid appeared at {UNFILLABLE_PRICE})")
         else:
             print(f"  Market WS   :   — timed out")
 
@@ -456,11 +493,11 @@ async def run_latency_tests(
         if usr_task:
             usr_result = await usr_task
             if usr_result:
-                usr_elapsed, evt = usr_result
-                total_ms = order_rest_ms + usr_elapsed
-                result["order_user_ws_ms"] = round(total_ms, 2)
+                t_recv_usr, evt = usr_result
+                usr_latency_ms = (t_recv_usr - t_submit) / 1_000_000
+                result["order_user_ws_ms"] = round(usr_latency_ms, 2)
                 result["order_user_ws_event"] = evt
-                print(f"  User WS     : {total_ms:8.1f} ms  (event={evt})")
+                print(f"  User WS     : {usr_latency_ms:8.1f} ms  (event={evt})")
             else:
                 print(f"  User WS     :   — timed out")
 
@@ -490,7 +527,8 @@ async def run_latency_tests(
                     user_ws, order_id, timeout_s=5.0
                 )
                 if cancel_usr:
-                    cancel_ws_ms, evt = cancel_usr
+                    t_recv_cancel, evt = cancel_usr
+                    cancel_ws_ms = (t_recv_cancel - t_cancel) / 1_000_000
                     result["cancel_user_ws_ms"] = round(cancel_ws_ms, 2)
                     result["cancel_user_ws_event"] = evt
                     print(f"  Cancel WS   : {cancel_ws_ms:8.1f} ms  (event={evt})")
@@ -507,7 +545,7 @@ async def run_latency_tests(
 
         # Rate-limit between tests
         if i < num_tests - 1:
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
 
     # ── Cleanup: cancel any leftover orders for this token ──────────────
     if skip_cancel:
