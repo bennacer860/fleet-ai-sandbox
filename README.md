@@ -8,6 +8,7 @@ A Python bot for Polymarket with multiple modes:
 4. **Multi-Event Monitor Mode** – Monitor multiple event slugs simultaneously via WebSocket
 5. **Continuous Crypto Monitor Mode** – Automatically track current 5-minute or 15-minute crypto markets
 6. **Trade Cross-Referencing** – Match wallet trades against sweeper analysis data
+7. **Trade Resolution** – Resolve win/loss for all wallet trades via Gamma API
 
 ## Setup
 
@@ -190,6 +191,24 @@ Matching priority:
 3. **SLUG-ONLY** — same market time-slot, possibly different day
 
 Both 5-minute and 15-minute markets are included in the cross-reference.
+
+### Trade Resolution
+
+Resolve win/loss for every wallet trade by querying the Polymarket Gamma API for market outcomes. This answers the question: *"Did this trader win or lose each position?"*
+
+```bash
+python resolve_trades.py
+python resolve_trades.py --wallet wallet_trades.csv --output resolved_trades.csv
+```
+
+The script will:
+1. Load wallet trades and aggregate fills into positions
+2. Query the Gamma API for each unique `condition_id` to fetch market resolution
+3. Compare the trader's token to the winning token → **WIN** or **LOSS**
+4. Print a summary with overall and per-duration (5min / 15min) win rates
+5. Write detailed results to `resolved_trades.csv`
+
+Output columns include `result` (WIN / LOSS / UNRESOLVED), `winning_outcome`, `winning_token`, `duration`, and all position details.
 
 ## Configuration
 
