@@ -13,17 +13,14 @@ Usage:
 
 import argparse
 import csv
-import json
 import sys
 import time
-from collections import defaultdict
-from datetime import datetime
 from typing import Any, Optional
 
 import requests
-from pytz import timezone as pytz_tz
 
-EST = pytz_tz("US/Eastern")
+from src.utils.parsing import parse_json_list, parse_float_list
+from src.utils.timestamps import ts_to_est
 
 GAMMA_API = "https://gamma-api.polymarket.com"
 RATE_LIMIT_DELAY = 0.3  # seconds between API calls to stay under rate-limits
@@ -53,25 +50,6 @@ def fetch_market_by_condition(condition_id: str) -> Optional[dict[str, Any]]:
         return None
 
 
-def _parse_json_list(raw: Any) -> list[str]:
-    """Parse a value that can be a JSON string, list, or pipe-separated string."""
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        return [str(x) for x in raw]
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return [str(x) for x in parsed]
-        except (json.JSONDecodeError, ValueError):
-            pass
-        # Fallback: pipe or comma separated
-        sep = "|" if "|" in raw else ","
-        return [x.strip() for x in raw.split(sep) if x.strip()]
-    return []
-
-
 def get_winning_info(
     market: dict[str, Any],
 ) -> tuple[Optional[str], Optional[str], bool]:
@@ -80,28 +58,9 @@ def get_winning_info(
     Returns:
         ``(winning_token_id, winning_outcome, is_resolved)``
     """
-    token_ids = _parse_json_list(market.get("clobTokenIds"))
-    outcomes = _parse_json_list(market.get("outcomes"))
-
-    # Parse outcomePrices (may be JSON string, list, or comma-separated)
-    raw_prices = market.get("outcomePrices")
-    if raw_prices is None:
-        return None, None, False
-    if isinstance(raw_prices, str):
-        try:
-            prices = [float(x) for x in json.loads(raw_prices)]
-        except (json.JSONDecodeError, ValueError):
-            try:
-                prices = [float(x.strip()) for x in raw_prices.split(",") if x.strip()]
-            except (ValueError, TypeError):
-                return None, None, False
-    elif isinstance(raw_prices, list):
-        try:
-            prices = [float(x) for x in raw_prices]
-        except (ValueError, TypeError):
-            return None, None, False
-    else:
-        return None, None, False
+    token_ids = parse_json_list(market.get("clobTokenIds"))
+    outcomes = parse_json_list(market.get("outcomes"))
+    prices = parse_float_list(market.get("outcomePrices"))
 
     if len(token_ids) != 2 or len(prices) != 2:
         return None, None, False
@@ -157,11 +116,6 @@ def aggregate_positions(trades: list[dict]) -> list[dict]:
         pos["first_ts"] = min(pos["first_ts"], ts)
         pos["last_ts"] = max(pos["last_ts"], ts)
     return sorted(key_map.values(), key=lambda p: p["first_ts"], reverse=True)
-
-
-def ts_to_est(ts_sec: int) -> str:
-    """Convert Unix timestamp (seconds) to an EST datetime string."""
-    return datetime.fromtimestamp(ts_sec, tz=EST).strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────

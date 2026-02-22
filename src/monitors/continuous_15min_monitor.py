@@ -13,6 +13,7 @@ from ..markets.fifteen_min import (
     SUPPORTED_DURATIONS,
 )
 from ..logging_config import get_logger
+from ..utils.slug_helpers import slugs_for_timestamp
 
 logger = get_logger(__name__)
 
@@ -77,18 +78,11 @@ class ContinuousCryptoMonitor:
         }
 
     def get_slugs_for_timestamp(self, timestamp: int) -> list[str]:
-        """Get slugs for a specific interval period for all selected markets."""
-        slugs = []
-        
-        for selection in self.market_selections:
-            try:
-                slug = get_market_slug(selection, self.duration_minutes, timestamp)
-                slugs.append(slug)
-                logger.debug("Generated slug for %s at %d: %s", selection, timestamp, slug)
-            except ValueError as e:
-                logger.error("Failed to get slug for %s at %d: %s", selection, timestamp, e)
-        
-        return slugs
+        """Get slugs for a specific interval period for all selected markets.
+
+        Delegates to :func:`src.utils.slug_helpers.slugs_for_timestamp`.
+        """
+        return slugs_for_timestamp(self.market_selections, self.duration_minutes, timestamp)
 
     async def manage_subscriptions(self):
         """Periodically check for new markets to subscribe to and old ones to unsubscribe from."""

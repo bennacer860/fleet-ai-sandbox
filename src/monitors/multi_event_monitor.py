@@ -4,9 +4,7 @@ import asyncio
 import csv
 import json
 from datetime import datetime
-from typing import Any, Optional
-from pytz import timezone as pytz_timezone
-
+from typing import Any, Callable, Optional
 import websockets
 
 from ..config import GAMMA_API
@@ -18,9 +16,13 @@ from ..gamma_client import (
     get_outcomes,
 )
 from ..logging_config import get_logger
-from ..markets.fifteen_min import detect_duration_from_slug, duration_label
+from ..utils.timestamps import get_timestamps, format_slug_with_est_time
 
 logger = get_logger(__name__)
+
+# Type alias for tick-size-change callbacks.
+# Signature: (slug, asset_id, old_tick_size, new_tick_size, timestamp_ms) -> None
+TickSizeChangeCallback = Callable[[str, str, str, str, int], None]
 
 # WebSocket endpoint for Polymarket CLOB
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
@@ -60,6 +62,7 @@ class MultiEventMonitor:
         ws_url: Optional[str] = None,
         check_interval: int = DEFAULT_CHECK_INTERVAL,
         market_events_file: Optional[str] = None,  # Deprecated, kept for backward compatibility
+        verbose: bool = True,
     ):
         """
         Initialize the multi-event monitor.
@@ -70,11 +73,13 @@ class MultiEventMonitor:
             ws_url: Optional WebSocket URL override
             check_interval: How often to check if markets are still active (seconds)
             market_events_file: Deprecated - kept for backward compatibility, ignored
+            verbose: If True, print detailed order-book and event data to stdout (default True)
         """
         self.event_slugs = event_slugs
         self.output_file = output_file
         self.ws_url = ws_url or WS_URL
         self.check_interval = check_interval
+        self.verbose = verbose
         
         # Track token IDs and market status
         self.token_ids: dict[str, list[str]] = {}  # slug -> [token_ids]
@@ -101,6 +106,17 @@ class MultiEventMonitor:
         # WebSocket connection
         self.websocket = None
         self.running = False
+        
+        # Tick-size-change callbacks (external hooks, e.g. sweeper strategy)
+        self._tick_size_callbacks: list[TickSizeChangeCallback] = []
+
+    def register_tick_size_callback(self, callback: TickSizeChangeCallback) -> None:
+        """Register a callback invoked on every tick_size_change event.
+
+        Args:
+            callback: Callable(slug, asset_id, old_tick_size, new_tick_size, timestamp_ms)
+        """
+        self._tick_size_callbacks.append(callback)
 
     def setup_csv(self):
         """Setup unified CSV file with headers for sweeper analysis."""
@@ -442,107 +458,21 @@ class MultiEventMonitor:
                 logger.debug("%d/%d markets still active", active_count, len(self.event_slugs))
 
     def _get_timestamps(self) -> tuple[int, str, str]:
-        """
-        Get current timestamps in various formats.
-        
+        """Get current timestamps in various formats.
+
+        Delegates to :func:`src.utils.timestamps.get_timestamps`.
+
         Returns:
             Tuple of (timestamp_ms, timestamp_iso, timestamp_est)
         """
-        # Get UTC time with timezone info
-        now_utc = datetime.now(pytz_timezone("UTC"))
-        timestamp_ms = int(now_utc.timestamp() * 1000)
-        timestamp_iso = now_utc.strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Convert to EST
-        est_timezone = pytz_timezone("US/Eastern")
-        timestamp_est = now_utc.astimezone(est_timezone).strftime("%Y-%m-%d %H:%M:%S")
-        
-        return timestamp_ms, timestamp_iso, timestamp_est
+        return get_timestamps()
     
     def _format_slug_with_est_time(self, slug: str, timestamp_ms: Optional[int] = None) -> str:
+        """Format event slug with EST date and time.
+
+        Delegates to :func:`src.utils.timestamps.format_slug_with_est_time`.
         """
-        Format event slug with EST date and time.
-        
-        Converts raw API slugs to human-readable formatted slugs:
-          "btc-updown-15m-1707523200" -> "btc-15min-up-or-down-2026-02-20-16:15"
-          "btc-updown-5m-1707523200"  -> "btc-5min-up-or-down-2026-02-20-16:05"
-        
-        The duration (5min/15min) is auto-detected from the raw slug.
-        Including the date eliminates ambiguity between same-time different-day markets,
-        which is critical for reliable cross-referencing with wallet trade data.
-        
-        Args:
-            slug: Original event slug
-            timestamp_ms: Optional timestamp in milliseconds (if None, uses current time)
-            
-        Returns:
-            Formatted slug with EST date+time, e.g., "btc-15min-up-or-down-2026-02-20-16:15"
-        """
-        # Convert slug to lowercase for processing
-        slug_lower = slug.lower()
-        
-        # Detect duration from slug (defaults to 15min if undetectable)
-        detected_dur = detect_duration_from_slug(slug)
-        dur_label = duration_label(detected_dur if detected_dur is not None else 15)
-        
-        # Crypto name mapping
-        crypto_map = {
-            "btc": "btc",
-            "eth": "eth",
-            "sol": "sol",
-            "xrp": "xrp",
-        }
-        
-        # Try to extract crypto name and timestamp from slug
-        crypto = None
-        timestamp = None
-        
-        # Check if slug starts with a known crypto
-        for key, value in crypto_map.items():
-            if slug_lower.startswith(key):
-                crypto = value
-                break
-        
-        # Try to extract timestamp from slug (last part after splitting by "-")
-        parts = slug.split("-")
-        if len(parts) >= 2:
-            try:
-                # Try to parse last part as Unix timestamp
-                timestamp = int(parts[-1])
-            except (ValueError, TypeError):
-                pass
-        
-        # If no timestamp found in slug, use provided timestamp_ms or current time
-        if timestamp is None:
-            if timestamp_ms:
-                timestamp = timestamp_ms // 1000  # Convert ms to seconds
-            else:
-                timestamp = int(datetime.now(pytz_timezone("UTC")).timestamp())
-        
-        # Convert timestamp to EST time
-        est_timezone = pytz_timezone("US/Eastern")
-        try:
-            dt = datetime.fromtimestamp(timestamp, tz=est_timezone)
-        except (OSError, ValueError):
-            # Fallback to UTC if timestamp conversion fails
-            dt = datetime.fromtimestamp(timestamp, tz=pytz_timezone("UTC")).astimezone(est_timezone)
-        
-        date_str = dt.strftime("%Y-%m-%d")
-        time_str = dt.strftime("%H:%M")
-        
-        # Format: {crypto}-{dur_label}-up-or-down-{YYYY-MM-DD}-{HH:MM}
-        # Including the date eliminates ambiguity between same-time different-day markets
-        if crypto:
-            return f"{crypto}-{dur_label}-up-or-down-{date_str}-{time_str}"
-        
-        # Fallback: if no crypto found, try to preserve original format with date+time
-        # Remove timestamp from end if present
-        if parts and parts[-1].isdigit():
-            prefix = "-".join(parts[:-1])
-        else:
-            prefix = slug
-        
-        return f"{prefix}-{date_str}-{time_str}"
+        return format_slug_with_est_time(slug, timestamp_ms)
 
     def _process_order_at_target_price(
         self,
@@ -742,8 +672,9 @@ class MultiEventMonitor:
         asks_display = sorted(data.get("asks", []), key=lambda x: float(x["price"]))[:MAX_DISPLAY_DEPTH]
 
         # Print the 5 highest bids and 5 lowest asks as strings in the desired format
-        print(f"Top 5 Bids: {[f'price: {bid['price']}, size: {bid['size']}' for bid in bids_display]}")
-        print(f"Top 5 Asks: {[f'price: {ask['price']}, size: {ask['size']}' for ask in asks_display]}")
+        if self.verbose:
+            print(f"Top 5 Bids: {[f'price: {bid['price']}, size: {bid['size']}' for bid in bids_display]}")
+            print(f"Top 5 Asks: {[f'price: {ask['price']}, size: {ask['size']}' for ask in asks_display]}")
 
     def log_unified_event(
         self,
@@ -907,15 +838,24 @@ class MultiEventMonitor:
         self.last_ticker_change[asset_id] = timestamp_ms
         
         # Log the tick_size_change event
+        old_tick_size = str(data.get("old_tick_size", ""))
+        new_tick_size = str(data.get("new_tick_size", ""))
         market_resolved = not self.market_active.get(slug, True)
         self.log_unified_event(
             slug=slug,
             event_type="tick_size_change",
             token_id=asset_id,
-            old_tick_size=str(data.get("old_tick_size", "")),
-            new_tick_size=str(data.get("new_tick_size", "")),
+            old_tick_size=old_tick_size,
+            new_tick_size=new_tick_size,
             market_resolved=market_resolved,
         )
+
+        # Invoke registered callbacks
+        for cb in self._tick_size_callbacks:
+            try:
+                cb(slug, asset_id, old_tick_size, new_tick_size, timestamp_ms)
+            except Exception as cb_err:
+                logger.error("Tick-size callback error: %s", cb_err)
 
     def process_last_trade_price(self, data: dict[str, Any]):
         """
@@ -1075,19 +1015,22 @@ class MultiEventMonitor:
                                             logger.debug("Ignoring update for inactive market: %s", slug)
                                             continue
 
-                                        print(f"Detected Event Type: {msg_type} (Book Event) for market slug: {slug}")
+                                        if self.verbose:
+                                            print(f"Detected Event Type: {msg_type} (Book Event) for market slug: {slug}")
                                         self.process_book_update(data)
 
                                     # Handle tick_size_change event
                                     if msg_type == "tick_size_change":
-                                        print(f"Tick Size Change Event Detected: {data}")  # Print the tick size change message
+                                        if self.verbose:
+                                            print(f"Tick Size Change Event Detected: {data}")
                                         self.process_ticker_change(data)
 
                                     # Handle last_trade_price event
                                     if msg_type == "last_trade_price":
                                         asset_id = data.get("asset_id", "")
                                         slug = self.slug_by_token.get(asset_id, "unknown")
-                                        print(f"Last Trade Price: {data.get('price')} size={data.get('size')} side={data.get('side')} market={slug}")
+                                        if self.verbose:
+                                            print(f"Last Trade Price: {data.get('price')} size={data.get('size')} side={data.get('side')} market={slug}")
                                         self.process_last_trade_price(data)
 
                                 except json.JSONDecodeError:
