@@ -200,6 +200,8 @@ async def _wait_for_book_at_price(
             continue
         try:
             data = json.loads(msg)
+            # DEBUG: Uncomment to see all market messages
+            # print(f"  [Mkt WS] {msg[:100]}...")
         except json.JSONDecodeError:
             continue
         if not isinstance(data, dict):
@@ -258,6 +260,7 @@ async def _wait_for_user_event(
         try:
             msg = await asyncio.wait_for(ws.recv(), timeout=remaining_s)
             t_recv = time.perf_counter_ns()
+            # print(f"  [Usr WS] {msg[:100]}...")
         except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
             break
 
@@ -389,10 +392,19 @@ async def run_latency_tests(
 
             # Wait for auth acknowledgment
             try:
-                auth_resp = await asyncio.wait_for(user_ws.recv(), timeout=10)
-                print(f"  User WS response: {str(auth_resp)[:200]}")
+                # Some servers send multiple messages on startup (e.g. initial state)
+                # so we loop briefly to find the 'auth' response
+                for _ in range(5):
+                    auth_resp_raw = await asyncio.wait_for(user_ws.recv(), timeout=3.0)
+                    auth_data = json.loads(auth_resp_raw)
+                    if isinstance(auth_data, dict) and auth_data.get("type") == "auth":
+                        if auth_data.get("success"):
+                            print(f"  User WS: Authentication successful ✓")
+                        else:
+                            print(f"  User WS: Auth FAILED: {auth_data}")
+                        break
             except asyncio.TimeoutError:
-                print("  User WS: no auth response within 10 s (continuing)")
+                print("  User WS: No auth response received (continuing anyway)")
             except Exception as e:
                 print(f"  User WS auth error: {e}")
         except Exception as e:
