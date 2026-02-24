@@ -31,6 +31,10 @@ from ..utils.slug_helpers import slugs_for_timestamp
 
 logger = get_logger(__name__)
 
+# ANSI Color Codes for console output
+C_RED = "\033[91m"
+C_RESET = "\033[0m"
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # Grace period after market end before unsubscribing (seconds)
@@ -144,7 +148,8 @@ class SweeperBot:
                         slug = get_market_slug(sel, duration, nxt_ts)
                         slugs_to_add.append(slug)
                         tracked.add(nxt_ts)
-                        logger.info("Queuing next %dm market for %s: %s", duration, sel, slug)
+                        formatted = self.monitor._format_slug_with_est_time(slug)
+                        logger.info("Queuing next %dm market for %s: %s", duration, sel, formatted)
                     except ValueError as exc:
                         logger.error("Slug generation failed (%s/%dm next): %s", sel, duration, exc)
 
@@ -154,7 +159,8 @@ class SweeperBot:
                         slug = get_market_slug(sel, duration, cur_ts)
                         slugs_to_add.append(slug)
                         tracked.add(cur_ts)
-                        logger.info("Queuing current %dm market for %s: %s", duration, sel, slug)
+                        formatted = self.monitor._format_slug_with_est_time(slug)
+                        logger.info("Queuing current %dm market for %s: %s", duration, sel, formatted)
                     except ValueError as exc:
                         logger.error("Slug generation failed (%s/%dm current): %s", sel, duration, exc)
 
@@ -168,7 +174,8 @@ class SweeperBot:
                             if slug in self.monitor.market_active and not self.monitor.market_active[slug]:
                                 slugs_to_remove.append(slug)
                                 expired.append(ts)
-                                logger.info("Queuing removal of %dm market for %s: %s", duration, sel, slug)
+                                formatted = self.monitor._format_slug_with_est_time(slug)
+                                logger.info("Queuing removal of %dm market for %s: %s", duration, sel, formatted)
                         except ValueError:
                             expired.append(ts)
                 for ts in expired:
@@ -211,11 +218,13 @@ class SweeperBot:
     ) -> None:
         """Called by ``MultiEventMonitor`` on every ``tick_size_change`` event."""
         logger.info(
-            "Tick-size change for %s: %s -> %s (token=%s…)",
+            "%s[TICK_SIZE] Processing callback for %s: %s -> %s (token=%s…)%s",
+            C_RED,
             slug,
             old_tick_size,
             new_tick_size,
             asset_id[:20],
+            C_RESET,
         )
 
         order_params = should_place_sweep_order(
@@ -229,7 +238,7 @@ class SweeperBot:
             return
 
         logger.info(
-            "Sweep signal confirmed for %s – placing order: %s @ %.4f x %.2f",
+            "[STRATEGY] Sweep signal confirmed for %s – placing order: %s @ %.4f x %.2f",
             slug,
             order_params["outcome"],
             order_params["price"],
@@ -244,6 +253,17 @@ class SweeperBot:
             outcome=order_params["outcome"],
             dry_run=self.dry_run,
         )
+
+        # Log trade to unified CSV
+        if self.monitor:
+            self.monitor.log_unified_event(
+                slug=slug,
+                event_type="trade",
+                token_id=order_params["token_id"],
+                price=order_params["price"],
+                size=order_params["size"],
+                side="BUY",
+            )
 
     # ── Main run loop ─────────────────────────────────────────────────────
 

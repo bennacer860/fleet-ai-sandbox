@@ -20,6 +20,13 @@ from ..utils.timestamps import get_timestamps, format_slug_with_est_time
 
 logger = get_logger(__name__)
 
+# ANSI Color Codes for console output
+C_YELLOW = "\033[93m"
+C_RED = "\033[91m"
+C_BLUE = "\033[94m"
+C_GREEN = "\033[92m"
+C_RESET = "\033[0m"
+
 # Type alias for tick-size-change callbacks.
 # Signature: (slug, asset_id, old_tick_size, new_tick_size, timestamp_ms) -> None
 TickSizeChangeCallback = Callable[[str, str, str, str, int], None]
@@ -242,9 +249,10 @@ class MultiEventMonitor:
                             asset_id=token_id
                         )
                         
-                    logger.info("Initialized market: %s (active)", slug)
+                    formatted_slug = self._format_slug_with_est_time(slug)
+                    logger.info("%s[MARKET_OPEN] Initialized market: %s (active)%s", C_BLUE, formatted_slug, C_RESET)
                 else:
-                    logger.warning("Failed to initialize market: %s", slug)
+                    logger.warning("[MARKET_OPEN] Failed to initialize market: %s", slug)
                     self.market_active[slug] = False
                     # Log error event
                     self.log_market_event(
@@ -315,9 +323,10 @@ class MultiEventMonitor:
                         )
 
                     new_token_ids.extend(token_ids)
-                    logger.info("Added market: %s with %d tokens", slug, len(token_ids))
+                    formatted_slug = self._format_slug_with_est_time(slug)
+                    logger.info("%s[MARKET_OPEN] Added market: %s with %d tokens%s", C_BLUE, formatted_slug, len(token_ids), C_RESET)
                 else:
-                    logger.warning("Failed to add market: %s", slug)
+                    logger.warning("[MARKET_OPEN] Failed to add market: %s", slug)
                     self.log_market_event(
                         slug=slug,
                         event_type="error",
@@ -433,7 +442,9 @@ class MultiEventMonitor:
                     
                     market = markets[0]
                     if is_market_ended(market):
-                        logger.info("Market %s has ended. Marking as inactive.", slug)
+                        formatted_slug = self._format_slug_with_est_time(slug)
+                        formatted_slug = self._format_slug_with_est_time(slug)
+                        logger.info("%s[RESOLVED] Market %s has ended. Marking as inactive.%s", C_BLUE, formatted_slug, C_RESET)
                         self.market_active[slug] = False
                         
                         # Identify and track winning token
@@ -549,14 +560,19 @@ class MultiEventMonitor:
                 ticker_changed_recently = (time_since_ticker_change_ms >= 0 and 
                                           time_since_ticker_change_ms < TICKER_CHANGE_WINDOW_MS)
                 
-                # Format slug to include the hour in 24-hour format for logging
-                now = datetime.utcnow()
-                formatted_slug = f"{slug}-{now.strftime('%H')}:00"
+                # Format slug to include EST time for logging
+                formatted_slug = self._format_slug_with_est_time(slug, event_timestamp_ms)
                 
                 # Log to console with sweeper context
                 sweeper_indicator = " [SWEEPER CANDIDATE]" if (is_winning_token and ticker_changed_recently) else ""
+                
+                # Apply color for BIDs
+                color = C_YELLOW if side.upper() == "BID" else ""
+                reset = C_RESET if side.upper() == "BID" else ""
+                
                 logger.info(
-                    "[%s] New %s at %.3f for %s (slug: %s): size=%.2f, change=+%.2f (best_bid=%s, best_ask=%s)%s",
+                    "%s[%s] New %s at %.3f for %s (slug: %s): size=%.2f, change=+%.2f (best_bid=%s, best_ask=%s)%s%s",
+                    color,
                     timestamp_iso,
                     side,
                     price,
@@ -567,6 +583,7 @@ class MultiEventMonitor:
                     best_bid,
                     best_ask,
                     sweeper_indicator,
+                    reset,
                 )
                 
                 # Format slug with EST time using the event timestamp
@@ -744,14 +761,26 @@ class MultiEventMonitor:
         ticker_changed_recently = (time_since_ticker_change_ms >= 0 and 
                                   time_since_ticker_change_ms < TICKER_CHANGE_WINDOW_MS)
         
-        # Log to console
-        logger.info(
-            "[%s] Event: %s for %s (token: %s)",
-            timestamp_iso,
-            event_type,
-            slug,
-            token_id or "N/A",
-        )
+        # Get formatted slug for console
+        console_slug = self._format_slug_with_est_time(slug, timestamp_ms)
+
+        # Log to console (use DEBUG for noisy events like last_trade_price)
+        if event_type == "last_trade_price":
+            logger.debug(
+                "[%s] Event: %s for %s (token: %s)",
+                timestamp_iso,
+                event_type,
+                console_slug,
+                token_id or "N/A",
+            )
+        else:
+            logger.info(
+                "[%s] Event: %s for %s (token: %s)",
+                timestamp_iso,
+                event_type,
+                console_slug,
+                token_id or "N/A",
+            )
         
         # Format slug with EST time using the current timestamp
         formatted_slug = self._format_slug_with_est_time(slug, timestamp_ms)
@@ -763,7 +792,8 @@ class MultiEventMonitor:
         raw_slug = self.raw_slugs.get(slug, slug)
         
         # Write to unified CSV (long-value columns at the end for readability)
-        if self.csv_writer:
+        allowed_csv_events = ["market_open", "market_resolved", "tick_size_change", "trade"]
+        if self.csv_writer and event_type in allowed_csv_events:
             self.csv_writer.writerow([
                 formatted_slug,  # event_slug
                 timestamp_ms,
@@ -865,11 +895,13 @@ class MultiEventMonitor:
 
         formatted_slug = self._format_slug_with_est_time(slug, timestamp_ms)
         logger.info(
-            "TICK SIZE CHANGE: %s  %s -> %s  (token=%s…)",
+            "%s[TICK_SIZE] %s: %s -> %s (token=%s…)%s",
+            C_RED,
             formatted_slug,
             old_tick_size,
             new_tick_size,
             asset_id[:20],
+            C_RESET,
         )
 
         self.log_unified_event(
@@ -1111,30 +1143,30 @@ class MultiEventMonitor:
 
                 except websockets.exceptions.ConnectionClosedOK:
                     # Server closed the connection normally (e.g. market settlement).
-                    logger.info("WebSocket closed normally by server.")
+                    logger.info("[WS_DISCONNECT] WebSocket closed normally by server.")
                     if self.running:
-                        logger.info("Reconnecting in %ds…", backoff)
+                        logger.info("[WS_RECONNECT] Reconnecting in %ds…", backoff)
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except websockets.exceptions.ConnectionClosedError as e:
-                    logger.error("WebSocket connection closed unexpectedly: %s", e)
+                    logger.error("[WS_ERROR] WebSocket connection closed unexpectedly: %s", e)
                     if self.running:
-                        logger.info("Reconnecting in %ds…", backoff)
+                        logger.info("[WS_RECONNECT] Reconnecting in %ds…", backoff)
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except websockets.exceptions.WebSocketException as e:
-                    logger.error("WebSocket error: %s", e)
+                    logger.error("[WS_ERROR] WebSocket error: %s", e)
                     if self.running:
-                        logger.info("Reconnecting in %ds…", backoff)
+                        logger.info("[WS_RECONNECT] Reconnecting in %ds…", backoff)
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except Exception as e:
-                    logger.error("Unexpected error in WebSocket loop: %s", e)
+                    logger.error("[WS_ERROR] Unexpected error in WebSocket loop: %s", e)
                     if self.running:
-                        logger.info("Reconnecting in %ds…", backoff)
+                        logger.info("[WS_RECONNECT] Reconnecting in %ds…", backoff)
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 

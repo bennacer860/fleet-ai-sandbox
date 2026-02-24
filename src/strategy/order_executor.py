@@ -8,8 +8,14 @@ from typing import Any, Optional
 
 from ..clob_client import place_limit_order
 from ..logging_config import get_logger
+from ..utils.timestamps import format_slug_with_est_time
 
 logger = get_logger(__name__)
+
+# ANSI Color Codes for console output
+C_GREEN = "\033[92m"
+C_YELLOW = "\033[93m"
+C_RESET = "\033[0m"
 
 # In-memory dedup set – tracks (slug, token_id) combos already ordered
 _executed_orders: set[tuple[str, str]] = set()
@@ -54,36 +60,40 @@ def execute_sweep_order(
     Returns:
         API response dict on success, or *None* on skip/failure.
     """
+    formatted_slug = format_slug_with_est_time(slug)
+
     # ── Dedup check ───────────────────────────────────────────────────────
     if has_already_ordered(slug, token_id):
         logger.info(
-            "DEDUP: Already ordered %s/%s for %s – skipping",
+            "[TRADE] DEDUP: Already ordered %s/%s for %s – skipping",
             outcome,
             token_id[:20],
-            slug,
+            formatted_slug,
         )
         return None
 
     # ── Dry-run ───────────────────────────────────────────────────────────
     if dry_run:
         logger.info(
-            "DRY-RUN: Would place BUY %s @ %.4f x %.2f for %s (token=%s…)",
+            "%s[TRADE] DRY-RUN: Would place BUY %s @ %.4f x %.2f for %s (token=%s…)%s",
+            C_YELLOW,
             outcome,
             price,
             size,
-            slug,
+            formatted_slug,
             token_id[:20],
+            C_RESET,
         )
         record_order(slug, token_id)
         return {"dry_run": True, "slug": slug, "outcome": outcome}
 
     # ── Live order ────────────────────────────────────────────────────────
     logger.info(
-        "SWEEP ORDER: BUY %s @ %.4f x %.2f for %s (token=%s…)",
+        "[TRADE] SWEEP ORDER: BUY %s @ %.4f x %.2f for %s (token=%s…)",
         outcome,
         price,
         size,
-        slug,
+        formatted_slug,
         token_id[:20],
     )
 
@@ -98,16 +108,18 @@ def execute_sweep_order(
         success = resp.get("success", False)
         if success:
             logger.info(
-                "ORDER CONFIRMED: orderId=%s for %s/%s",
+                "%s[TRADE] ORDER CONFIRMED: orderId=%s for %s/%s%s",
+                C_GREEN,
                 resp.get("orderId", "?"),
-                slug,
+                formatted_slug,
                 outcome,
+                C_RESET,
             )
         else:
             logger.warning(
                 "ORDER REJECTED: %s for %s/%s",
                 resp.get("errorMsg", "unknown"),
-                slug,
+                formatted_slug,
                 outcome,
             )
         # Record regardless of success to avoid retry-storm

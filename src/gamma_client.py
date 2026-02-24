@@ -22,7 +22,7 @@ def fetch_event_by_slug(slug: str) -> Optional[dict[str, Any]]:
         Event dict with markets, endDate, etc., or None if not found.
     """
     url = f"{GAMMA_API}/events/slug/{slug}"
-    logger.info("Fetching event: slug=%s", slug)
+    logger.debug("Fetching event: slug=%s", slug)
     try:
         t0 = time.perf_counter()
         resp = requests.get(url, timeout=30)
@@ -32,7 +32,7 @@ def fetch_event_by_slug(slug: str) -> Optional[dict[str, Any]]:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         markets = data.get("markets") or []
         end_date = data.get("endDate")
-        logger.info(
+        logger.debug(
             "Event fetched: slug=%s, endDate=%s, market_count=%d, latency_ms=%.0f",
             slug,
             end_date,
@@ -136,11 +136,11 @@ def resolve_token_for_direction(market: dict[str, Any], direction: str) -> Optio
 
     if direction in ("up", "yes") or direction == first_outcome:
         token_id = token_ids[0]
-        logger.info("Token resolution: direction=%s -> outcomes=%s -> token_id=%s", direction, outcomes, token_id)
+        logger.debug("Token resolution: direction=%s -> outcomes=%s -> token_id=%s", direction, outcomes, token_id)
         return token_id
     if direction in ("down", "no") or direction == second_outcome:
         token_id = token_ids[1]
-        logger.info("Token resolution: direction=%s -> outcomes=%s -> token_id=%s", direction, outcomes, token_id)
+        logger.debug("Token resolution: direction=%s -> outcomes=%s -> token_id=%s", direction, outcomes, token_id)
         return token_id
 
     logger.error("Unknown direction=%s. Expected up/down/yes/no or outcome names %s", direction, outcomes)
@@ -164,7 +164,7 @@ def get_winning_token_id(market: dict[str, Any]) -> Optional[str]:
         if p >= 0.99:  # Allow for float precision
             winner = token_ids[i]
             outcomes = get_outcomes(market)
-            logger.info("Winning outcome: index=%d, outcome=%s, token_id=%s", i, outcomes[i] if i < len(outcomes) else "?", winner)
+            logger.debug("Winning outcome: index=%d, outcome=%s, token_id=%s", i, outcomes[i] if i < len(outcomes) else "?", winner)
             return winner
 
     logger.error("No winning outcome found: outcomePrices=%s", prices)
