@@ -7,7 +7,7 @@ All functions are pure/stateless so they can be reused from any context
 from typing import Optional
 
 from ..logging_config import get_logger
-from ..utils.market_data import get_best_outcome_token, get_min_order_size
+from ..utils.market_data import get_best_outcome_token, get_min_order_size, get_market_evaluation
 
 logger = get_logger(__name__)
 
@@ -16,11 +16,12 @@ logger = get_logger(__name__)
 # Tick-size value that indicates the market is approaching settlement
 SWEEP_TICK_SIZE = "0.001"
 
-# Default minimum price to consider an outcome "most likely"
-DEFAULT_PRICE_THRESHOLD = 0.9
+# Default minimum price to consider an outcome "almost certain" (increased to avoid reversals)
+DEFAULT_PRICE_THRESHOLD = 0.95
 
-# Maximum price we are willing to pay (avoid buying at 1.0)
-MAX_ORDER_PRICE = 0.99
+# The price at which we place our limit order to "sweep" the book.
+# Using 0.999 ensures we fill against any available sellers below settlement.
+MAX_ORDER_PRICE = 0.999
 
 
 # ── Signal detection ──────────────────────────────────────────────────────────
@@ -54,39 +55,39 @@ def should_place_sweep_order(
     slug: str,
     new_tick_size: str,
     price_threshold: float = DEFAULT_PRICE_THRESHOLD,
+    eval_data: Optional[dict] = None,
 ) -> Optional[dict]:
     """Full decision pipeline: signal -> evaluate market -> return order params.
 
-    Uses :func:`~src.utils.market_data.get_best_outcome_token` and
-    :func:`~src.utils.market_data.get_min_order_size` from the shared utils.
-
     Returns:
-        A dict with keys ``token_id``, ``price``, ``size``, ``outcome``, ``slug``
-        if an order should be placed, or *None* if conditions are not met.
+        A dict with keys ``token_id``, ``price``, ``size``, ``outcome``, ``slug``,
+        and optionally ``eval_data`` for logging.
     """
     # 1. Check signal
     if not is_tick_size_signal(new_tick_size):
         return None
 
-    # 2. Evaluate market
-    result = get_best_outcome_token(slug)
-    if result is None:
+    # 2. Evaluate market (use pre-fetched if available)
+    if eval_data is None:
+        eval_data = get_market_evaluation(slug)
+    
+    if eval_data is None:
         return None
 
-    token_id, best_price, outcome = result
+    token_id = eval_data["best_token_id"]
+    best_price = eval_data["best_price"]
+    outcome = eval_data["best_outcome"]
 
     # 3. Price eligible?
     if not is_price_eligible(best_price, price_threshold):
-        logger.info(
-            "Price %.4f below threshold %.2f for %s – skipping order",
-            best_price,
-            price_threshold,
-            slug,
-        )
-        return None
+        return {
+            "skip": True,
+            "reason": f"Price {best_price:.4f} below threshold {price_threshold:.2f}",
+            "eval_data": eval_data
+        }
 
-    # 4. Determine order price (cap at MAX_ORDER_PRICE)
-    order_price = min(best_price, MAX_ORDER_PRICE)
+    # 4. Use aggressive sweep price (0.999) to guarantee fill
+    order_price = MAX_ORDER_PRICE
 
     # 5. Minimum order size
     order_size = get_min_order_size(token_id)
@@ -97,4 +98,5 @@ def should_place_sweep_order(
         "size": order_size,
         "outcome": outcome,
         "slug": slug,
+        "eval_data": eval_data
     }

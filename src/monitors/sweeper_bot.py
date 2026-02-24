@@ -25,9 +25,12 @@ from ..strategy.sweep_signal import (
     DEFAULT_PRICE_THRESHOLD,
     should_place_sweep_order,
 )
+from ..utils.market_data import get_market_evaluation
 from ..strategy.order_executor import execute_sweep_order
 from ..logging_config import get_logger
 from ..utils.slug_helpers import slugs_for_timestamp
+from ..utils.timestamps import format_slug_with_est_time
+from ..utils.decision_logger import DecisionLogger
 
 logger = get_logger(__name__)
 
@@ -74,6 +77,7 @@ class SweeperBot:
         ws_url: Optional[str] = None,
         sub_check_interval: int = DEFAULT_SUB_CHECK_INTERVAL,
         dry_run: bool = False,
+        decision_log_file: str = "bot_decisions.csv",
     ):
         """
         Args:
@@ -84,6 +88,7 @@ class SweeperBot:
             ws_url: Optional WebSocket URL override.
             sub_check_interval: Seconds between subscription management checks.
             dry_run: If *True*, log order decisions without submitting.
+            decision_log_file: CSV file for detailed strategy decisions.
         """
         self.market_selections = market_selections
         self.durations = durations or sorted(SUPPORTED_DURATIONS)
@@ -92,6 +97,9 @@ class SweeperBot:
         self.ws_url = ws_url
         self.sub_check_interval = sub_check_interval
         self.dry_run = dry_run
+        self.decision_log_file = decision_log_file
+
+        self.decision_logger = DecisionLogger(decision_log_file)
 
         self.running = False
         self.monitor: Optional[MultiEventMonitor] = None
@@ -217,35 +225,114 @@ class SweeperBot:
         timestamp_ms: int,
     ) -> None:
         """Called by ``MultiEventMonitor`` on every ``tick_size_change`` event."""
+        trigger = f"tick_size:{old_tick_size}->{new_tick_size}"
+        formatted_slug = format_slug_with_est_time(slug, timestamp_ms)
+
         logger.info(
             "%s[TICK_SIZE] Processing callback for %s: %s -> %s (token=%s…)%s",
             C_RED,
-            slug,
+            formatted_slug,
             old_tick_size,
             new_tick_size,
             asset_id[:20],
             C_RESET,
         )
 
+        # 1. Get full market evaluation for logging (Gamma Baseline)
+        eval_data = get_market_evaluation(slug)
+        if not eval_data:
+            self.decision_logger.log_decision(
+                event_slug=slug,
+                formatted_slug=formatted_slug,
+                trigger=trigger,
+                decision="SKIP",
+                reason="Market evaluation failed (Gamma API error or missing data)"
+            )
+            return
+
+        # ── HYBRID EVALUATION: Override with WebSocket prices ───────────
+        if self.monitor:
+            realtime_updated = False
+            prices = eval_data["prices"]
+            token_ids = eval_data["token_ids"]
+            outcomes = eval_data["outcomes"]
+            
+            for i, tid in enumerate(token_ids):
+                rt_price = self.monitor.get_realtime_price(tid)
+                if rt_price is not None:
+                    # Log if the difference is significant
+                    if abs(rt_price - prices[i]) > 0.05:
+                        logger.info(
+                            " [RT_PRICE] Overriding %s: Gamma=%.3f -> WS=%.3f",
+                            outcomes[i], prices[i], rt_price
+                        )
+                    prices[i] = rt_price
+                    realtime_updated = True
+            
+            if realtime_updated:
+                # Recalculate best outcome
+                best_idx = 0
+                best_p = prices[0]
+                for i, p in enumerate(prices):
+                    if p > best_p:
+                        best_p = p
+                        best_idx = i
+                
+                eval_data.update({
+                    "best_idx": best_idx,
+                    "best_price": best_p,
+                    "best_outcome": outcomes[best_idx],
+                    "best_token_id": token_ids[best_idx],
+                    "raw_prices_compact": "|".join([f"{o}:{p:.3f}*" for o, p in zip(outcomes, prices)])
+                })
+                eval_data["is_realtime"] = True
+        # ───────────────────────────────────────────────────────────────
+
+        # 2. Strategy evaluation
         order_params = should_place_sweep_order(
             slug=slug,
             new_tick_size=new_tick_size,
             price_threshold=self.price_threshold,
+            eval_data=eval_data
         )
 
         if order_params is None:
-            logger.debug("No sweep order for %s (signal/price not met)", slug)
+            # This should only happen if tick size is not 0.001
+            self.decision_logger.log_decision(
+                event_slug=slug,
+                formatted_slug=formatted_slug,
+                trigger=trigger,
+                decision="SKIP",
+                reason=f"Not a sweep trigger (tick_size={new_tick_size})",
+                raw_prices=eval_data.get("raw_prices_compact", "")
+            )
             return
 
+        if order_params.get("skip"):
+            self.decision_logger.log_decision(
+                event_slug=slug,
+                formatted_slug=formatted_slug,
+                trigger=trigger,
+                decision="SKIP",
+                reason=order_params.get("reason", "Threshold not met"),
+                best_outcome=eval_data["best_outcome"],
+                best_price=eval_data["best_price"],
+                threshold=self.price_threshold,
+                price_source="WebSocket" if eval_data.get("is_realtime") else "Gamma",
+                raw_prices=eval_data.get("raw_prices_compact", "")
+            )
+            return
+
+        # 3. Decision: PLACE ORDER
         logger.info(
             "[STRATEGY] Sweep signal confirmed for %s – placing order: %s @ %.4f x %.2f",
-            slug,
+            formatted_slug,
             order_params["outcome"],
             order_params["price"],
             order_params["size"],
         )
 
-        execute_sweep_order(
+        resp = execute_sweep_order(
             token_id=order_params["token_id"],
             price=order_params["price"],
             size=order_params["size"],
@@ -254,15 +341,46 @@ class SweeperBot:
             dry_run=self.dry_run,
         )
 
-        # Log trade to unified CSV
+        # 4. Log trade execution details
+        token_id = order_params["token_id"]
+        status = "FAILED"
+        order_id = ""
+        
+        if resp:
+            if resp.get("success"):
+                order_id = resp.get("orderId", "unknown")
+                status = "SUCCESS"
+            else:
+                status = f"REJECTED: {resp.get('errorMsg')}"
+        elif self.dry_run:
+            status = "DRY_RUN"
+
+        # Dedicated Decision Log
+        self.decision_logger.log_decision(
+            event_slug=slug,
+            formatted_slug=formatted_slug,
+            trigger=trigger,
+            decision="TRADE",
+            reason="Signal & Price eligibility met",
+            best_outcome=order_params["outcome"],
+            best_price=eval_data["best_price"],
+            threshold=self.price_threshold,
+            limit_price=order_params["price"],
+            order_id=order_id if order_id else status,
+            price_source="WebSocket" if eval_data.get("is_realtime") else "Gamma",
+            raw_prices=eval_data.get("raw_prices_compact", "")
+        )
+
+        # Unified CSV Log
         if self.monitor:
             self.monitor.log_unified_event(
                 slug=slug,
-                event_type="trade",
-                token_id=order_params["token_id"],
+                event_type="bot_trade",
+                token_id=token_id,
                 price=order_params["price"],
                 size=order_params["size"],
                 side="BUY",
+                error_message=f"{status} | {order_id}" if order_id else status
             )
 
     # ── Main run loop ─────────────────────────────────────────────────────

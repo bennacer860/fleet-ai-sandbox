@@ -5,7 +5,7 @@ Provides functions that query the Gamma API / CLOB to evaluate markets
 back-tests, and ad-hoc scripts.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from ..clob_client import create_clob_client
 from ..gamma_client import (
@@ -25,29 +25,21 @@ FALLBACK_MIN_ORDER_SIZE: float = 1.0
 # ── Market evaluation ────────────────────────────────────────────────────────
 
 
-def get_best_outcome_token(
-    slug: str,
-) -> Optional[tuple[str, float, str]]:
-    """Fetch the market for *slug* and return info on the most-likely outcome.
+def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
+    """Fetch comprehensive market data for *slug*.
 
-    Queries the Gamma API for current outcome prices and picks the outcome
-    with the highest price.
-
-    Args:
-        slug: Market/event slug (e.g. ``"btc-updown-5m-1707523200"``).
-
+    Queries Gamma API for all outcome prices, labels, and token IDs.
+    
     Returns:
-        ``(token_id, price, outcome_label)`` for the best outcome,
-        or *None* if the market cannot be evaluated.
+        Dict with 'token_ids', 'prices', 'outcomes', 'best_idx', 'best_price', 
+        'best_outcome', 'best_token_id', or None if failed.
     """
     event = fetch_event_by_slug(slug)
     if not event:
-        logger.warning("Cannot evaluate market – event not found: %s", slug)
         return None
 
     markets = event.get("markets", [])
     if not markets:
-        logger.warning("Cannot evaluate market – no markets in event: %s", slug)
         return None
 
     market = markets[0]
@@ -56,12 +48,6 @@ def get_best_outcome_token(
     prices = get_outcome_prices(market)
 
     if len(token_ids) < 2 or len(prices) < 2:
-        logger.warning(
-            "Cannot evaluate market – incomplete data: tokens=%d prices=%d slug=%s",
-            len(token_ids),
-            len(prices),
-            slug,
-        )
         return None
 
     # Pick the outcome with the highest current price
@@ -72,17 +58,32 @@ def get_best_outcome_token(
             best_price = p
             best_idx = i
 
-    outcome_label = outcomes[best_idx] if best_idx < len(outcomes) else "?"
-    token_id = token_ids[best_idx]
+    best_outcome = outcomes[best_idx] if best_idx < len(outcomes) else "?"
+    best_token_id = token_ids[best_idx]
+    
+    return {
+        "token_ids": token_ids,
+        "prices": prices,
+        "outcomes": outcomes,
+        "best_idx": best_idx,
+        "best_price": best_price,
+        "best_outcome": best_outcome,
+        "best_token_id": best_token_id,
+        "raw_prices_compact": "|".join([f"{o}:{p:.3f}" for o, p in zip(outcomes, prices)])
+    }
 
-    logger.info(
-        "Best outcome for %s: %s (price=%.4f, token=%s…)",
-        slug,
-        outcome_label,
-        best_price,
-        token_id[:20],
-    )
-    return token_id, best_price, outcome_label
+
+def get_best_outcome_token(
+    slug: str,
+) -> Optional[tuple[str, float, str]]:
+    """Fetch the market for *slug* and return info on the most-likely outcome.
+    
+    (Legacy wrapper around get_market_evaluation)
+    """
+    eval_data = get_market_evaluation(slug)
+    if eval_data:
+        return (eval_data["best_token_id"], eval_data["best_price"], eval_data["best_outcome"])
+    return None
 
 
 # ── Order-book helpers ───────────────────────────────────────────────────────

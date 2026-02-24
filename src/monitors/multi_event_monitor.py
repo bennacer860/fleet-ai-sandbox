@@ -110,6 +110,7 @@ class MultiEventMonitor:
         self.winning_tokens: dict[str, str] = {}  # slug -> winning_token_id
         self.token_outcomes: dict[str, str] = {}  # token_id -> outcome label (e.g., "Up", "Down")
         self.last_ticker_change: dict[str, int] = {}  # token_id -> timestamp_ms of last ticker change
+        self.best_prices: dict[str, dict[str, float]] = {}  # asset_id -> {"bid": float, "ask": float}
         
         # Unified CSV file handle
         self.csv_file = None
@@ -692,6 +693,12 @@ class MultiEventMonitor:
         # Calculate best_bid and best_ask
         best_bid = bids[0]["price"] if bids else "N/A"
         best_ask = asks[0]["price"] if asks else "N/A"
+
+        # Update real-time price cache
+        self.best_prices[asset_id] = {
+            "bid": float(best_bid) if best_bid != "N/A" else 0.0,
+            "ask": float(best_ask) if best_ask != "N/A" else 0.0,
+        }
         
         # Process bids at target price
         for bid in bids:
@@ -792,7 +799,7 @@ class MultiEventMonitor:
         raw_slug = self.raw_slugs.get(slug, slug)
         
         # Write to unified CSV (long-value columns at the end for readability)
-        allowed_csv_events = ["market_open", "market_resolved", "tick_size_change", "trade"]
+        allowed_csv_events = ["market_open", "market_resolved", "tick_size_change", "bot_trade"]
         if self.csv_writer and event_type in allowed_csv_events:
             self.csv_writer.writerow([
                 formatted_slug,  # event_slug
@@ -822,6 +829,13 @@ class MultiEventMonitor:
             self.csv_file.flush()
             logger.debug("Event saved to unified CSV: %s", self.output_file)
     
+    def get_realtime_price(self, asset_id: str) -> Optional[float]:
+        """Returns the best bid price for an asset from the real-time cache."""
+        prices = self.best_prices.get(asset_id)
+        if prices and prices["bid"] > 0:
+            return prices["bid"]
+        return None
+
     def log_market_event(
         self,
         slug: str,

@@ -22,6 +22,7 @@ import sys
 from src.logging_config import setup_logging
 from src.markets.fifteen_min import MARKET_IDS, SUPPORTED_DURATIONS
 from src.monitors.sweeper_bot import SweeperBot
+from src.strategy.sweep_signal import DEFAULT_PRICE_THRESHOLD
 
 
 def main() -> int:
@@ -47,8 +48,8 @@ def main() -> int:
     parser.add_argument(
         "--price-threshold",
         type=float,
-        default=0.9,
-        help="Minimum outcome price to place an order (default: 0.9)",
+        default=DEFAULT_PRICE_THRESHOLD,
+        help=f"Minimum outcome price to place an order (default: {DEFAULT_PRICE_THRESHOLD})",
     )
     parser.add_argument(
         "--output",
@@ -64,6 +65,11 @@ def main() -> int:
         "--dry-run",
         action="store_true",
         help="Log order decisions without actually submitting orders",
+    )
+    parser.add_argument(
+        "--decision-log",
+        default="bot_decisions.csv",
+        help="CSV file for detailed strategy decisions (default: bot_decisions.csv)",
     )
 
     args = parser.parse_args()
