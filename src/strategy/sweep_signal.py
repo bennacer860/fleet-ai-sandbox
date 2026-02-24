@@ -21,7 +21,7 @@ DEFAULT_PRICE_THRESHOLD = 0.95
 
 # The price at which we place our limit order to "sweep" the book.
 # Using 0.999 ensures we fill against any available sellers below settlement.
-MAX_ORDER_PRICE = 0.999
+MAX_ORDER_PRICE = 0.999  # Valid when tick_size=0.001 (range: 0.001–0.999)
 
 
 # ── Signal detection ──────────────────────────────────────────────────────────

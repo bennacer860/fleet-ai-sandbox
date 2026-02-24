@@ -228,6 +228,22 @@ class SweeperBot:
         trigger = f"tick_size:{old_tick_size}->{new_tick_size}"
         formatted_slug = format_slug_with_est_time(slug, timestamp_ms)
 
+        # ── Guard: ignore spurious same→same tick_size events ─────────────
+        if old_tick_size == new_tick_size:
+            logger.debug(
+                "[TICK_SIZE] Ignoring duplicate signal %s->%s for %s",
+                old_tick_size, new_tick_size, slug,
+            )
+            self.decision_logger.log_decision(
+                event_slug=slug,
+                formatted_slug=formatted_slug,
+                trigger=trigger,
+                decision="SKIP",
+                reason=f"Duplicate signal (tick_size unchanged at {new_tick_size})",
+            )
+            return
+        # ──────────────────────────────────────────────────────────────────
+
         logger.info(
             "%s[TICK_SIZE] Processing callback for %s: %s -> %s (token=%s…)%s",
             C_RED,
@@ -346,6 +362,23 @@ class SweeperBot:
         status = "FAILED"
         order_id = ""
         
+        # ── DEDUP: execute_sweep_order returns None when already ordered ──
+        if resp is None and not self.dry_run:
+            self.decision_logger.log_decision(
+                event_slug=slug,
+                formatted_slug=formatted_slug,
+                trigger=trigger,
+                decision="SKIP",
+                reason="DEDUP: Already ordered this market this session",
+                best_outcome=order_params["outcome"],
+                best_price=eval_data["best_price"],
+                threshold=self.price_threshold,
+                price_source="WebSocket" if eval_data.get("is_realtime") else "Gamma",
+                raw_prices=eval_data.get("raw_prices_compact", "")
+            )
+            return
+        # ──────────────────────────────────────────────────────────────────
+
         if resp:
             if resp.get("success"):
                 order_id = resp.get("orderId", "unknown")

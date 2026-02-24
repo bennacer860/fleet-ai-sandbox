@@ -1,5 +1,6 @@
 """CLOB client wrapper for placing Polymarket orders."""
 
+import httpx
 from typing import Any, Optional
 
 from py_clob_client.client import ClobClient
@@ -34,22 +35,78 @@ ERROR_REASONS = {
 }
 
 
+_client_cache: Optional[ClobClient] = None
+
+
+def _get_live_tick_size(token_id: str) -> float:
+    """Fetch the current minimum tick size for a token directly from the CLOB API.
+
+    Returns 0.01 as a safe fallback if the request fails.
+    """
+    try:
+        resp = httpx.get(
+            f"{CLOB_HOST}/tick-size",
+            params={"token_id": token_id},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        return float(resp.json()["minimum_tick_size"])
+    except Exception:
+        logger.warning("Could not fetch tick size for %s – defaulting to 0.01", token_id)
+        return 0.01
+
+
+def _clamp_price(price: float, token_id: str) -> float:
+    """Clamp *price* to the valid range ``[tick_size, 1 - tick_size]``.
+
+    Polymarket allows 0.999 only when the market tick size is 0.001.
+    When tick is 0.01, the maximum valid price is 0.99.  This helper
+    fetches the live tick size and snaps the price accordingly so the
+    order is never rejected by the client-side ``price_valid()`` check.
+    """
+    tick = _get_live_tick_size(token_id)
+    min_price = round(tick, 10)
+    max_price = round(1.0 - tick, 10)
+
+    if price < min_price or price > max_price:
+        clamped = max(min_price, min(price, max_price))
+        logger.warning(
+            "Price %.4f out of valid range [%.4f, %.4f] for tick_size=%.4f "
+            "– clamping to %.4f (token=%s)",
+            price, min_price, max_price, tick, clamped, token_id[:20],
+        )
+        return clamped
+
+    return price
+
+
 def create_clob_client() -> Optional[ClobClient]:
-    """Create and initialize the CLOB client with API credentials."""
+    """Return a cached CLOB client, clearing its internal tick-size cache on
+    each call so it always re-fetches the current minimum_tick_size."""
+    global _client_cache
     if not PRIVATE_KEY or not FUNDER:
         logger.error("PRIVATE_KEY and FUNDER must be set in .env")
         return None
 
     try:
-        client = ClobClient(
-            CLOB_HOST,
-            key=PRIVATE_KEY,
-            chain_id=CHAIN_ID,
-            signature_type=SIGNATURE_TYPE,
-            funder=FUNDER,
-        )
-        client.set_api_creds(client.create_or_derive_api_creds())
-        return client
+        if _client_cache is None:
+            client = ClobClient(
+                CLOB_HOST,
+                key=PRIVATE_KEY,
+                chain_id=CHAIN_ID,
+                signature_type=SIGNATURE_TYPE,
+                funder=FUNDER,
+            )
+            client.set_api_creds(client.create_or_derive_api_creds())
+            _client_cache = client
+            logger.info("CLOB client initialized (host=%s)", CLOB_HOST)
+
+        # Clear the internal tick-size cache so each order re-fetches the
+        # current minimum_tick_size from the API.
+        tick_cache = _client_cache.__dict__.get("_ClobClient__tick_sizes")
+        if tick_cache is not None:
+            tick_cache.clear()
+        return _client_cache
     except Exception:
         logger.exception("Failed to create CLOB client")
         return None
@@ -88,6 +145,11 @@ def place_limit_order(
     )
 
     try:
+        # Clamp price to the live valid range before the client validates it.
+        # e.g. 0.999 is only valid when tick_size=0.001; with tick_size=0.01
+        # the max is 0.99.  _clamp_price fetches the current tick and adjusts.
+        price = _clamp_price(price, token_id)
+
         order_args = OrderArgs(
             price=price,
             size=size,
