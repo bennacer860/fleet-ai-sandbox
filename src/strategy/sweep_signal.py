@@ -7,7 +7,7 @@ All functions are pure/stateless so they can be reused from any context
 from typing import Optional
 
 from ..logging_config import get_logger
-from ..utils.market_data import get_best_outcome_token, get_min_order_size, get_market_evaluation
+from ..utils.market_data import get_best_outcome_token, get_min_order_size, get_market_evaluation, FALLBACK_MIN_ORDER_SIZE
 
 logger = get_logger(__name__)
 
@@ -89,8 +89,9 @@ def should_place_sweep_order(
     # 4. Use aggressive sweep price (0.999) to guarantee fill
     order_price = MAX_ORDER_PRICE
 
-    # 5. Minimum order size
-    order_size = get_min_order_size(token_id)
+    # 5. Minimum order size — prefer the pre-cached value from eval_data
+    #    so the hot path avoids a blocking CLOB HTTP call.
+    order_size = eval_data.get("min_order_size") or get_min_order_size(token_id)
 
     return {
         "token_id": token_id,

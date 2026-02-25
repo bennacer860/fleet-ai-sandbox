@@ -11,9 +11,10 @@ The bot auto-rolls to new market windows exactly like ``ContinuousCryptoMonitor`
 
 import asyncio
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from .multi_event_monitor import MultiEventMonitor
+from .fill_tracker import FillTracker
 from ..markets.fifteen_min import (
     get_market_slug,
     get_current_interval_utc,
@@ -25,7 +26,7 @@ from ..strategy.sweep_signal import (
     DEFAULT_PRICE_THRESHOLD,
     should_place_sweep_order,
 )
-from ..utils.market_data import get_market_evaluation, get_min_order_size
+from ..utils.market_data import get_market_evaluation, get_min_order_size, FALLBACK_MIN_ORDER_SIZE
 from ..strategy.order_executor import execute_sweep_order
 from ..logging_config import get_logger
 from ..utils.slug_helpers import slugs_for_timestamp
@@ -78,6 +79,7 @@ class SweeperBot:
         sub_check_interval: int = DEFAULT_SUB_CHECK_INTERVAL,
         dry_run: bool = False,
         decision_log_file: str = "bot_decisions.csv",
+        fill_log_file: str = "fill_log.csv",
     ):
         """
         Args:
@@ -89,6 +91,7 @@ class SweeperBot:
             sub_check_interval: Seconds between subscription management checks.
             dry_run: If *True*, log order decisions without submitting.
             decision_log_file: CSV file for detailed strategy decisions.
+            fill_log_file: CSV file for order fill tracking.
         """
         self.market_selections = market_selections
         self.durations = durations or sorted(SUPPORTED_DURATIONS)
@@ -100,6 +103,7 @@ class SweeperBot:
         self.decision_log_file = decision_log_file
 
         self.decision_logger = DecisionLogger(decision_log_file)
+        self.fill_tracker = FillTracker(fill_log_file=fill_log_file)
 
         self.running = False
         self.monitor: Optional[MultiEventMonitor] = None
@@ -117,27 +121,91 @@ class SweeperBot:
 
     # ── Eval pre-cache ────────────────────────────────────────────────────
 
-    async def _prefetch_eval(self, slug: str) -> None:
-        """Fetch and cache market evaluation data for *slug* in the background.
+    @staticmethod
+    def _fetch_eval_with_min_size(slug: str) -> Optional[dict]:
+        """Fetch eval data AND min_order_size in one background call.
 
-        This runs as a fire-and-forget task right after a market is added so
-        that when ``tick_size_change`` fires the strategy can skip the
-        synchronous Gamma HTTP call and do a plain dict lookup instead.
+        Runs both the Gamma API (market evaluation) and CLOB API
+        (order-book min_order_size) calls sequentially so the hot path
+        never needs to make any HTTP requests.
+        """
+        eval_data = get_market_evaluation(slug)
+        if eval_data:
+            eval_data["min_order_size"] = get_min_order_size(
+                eval_data["best_token_id"]
+            )
+        return eval_data
+
+    async def _prefetch_eval(self, slug: str) -> None:
+        """Fetch and cache market evaluation + min_order_size in the background.
+
+        Runs as a fire-and-forget task right after a market is added so
+        that ``_on_tick_size_change`` can do a plain dict lookup with
+        zero HTTP calls on the hot path.
         """
         if slug in self._eval_cache:
-            return  # already cached
+            return
         try:
-            # Run the blocking HTTP call in a thread so we don't stall the loop
             eval_data = await asyncio.get_event_loop().run_in_executor(
-                None, get_market_evaluation, slug
+                None, self._fetch_eval_with_min_size, slug
             )
             if eval_data:
                 self._eval_cache[slug] = eval_data
-                logger.debug("[CACHE] Pre-fetched eval for %s", slug)
+                logger.debug(
+                    "[CACHE] Pre-fetched eval for %s (min_size=%.2f)",
+                    slug,
+                    eval_data.get("min_order_size", -1),
+                )
             else:
                 logger.warning("[CACHE] Pre-fetch returned no data for %s", slug)
         except Exception:
             logger.exception("[CACHE] Pre-fetch failed for %s", slug)
+
+    def _build_eval_from_monitor(self, slug: str) -> Optional[dict]:
+        """Build eval_data entirely from the monitor's cached metadata.
+
+        Uses token IDs, outcome labels, and real-time bid prices already
+        held in memory by ``MultiEventMonitor``, avoiding any HTTP calls.
+        Returns ``None`` if the monitor doesn't have enough data.
+        """
+        if not self.monitor:
+            return None
+
+        token_ids = self.monitor.token_ids.get(slug)
+        if not token_ids or len(token_ids) < 2:
+            return None
+
+        outcomes: list[str] = []
+        prices: list[float] = []
+        for tid in token_ids:
+            outcomes.append(self.monitor.token_outcomes.get(tid, "?"))
+            price_data = self.monitor.best_prices.get(tid, {})
+            prices.append(price_data.get("bid", 0.0))
+
+        if not any(p > 0 for p in prices):
+            return None
+
+        best_idx = 0
+        best_price = prices[0]
+        for i, p in enumerate(prices):
+            if p > best_price:
+                best_price = p
+                best_idx = i
+
+        return {
+            "token_ids": token_ids,
+            "prices": prices,
+            "outcomes": outcomes,
+            "best_idx": best_idx,
+            "best_price": best_price,
+            "best_outcome": outcomes[best_idx],
+            "best_token_id": token_ids[best_idx],
+            "min_order_size": FALLBACK_MIN_ORDER_SIZE,
+            "raw_prices_compact": "|".join(
+                f"{o}:{p:.3f}*" for o, p in zip(outcomes, prices)
+            ),
+            "is_realtime": True,
+        }
 
     def _launch_prefetch(self, slugs: list[str]) -> None:
         """Schedule background prefetch tasks for a list of slugs."""
@@ -241,7 +309,7 @@ class SweeperBot:
     # ── Periodic slug summary ─────────────────────────────────────────────
 
     async def _log_tracked_slugs(self) -> None:
-        """Periodically log the list of actively tracked market slugs."""
+        """Periodically log tracked slugs, cache stats, and fill stats."""
         while self.running:
             await asyncio.sleep(SLUG_SUMMARY_INTERVAL)
             if not self.monitor:
@@ -258,6 +326,12 @@ class SweeperBot:
             else:
                 logger.info("No active markets currently tracked.")
 
+            logger.info(
+                "Eval cache: %d entries | Fill tracker: %s",
+                len(self._eval_cache),
+                self.fill_tracker.get_stats_summary() if self.fill_tracker else "N/A",
+            )
+
     # ── Tick-size callback (strategy entry point) ─────────────────────────
 
     def _on_tick_size_change(
@@ -269,6 +343,7 @@ class SweeperBot:
         timestamp_ms: int,
     ) -> None:
         """Called by ``MultiEventMonitor`` on every ``tick_size_change`` event."""
+        signal_ns = time.perf_counter_ns()
         trigger = f"tick_size:{old_tick_size}->{new_tick_size}"
         formatted_slug = format_slug_with_est_time(slug, timestamp_ms)
 
@@ -298,19 +373,25 @@ class SweeperBot:
             C_RESET,
         )
 
-        # 1. Market evaluation — use the pre-fetched cache when available
-        #    so we skip the synchronous Gamma HTTP call in the hot path.
+        # 1. Market evaluation — zero-HTTP-call hot path.
+        #    Priority: pre-fetched cache -> WS-built eval -> skip.
+        #    We never block on a synchronous Gamma HTTP call here.
         eval_data = self._eval_cache.get(slug)
         if eval_data:
             logger.debug("[CACHE] Using pre-fetched eval for %s", slug)
-            # Refresh the raw_prices_compact with current cached prices
             if "outcomes" in eval_data and "prices" in eval_data:
                 eval_data["raw_prices_compact"] = "|".join(
-                    [f"{o}:{p:.3f}" for o, p in zip(eval_data["outcomes"], eval_data["prices"])]
+                    f"{o}:{p:.3f}" for o, p in zip(eval_data["outcomes"], eval_data["prices"])
                 )
         else:
-            logger.info("[CACHE] Cache miss for %s – fetching live from Gamma", slug)
-            eval_data = get_market_evaluation(slug)
+            logger.info("[CACHE] Cache miss for %s – building from WS data", slug)
+            eval_data = self._build_eval_from_monitor(slug)
+            if eval_data:
+                logger.info("[CACHE] Built eval from WS prices for %s", slug)
+            else:
+                logger.warning(
+                    "[CACHE] No WS data available for %s – cannot evaluate", slug
+                )
 
         if not eval_data:
             self.decision_logger.log_decision(
@@ -413,12 +494,13 @@ class SweeperBot:
             dry_run=self.dry_run,
             tick_size=float(new_tick_size),
         )
+        rest_response_ns = time.perf_counter_ns()
 
         # 4. Log trade execution details
         token_id = order_params["token_id"]
         status = "FAILED"
         order_id = ""
-        
+
         # ── DEDUP: execute_sweep_order returns None when already ordered ──
         if resp is None and not self.dry_run:
             self.decision_logger.log_decision(
@@ -444,6 +526,26 @@ class SweeperBot:
                 status = f"REJECTED: {resp.get('errorMsg')}"
         elif self.dry_run:
             status = "DRY_RUN"
+
+        signal_to_rest_ms = round((rest_response_ns - signal_ns) / 1_000_000, 1)
+        logger.info(
+            "[LATENCY] %s signal→REST: %.0fms",
+            formatted_slug,
+            signal_to_rest_ms,
+        )
+
+        # 5. Register with fill tracker for real-time fill monitoring
+        if order_id and status == "SUCCESS" and self.fill_tracker:
+            self.fill_tracker.track_order(
+                order_id=order_id,
+                slug=slug,
+                token_id=token_id,
+                outcome=order_params["outcome"],
+                price=order_params["price"],
+                size=order_params["size"],
+                signal_ns=signal_ns,
+                rest_response_ns=rest_response_ns,
+            )
 
         # Dedicated Decision Log
         self.decision_logger.log_decision(
@@ -520,12 +622,21 @@ class SweeperBot:
         # Periodic slug summary
         tasks.append(asyncio.create_task(self._log_tracked_slugs()))
 
+        # Fill tracker — separate user-channel WebSocket for order status
+        if not self.dry_run:
+            tasks.append(asyncio.create_task(self.fill_tracker.run()))
+            logger.info("Fill tracker started (user WS for order status)")
+        else:
+            logger.info("Fill tracker skipped (dry-run mode)")
+
         try:
             await self.monitor.run()
         except KeyboardInterrupt:
             logger.info("Sweeper bot stopped by user")
         finally:
             self.running = False
+            if self.fill_tracker:
+                await self.fill_tracker.stop()
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)

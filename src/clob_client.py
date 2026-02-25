@@ -84,8 +84,14 @@ def _clamp_price(
 
 
 def create_clob_client() -> Optional[ClobClient]:
-    """Return a cached CLOB client, clearing its internal tick-size cache on
-    each call so it always re-fetches the current minimum_tick_size."""
+    """Return a cached CLOB client.
+
+    The internal tick-size cache is intentionally *not* cleared on each
+    call.  Our hot path (``place_limit_order``) already receives the
+    authoritative tick size from the WebSocket ``tick_size_change`` event
+    and clamps the price in ``_clamp_price`` before the library ever
+    touches it, so the extra HTTP round-trip was pure waste.
+    """
     global _client_cache
     if not PRIVATE_KEY or not FUNDER:
         logger.error("PRIVATE_KEY and FUNDER must be set in .env")
@@ -104,11 +110,6 @@ def create_clob_client() -> Optional[ClobClient]:
             _client_cache = client
             logger.info("CLOB client initialized (host=%s)", CLOB_HOST)
 
-        # Clear the internal tick-size cache so each order re-fetches the
-        # current minimum_tick_size from the API.
-        tick_cache = _client_cache.__dict__.get("_ClobClient__tick_sizes")
-        if tick_cache is not None:
-            tick_cache.clear()
         return _client_cache
     except Exception:
         logger.exception("Failed to create CLOB client")
