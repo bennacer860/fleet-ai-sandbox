@@ -43,6 +43,7 @@ def execute_sweep_order(
     slug: str,
     outcome: str,
     dry_run: bool = False,
+    tick_size: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
     """Place a limit BUY order as part of the endgame sweep strategy.
 
@@ -56,6 +57,8 @@ def execute_sweep_order(
         slug: Market slug (used for dedup and logging).
         outcome: Human-readable outcome label (e.g. "Up").
         dry_run: If *True*, log but do **not** submit the order.
+        tick_size: Known tick size from the WebSocket event. Passed directly
+                   to ``place_limit_order`` to skip the HTTP tick-size fetch.
 
     Returns:
         API response dict on success, or *None* on skip/failure.
@@ -102,6 +105,7 @@ def execute_sweep_order(
         price=price,
         size=size,
         side="BUY",
+        tick_size=tick_size,
     )
 
     if resp is not None:

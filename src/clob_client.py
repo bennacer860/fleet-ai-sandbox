@@ -56,15 +56,18 @@ def _get_live_tick_size(token_id: str) -> float:
         return 0.01
 
 
-def _clamp_price(price: float, token_id: str) -> float:
+def _clamp_price(
+    price: float,
+    token_id: str,
+    known_tick_size: Optional[float] = None,
+) -> float:
     """Clamp *price* to the valid range ``[tick_size, 1 - tick_size]``.
 
-    Polymarket allows 0.999 only when the market tick size is 0.001.
-    When tick is 0.01, the maximum valid price is 0.99.  This helper
-    fetches the live tick size and snaps the price accordingly so the
-    order is never rejected by the client-side ``price_valid()`` check.
+    If *known_tick_size* is provided (e.g. taken directly from the WebSocket
+    ``tick_size_change`` event), it is used as-is and no HTTP call is made.
+    Otherwise the tick size is fetched live from the CLOB API as a fallback.
     """
-    tick = _get_live_tick_size(token_id)
+    tick = known_tick_size if known_tick_size is not None else _get_live_tick_size(token_id)
     min_price = round(tick, 10)
     max_price = round(1.0 - tick, 10)
 
@@ -117,6 +120,7 @@ def place_limit_order(
     price: float,
     size: float = 1.0,
     side: str = "BUY",
+    tick_size: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
     """
     Place a limit order on the CLOB.
@@ -126,6 +130,8 @@ def place_limit_order(
         price: Limit price (0.0 - 1.0)
         size: Order size in shares
         side: 'BUY' or 'SELL'
+        tick_size: Known tick size from WebSocket event. When provided, skips
+                   the HTTP fetch and uses this value directly for price clamping.
 
     Returns:
         API response dict with success, orderId, errorMsg, status; or None on client error.
@@ -145,10 +151,10 @@ def place_limit_order(
     )
 
     try:
-        # Clamp price to the live valid range before the client validates it.
-        # e.g. 0.999 is only valid when tick_size=0.001; with tick_size=0.01
-        # the max is 0.99.  _clamp_price fetches the current tick and adjusts.
-        price = _clamp_price(price, token_id)
+        # Clamp price to valid range. If tick_size was passed in (from the
+        # WebSocket event) we use it directly – zero extra HTTP calls.
+        # Otherwise _clamp_price falls back to a live fetch.
+        price = _clamp_price(price, token_id, known_tick_size=tick_size)
 
         order_args = OrderArgs(
             price=price,

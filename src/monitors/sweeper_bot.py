@@ -25,7 +25,7 @@ from ..strategy.sweep_signal import (
     DEFAULT_PRICE_THRESHOLD,
     should_place_sweep_order,
 )
-from ..utils.market_data import get_market_evaluation
+from ..utils.market_data import get_market_evaluation, get_min_order_size
 from ..strategy.order_executor import execute_sweep_order
 from ..logging_config import get_logger
 from ..utils.slug_helpers import slugs_for_timestamp
@@ -104,11 +104,46 @@ class SweeperBot:
         self.running = False
         self.monitor: Optional[MultiEventMonitor] = None
 
+        # Pre-fetched evaluation data keyed by slug.
+        # Populated in the background when each market opens so that
+        # _on_tick_size_change can skip the Gamma API HTTP call entirely.
+        self._eval_cache: dict[str, dict] = {}
+
         # Per-duration tracking: {duration -> {selection -> set[timestamp]}}
         self._monitored_ts: dict[int, dict[MarketSelection, set[int]]] = {
             dur: {sel: set() for sel in market_selections}
             for dur in self.durations
         }
+
+    # ── Eval pre-cache ────────────────────────────────────────────────────
+
+    async def _prefetch_eval(self, slug: str) -> None:
+        """Fetch and cache market evaluation data for *slug* in the background.
+
+        This runs as a fire-and-forget task right after a market is added so
+        that when ``tick_size_change`` fires the strategy can skip the
+        synchronous Gamma HTTP call and do a plain dict lookup instead.
+        """
+        if slug in self._eval_cache:
+            return  # already cached
+        try:
+            # Run the blocking HTTP call in a thread so we don't stall the loop
+            eval_data = await asyncio.get_event_loop().run_in_executor(
+                None, get_market_evaluation, slug
+            )
+            if eval_data:
+                self._eval_cache[slug] = eval_data
+                logger.debug("[CACHE] Pre-fetched eval for %s", slug)
+            else:
+                logger.warning("[CACHE] Pre-fetch returned no data for %s", slug)
+        except Exception:
+            logger.exception("[CACHE] Pre-fetch failed for %s", slug)
+
+    def _launch_prefetch(self, slugs: list[str]) -> None:
+        """Schedule background prefetch tasks for a list of slugs."""
+        loop = asyncio.get_event_loop()
+        for slug in slugs:
+            loop.create_task(self._prefetch_eval(slug))
 
     # ── Initial slug generation ───────────────────────────────────────────
 
@@ -128,6 +163,10 @@ class SweeperBot:
 
             slugs.extend(cur_slugs)
             slugs.extend(nxt_slugs)
+
+        # Kick off background pre-fetches so eval data is ready before the
+        # first tick_size_change event fires.
+        self._launch_prefetch(slugs)
         return slugs
 
     # ── Subscription management (per duration) ────────────────────────────
@@ -191,8 +230,13 @@ class SweeperBot:
 
             if slugs_to_add:
                 await self.monitor.add_markets(slugs_to_add)
+                # Pre-fetch eval data for new slugs in the background
+                self._launch_prefetch(slugs_to_add)
             if slugs_to_remove:
                 await self.monitor.remove_markets(slugs_to_remove)
+                # Evict stale cache entries for removed markets
+                for slug in slugs_to_remove:
+                    self._eval_cache.pop(slug, None)
 
     # ── Periodic slug summary ─────────────────────────────────────────────
 
@@ -254,8 +298,20 @@ class SweeperBot:
             C_RESET,
         )
 
-        # 1. Get full market evaluation for logging (Gamma Baseline)
-        eval_data = get_market_evaluation(slug)
+        # 1. Market evaluation — use the pre-fetched cache when available
+        #    so we skip the synchronous Gamma HTTP call in the hot path.
+        eval_data = self._eval_cache.get(slug)
+        if eval_data:
+            logger.debug("[CACHE] Using pre-fetched eval for %s", slug)
+            # Refresh the raw_prices_compact with current cached prices
+            if "outcomes" in eval_data and "prices" in eval_data:
+                eval_data["raw_prices_compact"] = "|".join(
+                    [f"{o}:{p:.3f}" for o, p in zip(eval_data["outcomes"], eval_data["prices"])]
+                )
+        else:
+            logger.info("[CACHE] Cache miss for %s – fetching live from Gamma", slug)
+            eval_data = get_market_evaluation(slug)
+
         if not eval_data:
             self.decision_logger.log_decision(
                 event_slug=slug,
@@ -355,6 +411,7 @@ class SweeperBot:
             slug=order_params["slug"],
             outcome=order_params["outcome"],
             dry_run=self.dry_run,
+            tick_size=float(new_tick_size),
         )
 
         # 4. Log trade execution details
