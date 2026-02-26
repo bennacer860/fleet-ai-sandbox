@@ -135,6 +135,7 @@ class Bot:
         if dashboard_enabled:
             self.dashboard = Dashboard(
                 market_ws=self.market_ws,
+                user_ws=self.user_ws,
                 order_manager=self.order_manager,
                 position_tracker=self.position_tracker,
                 risk_manager=self.risk_manager,

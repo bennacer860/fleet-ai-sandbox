@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ..execution.position_tracker import PositionTracker
     from ..execution.risk_manager import RiskManager
     from ..gateway.market_ws import MarketWebSocket
+    from ..gateway.user_ws import UserWebSocket
 
 logger = get_logger(__name__)
 
@@ -41,12 +42,14 @@ class Dashboard:
     def __init__(
         self,
         market_ws: MarketWebSocket | None = None,
+        user_ws: UserWebSocket | None = None,
         order_manager: OrderManager | None = None,
         position_tracker: PositionTracker | None = None,
         risk_manager: RiskManager | None = None,
         dry_run: bool = False,
     ) -> None:
         self._market_ws = market_ws
+        self._user_ws = user_ws
         self._order_mgr = order_manager
         self._pos_tracker = position_tracker
         self._risk_mgr = risk_manager
@@ -152,12 +155,67 @@ class Dashboard:
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
         msg_age = f"{self._market_ws.last_message_age_s:.0f}s ago" if self._market_ws and self._market_ws.last_message_age_s >= 0 else "N/A"
 
+        if self._user_ws:
+            if self._dry_run:
+                ws_user = "[yellow]Skipped (dry-run)[/yellow]"
+            elif self._user_ws.connected:
+                ws_user = f"[green]Connected[/green]  (reconnects: {self._user_ws.reconnect_count})"
+            else:
+                ws_user = f"[red]Disconnected[/red]  (reconnects: {self._user_ws.reconnect_count})"
+        else:
+            ws_user = "[dim]N/A[/dim]"
+
         lines.append(f"WS Market: {ws_market} ({token_count} tokens)   Last msg: {msg_age}")
+        lines.append(f"WS User:   {ws_user}")
         lines.append(f"Event Loop Lag: {metrics.get_gauge('event_loop_lag_ms'):.1f}ms")
-        lines.append(f"Msgs received: {metrics.get_counter('ws_messages_received')}")
         lines.append(f"SQLite Queue: {metrics.get_gauge('persistence_pending'):.0f} pending")
 
         return Panel("\n".join(lines), title="SYSTEM", border_style="blue")
+
+    def _positions_panel(self) -> Panel:
+        table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+        table.add_column("Market", min_width=16)
+        table.add_column("Side", width=4)
+        table.add_column("Qty", width=6, justify="right")
+        table.add_column("Entry", width=7, justify="right")
+        table.add_column("Current", width=7, justify="right")
+        table.add_column("uPnL", width=8, justify="right")
+
+        if self._pos_tracker:
+            positions = self._pos_tracker.positions
+            if positions:
+                for tid, pos in list(positions.items())[:8]:
+                    display = self._format_slug(pos.slug) if pos.slug else tid[:16]
+                    current = 0.0
+                    if self._market_ws:
+                        bp = self._market_ws.best_prices.get(tid, {})
+                        current = bp.get("bid", 0.0)
+                    upnl = pos.unrealized_pnl(current) if current > 0 else 0.0
+                    pnl_style = "green" if upnl >= 0 else "red"
+                    table.add_row(
+                        display,
+                        "BUY",
+                        f"{pos.quantity:.1f}",
+                        f"{pos.avg_entry_price:.4f}",
+                        f"{current:.4f}" if current > 0 else "[dim]--[/dim]",
+                        f"[{pnl_style}]${upnl:+.4f}[/{pnl_style}]",
+                    )
+            else:
+                table.add_row("[dim]No open positions[/dim]", "", "", "", "", "")
+
+            if self._pos_tracker.trades_closed > 0:
+                table.add_row("", "", "", "", "", "")
+                table.add_row(
+                    f"[dim]Closed: {self._pos_tracker.trades_closed}[/dim]",
+                    "", "", "",
+                    "[dim]Realized:[/dim]",
+                    f"[dim]${self._pos_tracker.total_realized_pnl:+.4f}[/dim]",
+                )
+        else:
+            table.add_row("[dim]No data[/dim]", "", "", "", "", "")
+
+        count = len(self._pos_tracker.positions) if self._pos_tracker else 0
+        return Panel(table, title=f"POSITIONS ({count} open)", border_style="green")
 
     def _events_panel(self) -> Panel:
         if self._recent_events:
@@ -174,6 +232,7 @@ class Dashboard:
             Layout(name="header", size=1),
             Layout(name="top", size=9),
             Layout(name="middle", size=8),
+            Layout(name="positions", size=8),
             Layout(name="bottom"),
         )
         layout["header"].update(self._header())
@@ -185,8 +244,9 @@ class Dashboard:
             Layout(self._pnl_panel(), name="pnl"),
             Layout(self._risk_panel(), name="risk"),
         )
+        layout["positions"].update(self._positions_panel())
         layout["bottom"].split_column(
-            Layout(self._system_panel(), name="system", size=6),
+            Layout(self._system_panel(), name="system", size=7),
             Layout(self._events_panel(), name="events"),
         )
         return layout
