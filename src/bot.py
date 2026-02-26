@@ -44,6 +44,7 @@ from .monitoring.health import HealthMonitor
 from .monitoring.metrics import Metrics
 from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
+from .utils.market_data import get_market_evaluation, get_min_order_size
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
@@ -144,8 +145,46 @@ class Bot:
             )
 
         self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
+        self._eval_cache: dict[str, dict[str, Any]] = {}
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
+
+    # ── Eval pre-fetch (min_order_size) ───────────────────────────────────
+
+    @staticmethod
+    def _fetch_eval_with_min_size(slug: str) -> dict[str, Any] | None:
+        """Fetch eval data AND min_order_size in one blocking call."""
+        eval_data = get_market_evaluation(slug)
+        if eval_data:
+            eval_data["min_order_size"] = get_min_order_size(
+                eval_data["best_token_id"]
+            )
+        return eval_data
+
+    async def _prefetch_eval(self, slug: str) -> None:
+        """Background-fetch eval + min_order_size for a single market."""
+        if slug in self._eval_cache:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            eval_data = await loop.run_in_executor(
+                None, self._fetch_eval_with_min_size, slug
+            )
+            if eval_data:
+                self._eval_cache[slug] = eval_data
+                logger.debug(
+                    "[CACHE] Pre-fetched eval for %s (min_size=%.2f)",
+                    slug, eval_data.get("min_order_size", -1),
+                )
+            else:
+                logger.warning("[CACHE] Pre-fetch returned no data for %s", slug)
+        except Exception:
+            logger.exception("[CACHE] Pre-fetch failed for %s", slug)
+
+    def _launch_prefetch(self, slugs: list[str]) -> None:
+        """Fire-and-forget background prefetch for a batch of slugs."""
+        for slug in slugs:
+            asyncio.create_task(self._prefetch_eval(slug))
 
     # ── Wiring ────────────────────────────────────────────────────────────
 
@@ -270,6 +309,7 @@ class Bot:
     def _update_context(self) -> None:
         self._strategy_ctx.positions = dict(self.position_tracker.positions)
         self._strategy_ctx.best_prices = dict(self.market_ws.best_prices)
+        self._strategy_ctx.eval_cache = self._eval_cache
         meta: dict[str, dict[str, Any]] = {}
         for slug, tids in self.market_ws.token_ids.items():
             outcomes = tuple(
@@ -376,6 +416,7 @@ class Bot:
 
         if slugs_to_add:
             await self.market_ws.add_markets(slugs_to_add)
+            self._launch_prefetch(slugs_to_add)
             if self.dashboard:
                 for slug in slugs_to_add:
                     display = format_slug_with_est_time(slug)
@@ -383,6 +424,8 @@ class Bot:
 
         if slugs_to_remove:
             await self.market_ws.remove_markets(slugs_to_remove)
+            for slug in slugs_to_remove:
+                self._eval_cache.pop(slug, None)
 
     # ── Health context ────────────────────────────────────────────────────
 
@@ -432,6 +475,7 @@ class Bot:
 
         self._wire_subscriptions()
         self._seed_monitored_timestamps()
+        self._launch_prefetch(self._slugs)
 
         for strategy in self.strategies:
             await strategy.startup()
