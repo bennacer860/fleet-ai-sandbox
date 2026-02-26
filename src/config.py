@@ -17,6 +17,9 @@ GAMMA_API = os.getenv("GAMMA_API", "https://gamma-api.polymarket.com").rstrip("/
 
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FILE = os.getenv("LOG_FILE", "data/bot.log")
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 MB
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
 
 # Bot settings
 RESOLUTION_BUFFER_SECONDS = 60  # Wait after endDate before polling for resolution
