@@ -1,0 +1,355 @@
+"""Main bot orchestrator — wires all components and manages lifecycle.
+
+Replaces ``SweeperBot`` with a fully event-driven architecture.
+Components communicate exclusively through the ``EventBus``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from typing import Any
+
+from .config import (
+    DB_PATH,
+    DRY_RUN,
+    HEALTH_FILE_PATH,
+    MAX_DAILY_LOSS,
+    MAX_ORDERS_PER_MINUTE,
+    MAX_POSITION_PER_MARKET,
+    MAX_TOTAL_EXPOSURE,
+)
+from .core.event_bus import EventBus
+from .core.events import (
+    BookUpdate,
+    MarketResolved,
+    OrderFill,
+    OrderLive,
+    OrderTerminal,
+    TickSizeChange,
+)
+from .core.models import OrderIntent
+from .execution.order_manager import OrderManager
+from .execution.position_tracker import PositionTracker
+from .execution.risk_manager import RiskConfig, RiskManager
+from .gateway.market_ws import MarketWebSocket
+from .gateway.rest_client import AsyncRestClient
+from .gateway.user_ws import UserWebSocket
+from .logging_config import get_logger
+from .monitoring.alerting import AlertManager
+from .monitoring.dashboard import Dashboard
+from .monitoring.health import HealthMonitor
+from .monitoring.metrics import Metrics
+from .storage.database import init_db
+from .storage.persistence import AsyncPersistence
+from .strategy.base import Strategy, StrategyContext
+from .strategy.sweep import SweepStrategy
+
+logger = get_logger(__name__)
+
+MAX_RETRIES = 10
+RETRY_BASE_DELAY = 5
+
+
+class Bot:
+    """Top-level orchestrator that creates, wires, and manages all components."""
+
+    def __init__(
+        self,
+        slugs: list[str],
+        strategies: list[Strategy] | None = None,
+        dry_run: bool | None = None,
+        db_path: str | None = None,
+        dashboard_enabled: bool = False,
+        price_threshold: float = 0.95,
+    ) -> None:
+        self.dry_run = dry_run if dry_run is not None else DRY_RUN
+        self.db_path = db_path or DB_PATH
+        self.dashboard_enabled = dashboard_enabled
+        self._slugs = slugs
+
+        self.event_bus = EventBus()
+
+        conn = init_db(self.db_path)
+
+        self.persistence = AsyncPersistence(conn)
+
+        risk_config = RiskConfig(
+            max_position_per_market=MAX_POSITION_PER_MARKET,
+            max_total_exposure=MAX_TOTAL_EXPOSURE,
+            max_orders_per_minute=MAX_ORDERS_PER_MINUTE,
+            max_daily_loss=MAX_DAILY_LOSS,
+        )
+        self.risk_manager = RiskManager(risk_config)
+
+        self.rest_client = AsyncRestClient()
+
+        self.order_manager = OrderManager(
+            event_bus=self.event_bus,
+            rest_client=self.rest_client,
+            risk_manager=self.risk_manager,
+            persistence=self.persistence,
+            dry_run=self.dry_run,
+        )
+        self.order_manager.load_dedup_from_db(conn)
+
+        self.position_tracker = PositionTracker(persistence=self.persistence)
+
+        self.market_ws = MarketWebSocket(
+            event_bus=self.event_bus,
+            initial_slugs=list(self._slugs),
+        )
+        self.user_ws = UserWebSocket(event_bus=self.event_bus)
+
+        self.strategies: list[Strategy] = strategies or [
+            SweepStrategy(price_threshold=price_threshold)
+        ]
+
+        self.health_monitor = HealthMonitor(
+            heartbeat_path=HEALTH_FILE_PATH,
+            context_fn=self._health_context,
+        )
+        self.alert_manager = AlertManager()
+
+        self.dashboard: Dashboard | None = None
+        if dashboard_enabled:
+            self.dashboard = Dashboard(
+                market_ws=self.market_ws,
+                order_manager=self.order_manager,
+                position_tracker=self.position_tracker,
+                risk_manager=self.risk_manager,
+                dry_run=self.dry_run,
+            )
+
+        self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
+        self._metrics = Metrics.get()
+        self._tasks: list[asyncio.Task[Any]] = []
+
+    # ── Wiring ────────────────────────────────────────────────────────────
+
+    def _wire_subscriptions(self) -> None:
+        bus = self.event_bus
+
+        bus.subscribe(TickSizeChange, self._on_tick_size_change)
+        bus.subscribe(BookUpdate, self._on_book_update)
+        bus.subscribe(MarketResolved, self._on_market_resolved)
+
+        bus.subscribe(OrderFill, self.order_manager.on_order_fill)
+        bus.subscribe(OrderLive, self.order_manager.on_order_live)
+        bus.subscribe(OrderTerminal, self.order_manager.on_order_terminal)
+
+        bus.subscribe(OrderFill, self.position_tracker.on_fill)
+        bus.subscribe(BookUpdate, self.position_tracker.on_book_update)
+        bus.subscribe(MarketResolved, self.position_tracker.on_market_resolved)
+
+        bus.subscribe(TickSizeChange, self._metrics_tick_size)
+        bus.subscribe(BookUpdate, self._metrics_book_update)
+
+    # ── Strategy dispatchers ──────────────────────────────────────────────
+
+    async def _on_tick_size_change(self, event: TickSizeChange) -> None:
+        self._update_context()
+        for strategy in self.strategies:
+            try:
+                intents = await strategy.on_tick_size_change(event, self._strategy_ctx)
+                if intents:
+                    await self._submit_intents(intents, event)
+            except Exception:
+                logger.exception("Strategy %s error on tick_size_change", strategy.name())
+
+    async def _on_book_update(self, event: BookUpdate) -> None:
+        self._update_context()
+        for strategy in self.strategies:
+            try:
+                intents = await strategy.on_book_update(event, self._strategy_ctx)
+                if intents:
+                    await self._submit_intents(intents, event)
+            except Exception:
+                logger.exception("Strategy %s error on book_update", strategy.name())
+
+    async def _on_market_resolved(self, event: MarketResolved) -> None:
+        self._update_context()
+        for strategy in self.strategies:
+            try:
+                await strategy.on_market_resolved(event, self._strategy_ctx)
+            except Exception:
+                logger.exception("Strategy %s error on market_resolved", strategy.name())
+
+    async def _submit_intents(self, intents: list[OrderIntent], event: Any) -> None:
+        for intent in intents:
+            state = await self.order_manager.submit(intent)
+            if state and self.dashboard:
+                action = "SUBMITTED" if state.status.value == "SUBMITTED" else state.status.value
+                self.dashboard.push_event(
+                    f"{action}  {intent.slug}  {intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
+                )
+            if state:
+                self.position_tracker.register_order(
+                    order_id=state.order_id,
+                    token_id=intent.token_id,
+                    slug=intent.slug,
+                    strategy=intent.strategy,
+                    side=intent.side.value,
+                    price=intent.price,
+                    size=intent.size,
+                )
+
+    # ── Context maintenance ───────────────────────────────────────────────
+
+    def _update_context(self) -> None:
+        self._strategy_ctx.positions = dict(self.position_tracker.positions)
+        self._strategy_ctx.best_prices = dict(self.market_ws.best_prices)
+        meta: dict[str, dict[str, Any]] = {}
+        for slug, tids in self.market_ws.token_ids.items():
+            outcomes = tuple(
+                self.market_ws.token_outcomes.get(tid, "?") for tid in tids
+            )
+            cond = self.market_ws.condition_ids.get(slug, "")
+            meta[slug] = {
+                "token_ids": tuple(tids),
+                "outcomes": outcomes,
+                "condition_id": cond,
+            }
+        self._strategy_ctx.market_meta = meta
+
+    # ── Metrics collectors ────────────────────────────────────────────────
+
+    async def _metrics_tick_size(self, event: TickSizeChange) -> None:
+        self._metrics.inc("tick_size_changes")
+        if self.dashboard:
+            self.dashboard.push_event(
+                f"TICK_SIZE  {event.slug}  {event.old_tick_size} → {event.new_tick_size}"
+            )
+
+    async def _metrics_book_update(self, event: BookUpdate) -> None:
+        self._metrics.inc("ws_messages_received")
+
+    async def _metrics_loop(self) -> None:
+        """Periodic gauge updates for dashboard/health."""
+        while True:
+            await asyncio.sleep(2)
+            active = sum(1 for v in self.market_ws.market_active.values() if v)
+            self._metrics.set("active_markets", active)
+            self._metrics.set("ws_market_connected", 1.0 if self.market_ws.connected else 0.0)
+            self._metrics.set("ws_market_msg_age_s", self.market_ws.last_message_age_s)
+            self._metrics.set("persistence_pending", float(self.persistence.pending))
+            self._metrics.set("orders_pending", float(self.order_manager.pending_count))
+
+    # ── Health context ────────────────────────────────────────────────────
+
+    def _health_context(self) -> dict[str, Any]:
+        return {
+            "dry_run": self.dry_run,
+            "ws_market_connected": self.market_ws.connected,
+            "ws_user_connected": self.user_ws.connected,
+            "active_markets": sum(1 for v in self.market_ws.market_active.values() if v),
+            "pending_orders": self.order_manager.pending_count,
+            "order_stats": self.order_manager.stats,
+            "session_pnl": self.position_tracker.session_pnl,
+        }
+
+    # ── Supervised task wrapper ───────────────────────────────────────────
+
+    async def _supervised_task(self, name: str, coro: Any) -> None:
+        backoff = RETRY_BASE_DELAY
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                await coro()
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                retries += 1
+                logger.exception(
+                    "[SUPERVISOR] %s crashed (attempt %d/%d) — restarting in %ds",
+                    name, retries, MAX_RETRIES, backoff,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 120)
+        logger.critical("[SUPERVISOR] %s exceeded max retries — giving up", name)
+
+    # ── Lifecycle ─────────────────────────────────────────────────────────
+
+    async def run(self) -> None:
+        logger.info("=" * 60)
+        logger.info("POLYMARKET HFT BOT v1 starting")
+        logger.info("  Slugs    : %d", len(self._slugs))
+        logger.info("  Strategies: %s", ", ".join(s.name() for s in self.strategies))
+        logger.info("  Dry-run  : %s", self.dry_run)
+        logger.info("  Dashboard: %s", self.dashboard_enabled)
+        logger.info("  DB path  : %s", self.db_path)
+        logger.info("=" * 60)
+
+        self._wire_subscriptions()
+
+        for strategy in self.strategies:
+            await strategy.startup()
+
+        self._tasks = [
+            asyncio.create_task(self._supervised_task("event_bus", self.event_bus.run)),
+            asyncio.create_task(self._supervised_task("persistence", self.persistence.drain_loop)),
+            asyncio.create_task(self._supervised_task("market_ws", self.market_ws.run)),
+            asyncio.create_task(self._supervised_task("health", self.health_monitor.run)),
+            asyncio.create_task(self._supervised_task("alerts", self.alert_manager.run)),
+            asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),
+            asyncio.create_task(self._supervised_task("stale_reaper", self.order_manager.reap_stale_orders)),
+        ]
+
+        if not self.dry_run:
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("user_ws", self.user_ws.run))
+            )
+
+        if self.dashboard:
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("dashboard", self.dashboard.run))
+            )
+
+        try:
+            await asyncio.gather(*self._tasks)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await self.shutdown()
+
+    async def shutdown(self) -> None:
+        logger.info("Shutting down...")
+
+        for strategy in self.strategies:
+            try:
+                await strategy.shutdown()
+            except Exception:
+                logger.exception("Strategy shutdown error")
+
+        await self.market_ws.stop()
+        await self.user_ws.stop()
+        await self.event_bus.stop()
+        await self.persistence.stop()
+        await self.health_monitor.stop()
+        await self.alert_manager.stop()
+
+        if self.dashboard:
+            await self.dashboard.stop()
+
+        for task in self._tasks:
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+
+        logger.info("Shutdown complete")
+
+    def run_sync(self) -> None:
+        """Blocking entry point with automatic retry."""
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                asyncio.run(self.run())
+                return
+            except KeyboardInterrupt:
+                logger.info("Bot stopped by user")
+                return
+            except Exception:
+                logger.exception(
+                    "Bot crashed (attempt %d/%d) — restarting in %ds",
+                    attempt, MAX_RETRIES, RETRY_BASE_DELAY * attempt,
+                )
+                time.sleep(RETRY_BASE_DELAY * attempt)

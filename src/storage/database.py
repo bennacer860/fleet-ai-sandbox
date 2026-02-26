@@ -1,0 +1,140 @@
+"""SQLite database setup with schema initialisation.
+
+Uses WAL mode for concurrent read/write from the async drain loop
+and any read-only CLI queries (``main.py stats``).
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+from ..logging_config import get_logger
+
+logger = get_logger(__name__)
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS orders (
+    order_id        TEXT PRIMARY KEY,
+    strategy        TEXT NOT NULL,
+    token_id        TEXT NOT NULL,
+    slug            TEXT NOT NULL,
+    side            TEXT NOT NULL,
+    price           REAL NOT NULL,
+    size            REAL NOT NULL,
+    initial_status  TEXT NOT NULL,
+    final_status    TEXT,
+    rejection_reason TEXT DEFAULT '',
+    placed_at       REAL NOT NULL,
+    resolved_at     REAL,
+    signal_to_rest_ms REAL,
+    signal_to_fill_ms REAL,
+    dry_run         INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS fills (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id        TEXT NOT NULL,
+    fill_price      REAL NOT NULL,
+    fill_size       REAL NOT NULL,
+    status          TEXT NOT NULL,
+    timestamp       REAL NOT NULL,
+    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+);
+
+CREATE TABLE IF NOT EXISTS positions (
+    token_id        TEXT NOT NULL,
+    strategy        TEXT NOT NULL,
+    slug            TEXT NOT NULL,
+    quantity        REAL NOT NULL DEFAULT 0,
+    avg_entry_price REAL NOT NULL DEFAULT 0,
+    realized_pnl    REAL NOT NULL DEFAULT 0,
+    updated_at      REAL NOT NULL,
+    PRIMARY KEY (token_id, strategy)
+);
+
+CREATE TABLE IF NOT EXISTS decisions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp       REAL NOT NULL,
+    strategy        TEXT NOT NULL,
+    slug            TEXT NOT NULL,
+    trigger         TEXT NOT NULL,
+    decision        TEXT NOT NULL,
+    reason          TEXT DEFAULT '',
+    best_outcome    TEXT DEFAULT '',
+    best_price      REAL,
+    threshold       REAL,
+    limit_price     REAL,
+    order_id        TEXT DEFAULT '',
+    price_source    TEXT DEFAULT '',
+    raw_prices      TEXT DEFAULT '',
+    dry_run         INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS trades (
+    trade_id        TEXT PRIMARY KEY,
+    strategy        TEXT NOT NULL,
+    slug            TEXT NOT NULL,
+    token_id        TEXT NOT NULL,
+    side            TEXT NOT NULL,
+    entry_price     REAL NOT NULL,
+    exit_price      REAL,
+    size            REAL NOT NULL,
+    gross_pnl       REAL DEFAULT 0,
+    net_pnl         REAL DEFAULT 0,
+    fees            REAL DEFAULT 0,
+    hold_duration_s REAL DEFAULT 0,
+    timestamp_entry REAL NOT NULL,
+    timestamp_exit  REAL,
+    dry_run         INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS dedup (
+    slug            TEXT NOT NULL,
+    token_id        TEXT NOT NULL,
+    strategy        TEXT NOT NULL,
+    session_date    TEXT NOT NULL,
+    created_at      REAL NOT NULL,
+    PRIMARY KEY (slug, token_id, strategy, session_date)
+);
+
+CREATE TABLE IF NOT EXISTS metrics_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp       REAL NOT NULL,
+    snapshot_json   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_slug ON orders(slug);
+CREATE INDEX IF NOT EXISTS idx_orders_strategy ON orders(strategy);
+CREATE INDEX IF NOT EXISTS idx_fills_order ON fills(order_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_slug ON decisions(slug);
+CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
+CREATE INDEX IF NOT EXISTS idx_dedup_session ON dedup(session_date);
+"""
+
+
+def init_db(db_path: str) -> sqlite3.Connection:
+    """Create the database file (if needed) and ensure all tables exist.
+
+    Returns a connection with WAL mode and foreign-key enforcement enabled.
+    """
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.executescript(SCHEMA_SQL)
+    conn.commit()
+
+    logger.info("[DB] Initialised database at %s", db_path)
+    return conn
+
+
+def get_readonly_connection(db_path: str) -> sqlite3.Connection:
+    """Open a read-only connection for CLI stat queries."""
+    uri = f"file:{db_path}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
