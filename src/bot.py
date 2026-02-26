@@ -43,13 +43,23 @@ from .monitoring.health import HealthMonitor
 from .monitoring.metrics import Metrics
 from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
+from .markets.fifteen_min import (
+    MarketSelection,
+    SUPPORTED_DURATIONS,
+    get_current_interval_utc,
+    get_market_slug,
+    get_next_interval_utc,
+)
 from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
+from .utils.slug_helpers import slugs_for_timestamp
 
 logger = get_logger(__name__)
 
 MAX_RETRIES = 10
 RETRY_BASE_DELAY = 5
+SUB_CHECK_INTERVAL = 30
+GRACE_PERIOD_SECONDS = 5 * 60
 
 
 class Bot:
@@ -63,11 +73,20 @@ class Bot:
         db_path: str | None = None,
         dashboard_enabled: bool = False,
         price_threshold: float = 0.95,
+        market_selections: list[MarketSelection] | None = None,
+        durations: list[int] | None = None,
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self.db_path = db_path or DB_PATH
         self.dashboard_enabled = dashboard_enabled
         self._slugs = slugs
+        self._market_selections = market_selections or []
+        self._durations = durations or sorted(SUPPORTED_DURATIONS)
+
+        self._monitored_ts: dict[int, dict[str, set[int]]] = {
+            dur: {sel: set() for sel in self._market_selections}
+            for dur in self._durations
+        }
 
         self.event_bus = EventBus()
 
@@ -238,6 +257,83 @@ class Bot:
             self._metrics.set("persistence_pending", float(self.persistence.pending))
             self._metrics.set("orders_pending", float(self.order_manager.pending_count))
 
+    # ── Subscription management (market rolling) ───────────────────────────
+
+    def _seed_monitored_timestamps(self) -> None:
+        """Populate _monitored_ts from the initial slugs so the subscription
+        manager knows which windows are already tracked."""
+        for dur in self._durations:
+            cur_ts = get_current_interval_utc(dur)
+            nxt_ts = get_next_interval_utc(dur)
+            for sel in self._market_selections:
+                self._monitored_ts[dur][sel].add(cur_ts)
+                self._monitored_ts[dur][sel].add(nxt_ts)
+
+    async def _manage_subscriptions(self) -> None:
+        """Periodically add new market windows and prune expired ones."""
+        while True:
+            await asyncio.sleep(SUB_CHECK_INTERVAL)
+            for dur in self._durations:
+                await self._manage_subscriptions_for_duration(dur)
+
+    async def _manage_subscriptions_for_duration(self, duration: int) -> None:
+        interval_seconds = duration * 60
+        cur_ts = get_current_interval_utc(duration)
+        nxt_ts = get_next_interval_utc(duration)
+        now = int(time.time())
+
+        slugs_to_add: list[str] = []
+        slugs_to_remove: list[str] = []
+
+        for sel in self._market_selections:
+            tracked = self._monitored_ts[duration][sel]
+
+            if nxt_ts not in tracked:
+                try:
+                    slug = get_market_slug(sel, duration, nxt_ts)
+                    slugs_to_add.append(slug)
+                    tracked.add(nxt_ts)
+                    display = format_slug_with_est_time(slug)
+                    logger.info("[SUB] Adding next %dm market for %s: %s", duration, sel, display)
+                except ValueError as exc:
+                    logger.error("Slug generation failed (%s/%dm next): %s", sel, duration, exc)
+
+            if cur_ts not in tracked:
+                try:
+                    slug = get_market_slug(sel, duration, cur_ts)
+                    slugs_to_add.append(slug)
+                    tracked.add(cur_ts)
+                    display = format_slug_with_est_time(slug)
+                    logger.info("[SUB] Adding current %dm market for %s: %s", duration, sel, display)
+                except ValueError as exc:
+                    logger.error("Slug generation failed (%s/%dm current): %s", sel, duration, exc)
+
+            expired: list[int] = []
+            for ts in tracked:
+                end_time = ts + interval_seconds
+                if now > end_time + GRACE_PERIOD_SECONDS:
+                    try:
+                        slug = get_market_slug(sel, duration, ts)
+                        if slug in self.market_ws.market_active and not self.market_ws.market_active[slug]:
+                            slugs_to_remove.append(slug)
+                            expired.append(ts)
+                            display = format_slug_with_est_time(slug)
+                            logger.info("[SUB] Removing expired %dm market for %s: %s", duration, sel, display)
+                    except ValueError:
+                        expired.append(ts)
+            for ts in expired:
+                tracked.discard(ts)
+
+        if slugs_to_add:
+            await self.market_ws.add_markets(slugs_to_add)
+            if self.dashboard:
+                for slug in slugs_to_add:
+                    display = format_slug_with_est_time(slug)
+                    self.dashboard.push_event(f"MARKET_ADD  {display}")
+
+        if slugs_to_remove:
+            await self.market_ws.remove_markets(slugs_to_remove)
+
     # ── Health context ────────────────────────────────────────────────────
 
     def _health_context(self) -> dict[str, Any]:
@@ -285,6 +381,7 @@ class Bot:
         logger.info("=" * 60)
 
         self._wire_subscriptions()
+        self._seed_monitored_timestamps()
 
         for strategy in self.strategies:
             await strategy.startup()
@@ -297,6 +394,7 @@ class Bot:
             asyncio.create_task(self._supervised_task("alerts", self.alert_manager.run)),
             asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),
             asyncio.create_task(self._supervised_task("stale_reaper", self.order_manager.reap_stale_orders)),
+            asyncio.create_task(self._supervised_task("sub_manager", self._manage_subscriptions)),
         ]
 
         if not self.dry_run:

@@ -54,6 +54,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         db_path=args.db_path,
         dashboard_enabled=args.dashboard,
         price_threshold=args.price_threshold,
+        market_selections=markets,
+        durations=durations,
     )
 
     bot.run_sync()
