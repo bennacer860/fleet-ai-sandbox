@@ -25,6 +25,7 @@ from .core.events import (
     MarketResolved,
     OrderFill,
     OrderLive,
+    OrderStatus,
     OrderTerminal,
     TickSizeChange,
 )
@@ -156,8 +157,10 @@ class Bot:
         bus.subscribe(MarketResolved, self._on_market_resolved)
 
         bus.subscribe(OrderFill, self.order_manager.on_order_fill)
+        bus.subscribe(OrderFill, self._dashboard_on_fill)
         bus.subscribe(OrderLive, self.order_manager.on_order_live)
         bus.subscribe(OrderTerminal, self.order_manager.on_order_terminal)
+        bus.subscribe(OrderTerminal, self._dashboard_on_terminal)
 
         bus.subscribe(OrderFill, self.position_tracker.on_fill)
         bus.subscribe(BookUpdate, self.position_tracker.on_book_update)
@@ -198,14 +201,34 @@ class Bot:
 
     async def _submit_intents(self, intents: list[OrderIntent], event: Any) -> None:
         for intent in intents:
+            display_slug = format_slug_with_est_time(intent.slug)
             state = await self.order_manager.submit(intent)
+
+            if state is None and self.dashboard:
+                stats = self.order_manager.stats
+                if stats.get("dedup_skips", 0) > 0:
+                    self.dashboard.push_event(
+                        f"[yellow]SKIP[/yellow]  {display_slug}  DEDUP: already ordered this session"
+                    )
+                elif stats.get("risk_blocks", 0) > 0:
+                    self.dashboard.push_event(
+                        f"[yellow]SKIP[/yellow]  {display_slug}  RISK: limit exceeded"
+                    )
+                continue
+
             if state and self.dashboard:
-                action = "SUBMITTED" if state.status.value == "SUBMITTED" else state.status.value
-                display_slug = format_slug_with_est_time(intent.slug)
-                self.dashboard.push_event(
-                    f"{action}  {display_slug}  {intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
-                )
-            if state:
+                if state.is_terminal:
+                    reason = state.rejection_reason or state.status.value
+                    self.dashboard.push_event(
+                        f"[red]{state.status.value}[/red]  {display_slug}  {reason}"
+                    )
+                else:
+                    self.dashboard.push_event(
+                        f"[green]SUBMITTED[/green]  {display_slug}  "
+                        f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
+                    )
+
+            if state and not state.is_terminal:
                 self.position_tracker.register_order(
                     order_id=state.order_id,
                     token_id=intent.token_id,
@@ -215,6 +238,32 @@ class Bot:
                     price=intent.price,
                     size=intent.size,
                 )
+
+    # ── Dashboard order lifecycle events ────────────────────────────────────
+
+    async def _dashboard_on_fill(self, event: OrderFill) -> None:
+        if not self.dashboard:
+            return
+        state = self.order_manager.active_orders.get(event.order_id)
+        slug = state.intent.slug if state else "?"
+        display = format_slug_with_est_time(slug) if slug != "?" else "?"
+        label = "FILLED" if state and state.status == OrderStatus.FILLED else "PARTIAL"
+        color = "green" if label == "FILLED" else "cyan"
+        self.dashboard.push_event(
+            f"[{color}]{label}[/{color}]  {display}  "
+            f"@ {event.fill_price:.4f} x {event.fill_size:.2f}"
+        )
+
+    async def _dashboard_on_terminal(self, event: OrderTerminal) -> None:
+        if not self.dashboard:
+            return
+        state = self.order_manager.active_orders.get(event.order_id)
+        slug = state.intent.slug if state else "?"
+        display = format_slug_with_est_time(slug) if slug != "?" else "?"
+        reason = event.reason or event.status.value
+        self.dashboard.push_event(
+            f"[red]{event.status.value}[/red]  {display}  {reason}"
+        )
 
     # ── Context maintenance ───────────────────────────────────────────────
 
