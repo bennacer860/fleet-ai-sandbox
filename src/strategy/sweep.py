@@ -108,37 +108,54 @@ class SweepStrategy(Strategy):
     def _get_eval(
         self, slug: str, token_id: str, ctx: StrategyContext
     ) -> dict | None:
-        """Build evaluation from cached data or real-time prices."""
-        if slug in ctx.eval_cache:
-            return ctx.eval_cache[slug]
+        """Build evaluation from cached data, overlaying real-time WS prices."""
+        cached = ctx.eval_cache.get(slug)
 
-        meta = ctx.market_meta.get(slug)
-        if not meta:
-            return None
+        if cached:
+            eval_data = dict(cached)
+        else:
+            meta = ctx.market_meta.get(slug)
+            if not meta:
+                return None
 
-        token_ids: tuple[str, ...] = meta.get("token_ids", ())
-        outcomes: tuple[str, ...] = meta.get("outcomes", ())
+            token_ids: tuple[str, ...] = meta.get("token_ids", ())
+            outcomes: tuple[str, ...] = meta.get("outcomes", ())
 
-        if len(token_ids) < 2:
-            return None
+            if len(token_ids) < 2:
+                return None
 
-        prices: list[float] = []
-        for tid in token_ids:
-            bp = ctx.best_prices.get(tid, {})
-            prices.append(bp.get("bid", 0.0))
+            eval_data = {
+                "token_ids": token_ids,
+                "outcomes": outcomes,
+                "prices": [0.0] * len(token_ids),
+                "min_order_size": FALLBACK_MIN_ORDER_SIZE,
+            }
+
+        tids = eval_data["token_ids"]
+        outcomes = eval_data["outcomes"]
+        prices = list(eval_data["prices"])
+
+        for i, tid in enumerate(tids):
+            rt = ctx.best_prices.get(tid, {}).get("bid")
+            if rt is not None and rt > 0:
+                if abs(rt - prices[i]) > 0.05:
+                    logger.debug(
+                        "[SWEEP] RT override %s: cached=%.3f → ws=%.3f",
+                        outcomes[i] if i < len(outcomes) else "?",
+                        prices[i], rt,
+                    )
+                prices[i] = rt
 
         if not any(p > 0 for p in prices):
             return None
 
         best_idx = max(range(len(prices)), key=lambda i: prices[i])
 
-        return {
-            "token_ids": token_ids,
-            "outcomes": outcomes,
+        eval_data.update({
             "prices": prices,
             "best_idx": best_idx,
             "best_price": prices[best_idx],
             "best_outcome": outcomes[best_idx] if best_idx < len(outcomes) else "?",
-            "best_token_id": token_ids[best_idx],
-            "min_order_size": FALLBACK_MIN_ORDER_SIZE,
-        }
+            "best_token_id": tids[best_idx],
+        })
+        return eval_data
