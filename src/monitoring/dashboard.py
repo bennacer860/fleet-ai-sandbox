@@ -117,6 +117,22 @@ class Dashboard:
             rate = (filled / total * 100) if total > 0 else 0
             lines.append(f"Fill Rate: {rate:.1f}%")
             lines.append(f"Dedup Skips: {s.get('dedup_skips', 0)}")
+
+            tick_ms_vals: list[float] = []
+            expiry_vals: list[float] = []
+            for st in self._order_mgr.active_orders.values():
+                if st.tick_to_order_ms is not None:
+                    tick_ms_vals.append(st.tick_to_order_ms)
+                if st.time_to_expiry_s is not None:
+                    expiry_vals.append(st.time_to_expiry_s)
+            if tick_ms_vals:
+                avg_tick = sum(tick_ms_vals) / len(tick_ms_vals)
+                last_tick = tick_ms_vals[-1]
+                lines.append(f"Tick→Order: {last_tick:.0f}ms (avg {avg_tick:.0f}ms)")
+            if expiry_vals:
+                avg_exp = sum(expiry_vals) / len(expiry_vals)
+                last_exp = expiry_vals[-1]
+                lines.append(f"To Expiry:  {last_exp:.0f}s  (avg {avg_exp:.0f}s)")
         else:
             lines.append("No data")
         return Panel("\n".join(lines), title="ORDERS", border_style="yellow")

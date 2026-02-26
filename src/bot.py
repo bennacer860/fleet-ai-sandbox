@@ -48,6 +48,7 @@ from .utils.market_data import get_market_evaluation, get_min_order_size
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
+    extract_market_end_ts,
     get_current_interval_utc,
     get_market_slug,
     get_next_interval_utc,
@@ -247,9 +248,15 @@ class Bot:
                 logger.exception("Strategy %s error on market_resolved", strategy.name())
 
     async def _submit_intents(self, intents: list[OrderIntent], event: Any) -> None:
+        tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
             display_slug = format_slug_with_est_time(intent.slug)
             state = await self.order_manager.submit(intent)
+
+            if state is not None:
+                state.tick_event_ns = tick_event_ns
+                state.market_end_ts = extract_market_end_ts(intent.slug)
+                self.order_manager.re_persist(state)
 
             if state is None and self.dashboard:
                 stats = self.order_manager.stats
@@ -264,15 +271,23 @@ class Bot:
                 continue
 
             if state and self.dashboard:
+                tick_ms = state.tick_to_order_ms
+                expiry_s = state.time_to_expiry_s
+                timing = ""
+                if tick_ms is not None:
+                    timing += f"  tick→order={tick_ms:.0f}ms"
+                if expiry_s is not None:
+                    timing += f"  expires={expiry_s:.0f}s"
+
                 if state.is_terminal:
                     reason = state.rejection_reason or state.status.value
                     self.dashboard.push_event(
-                        f"[red]{state.status.value}[/red]  {display_slug}  {reason}"
+                        f"[red]{state.status.value}[/red]  {display_slug}  {reason}{timing}"
                     )
                 else:
                     self.dashboard.push_event(
                         f"[green]SUBMITTED[/green]  {display_slug}  "
-                        f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
+                        f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}{timing}"
                     )
 
             if state and not state.is_terminal:

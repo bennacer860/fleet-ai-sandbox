@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS orders (
     resolved_at     REAL,
     signal_to_rest_ms REAL,
     signal_to_fill_ms REAL,
+    tick_to_order_ms REAL,
+    time_to_expiry_s REAL,
     dry_run         INTEGER NOT NULL DEFAULT 0
 );
 

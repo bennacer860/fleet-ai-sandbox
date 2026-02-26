@@ -143,6 +143,10 @@ class OrderManager:
 
         return None
 
+    def re_persist(self, state: OrderState) -> None:
+        """Re-save an order state after external fields are updated."""
+        self._persist_order(state)
+
     # ── Event handlers (subscribe via EventBus) ───────────────────────────
 
     async def on_order_fill(self, event: OrderFill) -> None:
@@ -260,7 +264,7 @@ class OrderManager:
         if not self._persistence:
             return
         self._persistence.enqueue(
-            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, tick_to_order_ms, time_to_expiry_s, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 state.order_id,
                 state.intent.strategy,
@@ -276,6 +280,8 @@ class OrderManager:
                 state.resolved_at_ns / 1e9 if state.resolved_at_ns else None,
                 state.signal_to_rest_ms,
                 state.signal_to_fill_ms,
+                state.tick_to_order_ms,
+                state.time_to_expiry_s,
                 1 if state.dry_run else 0,
             ),
         )

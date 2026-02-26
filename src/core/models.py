@@ -54,6 +54,8 @@ class OrderState:
     rejection_reason: str = ""
     resolved_at_ns: int | None = None
     dry_run: bool = False
+    tick_event_ns: int | None = None
+    market_end_ts: float | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -76,6 +78,20 @@ class OrderState:
     def signal_to_fill_ms(self) -> float | None:
         if self.signal_ns is not None and self.resolved_at_ns is not None:
             return (self.resolved_at_ns - self.signal_ns) / 1_000_000
+        return None
+
+    @property
+    def tick_to_order_ms(self) -> float | None:
+        """Time from the tick_size_change event to order placement."""
+        if self.tick_event_ns is not None:
+            return (self.placed_at_ns - self.tick_event_ns) / 1_000_000
+        return None
+
+    @property
+    def time_to_expiry_s(self) -> float | None:
+        """Seconds remaining until the market ends, measured at order placement."""
+        if self.market_end_ts is not None:
+            return self.market_end_ts - (self.placed_at_ns / 1e9)
         return None
 
 

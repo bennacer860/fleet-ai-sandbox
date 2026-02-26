@@ -141,6 +141,28 @@ def get_market_slug(
     return slug
 
 
+def extract_market_end_ts(slug: str) -> int | None:
+    """Extract the market end unix timestamp from a slug.
+
+    Slug format: ``{crypto}-updown-{5m|15m}-{start_ts}``
+    Market end = start_ts + duration_seconds.
+
+    Returns:
+        End timestamp as int, or None if the slug cannot be parsed.
+    """
+    duration = detect_duration_from_slug(slug)
+    if duration is None:
+        return None
+    parts = slug.rsplit("-", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        start_ts = int(parts[1])
+    except ValueError:
+        return None
+    return start_ts + duration * 60
+
+
 # ── Backward-compatibility aliases ───────────────────────────────────────────
 # These keep existing imports (continuous_15min_monitor, monitor_multi_events,
 # etc.) working without modification during the transition.
