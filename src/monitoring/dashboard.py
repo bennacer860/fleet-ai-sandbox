@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-MAX_EVENTS = 15
+MAX_EVENTS = 35
 REFRESH_INTERVAL = 1.0
 
 
