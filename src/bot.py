@@ -217,6 +217,14 @@ class Bot:
                 intents = await strategy.on_tick_size_change(event, self._strategy_ctx)
                 if intents:
                     await self._submit_intents(intents, event)
+                elif self.dashboard:
+                    display_slug = format_slug_with_est_time(event.slug)
+                    reason = getattr(strategy, "last_skip_reason", None) or "no signal"
+                    price = getattr(strategy, "last_best_price", None)
+                    price_str = f"  price={price:.3f}" if price is not None else ""
+                    self.dashboard.push_event(
+                        f"[dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason}"
+                    )
             except Exception:
                 logger.exception("Strategy %s error on tick_size_change", strategy.name())
 
@@ -329,8 +337,12 @@ class Bot:
         self._metrics.inc("tick_size_changes")
         if self.dashboard:
             display_slug = format_slug_with_est_time(event.slug)
+            bp = self._strategy_ctx.best_prices.get(event.token_id, {})
+            bid = bp.get("bid")
+            price_tag = f"  bid={bid:.3f}" if bid is not None else ""
             self.dashboard.push_event(
-                f"TICK_SIZE  {display_slug}  {event.old_tick_size} → {event.new_tick_size}"
+                f"TICK_SIZE  {display_slug}  "
+                f"{event.old_tick_size} → {event.new_tick_size}{price_tag}"
             )
 
     async def _metrics_book_update(self, event: BookUpdate) -> None:

@@ -33,6 +33,8 @@ class SweepStrategy(Strategy):
     ) -> None:
         self._price_threshold = price_threshold
         self._order_price = order_price
+        self.last_skip_reason: str | None = None
+        self.last_best_price: float | None = None
 
     def name(self) -> str:
         return "sweep"
@@ -40,25 +42,35 @@ class SweepStrategy(Strategy):
     async def on_tick_size_change(
         self, event: TickSizeChange, ctx: StrategyContext
     ) -> list[OrderIntent] | None:
+        self.last_skip_reason = None
+        self.last_best_price = None
+
         if event.old_tick_size == event.new_tick_size:
+            self.last_skip_reason = "duplicate tick_size (unchanged)"
             return None
 
         if not self._is_sweep_signal(event.new_tick_size):
+            self.last_skip_reason = f"not a sweep signal (tick_size={event.new_tick_size})"
             return None
 
         eval_data = self._get_eval(event.slug, event.token_id, ctx)
         if eval_data is None:
             logger.warning("[SWEEP] No eval data for %s — skipping", event.slug)
+            self.last_skip_reason = "no eval data available"
             return None
 
         best_price = eval_data["best_price"]
         best_token = eval_data["best_token_id"]
         best_outcome = eval_data["best_outcome"]
+        self.last_best_price = best_price
 
         if best_price < self._price_threshold:
             logger.info(
                 "[SWEEP] %s: price %.3f < threshold %.2f — skip",
                 event.slug, best_price, self._price_threshold,
+            )
+            self.last_skip_reason = (
+                f"price {best_price:.3f} < threshold {self._price_threshold:.2f}"
             )
             return None
 
