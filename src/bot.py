@@ -247,6 +247,15 @@ class Bot:
             except Exception:
                 logger.exception("Strategy %s error on market_resolved", strategy.name())
 
+        await self.market_ws.remove_markets([event.slug])
+        self._eval_cache.pop(event.slug, None)
+
+        if self.dashboard:
+            display_slug = format_slug_with_est_time(event.slug)
+            self.dashboard.push_event(
+                f"[blue]RESOLVED[/blue]  {display_slug}  unsubscribed"
+            )
+
     async def _submit_intents(self, intents: list[OrderIntent], event: Any) -> None:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
