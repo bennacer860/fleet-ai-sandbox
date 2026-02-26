@@ -28,6 +28,7 @@ from .core.events import (
     OrderTerminal,
     TickSizeChange,
 )
+from .utils.timestamps import format_slug_with_est_time
 from .core.models import OrderIntent
 from .execution.order_manager import OrderManager
 from .execution.position_tracker import PositionTracker
@@ -180,8 +181,9 @@ class Bot:
             state = await self.order_manager.submit(intent)
             if state and self.dashboard:
                 action = "SUBMITTED" if state.status.value == "SUBMITTED" else state.status.value
+                display_slug = format_slug_with_est_time(intent.slug)
                 self.dashboard.push_event(
-                    f"{action}  {intent.slug}  {intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
+                    f"{action}  {display_slug}  {intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
                 )
             if state:
                 self.position_tracker.register_order(
@@ -217,8 +219,9 @@ class Bot:
     async def _metrics_tick_size(self, event: TickSizeChange) -> None:
         self._metrics.inc("tick_size_changes")
         if self.dashboard:
+            display_slug = format_slug_with_est_time(event.slug)
             self.dashboard.push_event(
-                f"TICK_SIZE  {event.slug}  {event.old_tick_size} → {event.new_tick_size}"
+                f"TICK_SIZE  {display_slug}  {event.old_tick_size} → {event.new_tick_size}"
             )
 
     async def _metrics_book_update(self, event: BookUpdate) -> None:

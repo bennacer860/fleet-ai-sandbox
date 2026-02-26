@@ -20,6 +20,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..logging_config import get_logger
+from ..utils.timestamps import format_slug_with_est_time
 from .metrics import Metrics
 
 if TYPE_CHECKING:
@@ -52,6 +53,13 @@ class Dashboard:
         self._dry_run = dry_run
         self._recent_events: deque[str] = deque(maxlen=MAX_EVENTS)
         self._running = False
+        self._slug_display_cache: dict[str, str] = {}
+
+    def _format_slug(self, slug: str) -> str:
+        """Convert a raw slug to a human-readable form with EST time, cached."""
+        if slug not in self._slug_display_cache:
+            self._slug_display_cache[slug] = format_slug_with_est_time(slug)
+        return self._slug_display_cache[slug]
 
     def push_event(self, text: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
@@ -86,8 +94,8 @@ class Dashboard:
                     price = bp.get("bid", 0.0)
                     parts.append(f"{outcome}:{price:.2f}")
                 price_str = "  ".join(parts)
-                short = slug[:20]
-                table.add_row(short, price_str, "[green]OK[/green]")
+                display = self._format_slug(slug)
+                table.add_row(display, price_str, "[green]OK[/green]")
             count = len(active)
         else:
             count = 0
