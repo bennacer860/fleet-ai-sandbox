@@ -29,6 +29,8 @@ from ..storage.persistence import AsyncPersistence
 logger = get_logger(__name__)
 
 STALE_ORDER_TIMEOUT_S = 300
+RECONCILE_INTERVAL_S = 15
+TERMINAL_RETENTION_S = 600
 
 
 class OrderManager:
@@ -205,10 +207,11 @@ class OrderManager:
     # ── Stale order reaper ────────────────────────────────────────────────
 
     async def reap_stale_orders(self) -> None:
-        """Background task: expire orders stuck pending > timeout."""
+        """Background task: expire orders stuck pending > timeout and prune old terminal orders."""
         while True:
             await asyncio.sleep(60)
             now_ns = time.time_ns()
+
             stale: list[str] = []
             for oid, state in self._active_orders.items():
                 if state.is_terminal:
@@ -231,6 +234,122 @@ class OrderManager:
                     (now_ns - state.placed_at_ns) / 1e9,
                 )
                 self._persist_order(state)
+
+            self._prune_terminal_orders(now_ns)
+
+    # ── Terminal order pruning ────────────────────────────────────────────
+
+    def _prune_terminal_orders(self, now_ns: int) -> None:
+        """Remove terminal orders older than TERMINAL_RETENTION_S from memory."""
+        to_remove: list[str] = []
+        for oid, state in self._active_orders.items():
+            if not state.is_terminal:
+                continue
+            resolved_ns = state.resolved_at_ns or state.placed_at_ns
+            age_s = (now_ns - resolved_ns) / 1e9
+            if age_s > TERMINAL_RETENTION_S:
+                to_remove.append(oid)
+
+        for oid in to_remove:
+            del self._active_orders[oid]
+
+        if to_remove:
+            logger.info("[ORDER] Pruned %d terminal orders from memory", len(to_remove))
+
+    # ── REST order reconciliation ─────────────────────────────────────────
+
+    _CLOB_STATUS_MAP: dict[str, OrderStatus] = {
+        "MATCHED": OrderStatus.FILLED,
+        "FILLED": OrderStatus.FILLED,
+        "CANCELED": OrderStatus.CANCELLED,
+        "CANCELLED": OrderStatus.CANCELLED,
+        "EXPIRED": OrderStatus.EXPIRED,
+    }
+
+    async def reconcile_orders(self) -> None:
+        """Background task: poll the CLOB REST API to reconcile order statuses.
+
+        Catches fills, cancellations, and expirations that the User WebSocket
+        may have missed (e.g. during disconnects or restarts).
+        """
+        while True:
+            await asyncio.sleep(RECONCILE_INTERVAL_S)
+
+            pending = [
+                (oid, state)
+                for oid, state in self._active_orders.items()
+                if not state.is_terminal and not state.dry_run
+            ]
+            if not pending:
+                continue
+
+            for oid, state in pending:
+                try:
+                    order_data = await self.rest_client.get_order(oid)
+                except Exception:
+                    logger.debug("[RECONCILE] REST fetch failed for %s", oid[:16], exc_info=True)
+                    continue
+
+                if order_data is None:
+                    continue
+
+                api_status = (
+                    order_data.get("status", "")
+                    or order_data.get("order_status", "")
+                ).upper()
+
+                matched_status = self._CLOB_STATUS_MAP.get(api_status)
+                if matched_status is None:
+                    continue
+
+                if matched_status == OrderStatus.FILLED:
+                    size_matched = 0.0
+                    try:
+                        size_matched = float(
+                            order_data.get("size_matched")
+                            or order_data.get("matched_amount")
+                            or order_data.get("filled_size")
+                            or state.intent.size
+                        )
+                    except (ValueError, TypeError):
+                        size_matched = state.intent.size
+
+                    fill_price = None
+                    try:
+                        raw = order_data.get("associate_trades", [])
+                        if raw and isinstance(raw, list):
+                            fill_price = float(raw[-1].get("price", 0))
+                    except (ValueError, TypeError, IndexError):
+                        pass
+                    if not fill_price:
+                        try:
+                            fill_price = float(order_data.get("price", 0)) or None
+                        except (ValueError, TypeError):
+                            pass
+
+                    already_filled = state.filled_size
+                    new_fill = size_matched - already_filled
+                    if new_fill > 0.001:
+                        logger.info(
+                            "[RECONCILE] Fill detected for %s: +%.2f (total %.2f)",
+                            oid[:16], new_fill, size_matched,
+                        )
+                        self.event_bus.publish_nowait(OrderFill(
+                            order_id=oid,
+                            fill_price=fill_price or state.intent.price,
+                            fill_size=new_fill,
+                            status=OrderStatus.PARTIAL,
+                        ))
+                else:
+                    logger.info(
+                        "[RECONCILE] Terminal status for %s: %s",
+                        oid[:16], matched_status.value,
+                    )
+                    self.event_bus.publish_nowait(OrderTerminal(
+                        order_id=oid,
+                        status=matched_status,
+                        reason=f"reconciled via REST ({api_status})",
+                    ))
 
     # ── Dedup ─────────────────────────────────────────────────────────────
 

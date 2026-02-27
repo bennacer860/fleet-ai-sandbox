@@ -117,6 +117,7 @@ class Bot:
         self.order_manager.load_dedup_from_db(conn)
 
         self.position_tracker = PositionTracker(persistence=self.persistence)
+        self.position_tracker.load_positions_from_db(conn)
 
         self.market_ws = MarketWebSocket(
             event_bus=self.event_bus,
@@ -530,6 +531,9 @@ class Bot:
         if not self.dry_run:
             self._tasks.append(
                 asyncio.create_task(self._supervised_task("user_ws", self.user_ws.run))
+            )
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("order_reconciler", self.order_manager.reconcile_orders))
             )
 
         if self.dashboard:

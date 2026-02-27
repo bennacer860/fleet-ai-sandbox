@@ -7,6 +7,7 @@ cumulative realised P&L.
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from typing import Any
 
@@ -33,6 +34,40 @@ class PositionTracker:
         self.wins: int = 0
         self.losses: int = 0
         self.trades_closed: int = 0
+
+    # ── Startup ────────────────────────────────────────────────────────────
+
+    def load_positions_from_db(self, conn: sqlite3.Connection) -> None:
+        """Restore open positions from SQLite on startup.
+
+        Only loads positions with quantity > 0 (still open).
+        """
+        cursor = conn.execute(
+            "SELECT token_id, strategy, slug, quantity, avg_entry_price, realized_pnl "
+            "FROM positions WHERE quantity > 0"
+        )
+        loaded = 0
+        for row in cursor:
+            token_id, strategy, slug, quantity, avg_entry_price, realized_pnl = row
+            pos = Position(
+                token_id=token_id,
+                slug=slug,
+                strategy=strategy,
+                quantity=quantity,
+                avg_entry_price=avg_entry_price,
+                realized_pnl=realized_pnl,
+            )
+            self._positions[token_id] = pos
+            loaded += 1
+
+        if loaded:
+            self.total_realized_pnl = sum(p.realized_pnl for p in self._positions.values())
+            logger.info(
+                "[POSITION] Restored %d open positions from database (realized_pnl=$%.4f)",
+                loaded, self.total_realized_pnl,
+            )
+        else:
+            logger.info("[POSITION] No open positions found in database")
 
     # ── Public API ────────────────────────────────────────────────────────
 

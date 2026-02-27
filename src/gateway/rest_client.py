@@ -11,7 +11,7 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from ..clob_client import place_limit_order
+from ..clob_client import get_order_status, place_limit_order
 from ..core.events import OrderStatus, OrderSubmitted, OrderTerminal
 from ..core.models import OrderIntent, Side
 from ..gamma_client import fetch_event_by_slug
@@ -101,6 +101,13 @@ class AsyncRestClient:
             status=OrderStatus.REJECTED,
             reason=error_msg,
         )
+
+    # ── Order status ─────────────────────────────────────────────────
+
+    async def get_order(self, order_id: str) -> dict[str, Any] | None:
+        """Fetch a single order's current state from the CLOB REST API."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, get_order_status, order_id)
 
     # ── Market data ───────────────────────────────────────────────────────
 

@@ -116,6 +116,23 @@ def create_clob_client() -> Optional[ClobClient]:
         return None
 
 
+def get_order_status(order_id: str) -> Optional[dict[str, Any]]:
+    """Fetch a single order's current state from the CLOB API.
+
+    Returns the raw order dict (with fields like ``status``,
+    ``size_matched``, ``price``, etc.) or ``None`` on failure.
+    """
+    client = create_clob_client()
+    if client is None:
+        return None
+
+    try:
+        return client.get_order(order_id)
+    except Exception:
+        logger.debug("get_order failed for %s", order_id[:16], exc_info=True)
+        return None
+
+
 def place_limit_order(
     token_id: str,
     price: float,
