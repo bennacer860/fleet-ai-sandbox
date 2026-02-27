@@ -11,7 +11,7 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from ..clob_client import get_order_status, place_limit_order
+from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order
 from ..core.events import OrderStatus, OrderSubmitted, OrderTerminal
 from ..core.models import OrderIntent, Side
 from ..gamma_client import fetch_event_by_slug
@@ -72,7 +72,7 @@ class AsyncRestClient:
             return OrderTerminal(
                 order_id="",
                 status=OrderStatus.FAILED,
-                reason="CLOB client returned None",
+                reason="CLOB client unavailable (not initialised)",
             )
 
         if resp.get("success"):
@@ -94,12 +94,14 @@ class AsyncRestClient:
                 timestamp_ns=rest_ns,
             )
 
-        error_msg = resp.get("errorMsg", "unknown")
-        logger.warning("[ORDER] Rejected: %s for %s", error_msg, intent.slug)
+        error_code = resp.get("errorMsg", "unknown")
+        human_reason = ERROR_REASONS.get(error_code, error_code)
+        reason = f"{error_code}: {human_reason}" if human_reason != error_code else error_code
+        logger.warning("[ORDER] Rejected: %s for %s", reason, intent.slug)
         return OrderTerminal(
             order_id=resp.get("orderId", ""),
             status=OrderStatus.REJECTED,
-            reason=error_msg,
+            reason=reason,
         )
 
     # ── Order status ─────────────────────────────────────────────────

@@ -207,11 +207,14 @@ def place_limit_order(
         logger.debug("Raw API response: %s", resp)
         return resp
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Order placement failed: token_id=%s, price=%s, size=%s",
             token_id,
             price,
             size,
         )
-        return None
+        return {
+            "success": False,
+            "errorMsg": f"EXCEPTION: {type(exc).__name__}: {exc}",
+        }
