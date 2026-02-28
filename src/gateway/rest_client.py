@@ -76,7 +76,15 @@ class AsyncRestClient:
             )
 
         if resp.get("success"):
-            order_id = resp.get("orderId", "unknown")
+            order_id = resp.get("orderId")
+            if not order_id:
+                logger.error("[ORDER] API reported success but missing orderId: %s", resp)
+                return OrderTerminal(
+                    order_id="",
+                    status=OrderStatus.FAILED,
+                    reason="API success but missing orderId",
+                )
+
             latency_ms = (rest_ns - signal_ns) / 1_000_000
             logger.info(
                 "[ORDER] Submitted %s: %s %s @ %.4f x %.2f (%.0fms)",
