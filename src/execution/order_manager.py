@@ -98,25 +98,6 @@ class OrderManager:
             self._log_decision(intent, "SKIP", f"RISK: {reason}")
             return None
 
-        # --- Market closed guard ---
-        from ..markets.fifteen_min import extract_market_end_ts
-        market_end = extract_market_end_ts(intent.slug)
-        if market_end is not None:
-            now = time.time()
-            if now >= market_end:
-                self._stats["rejected"] += 1
-                logger.warning("[ORDER] Market closed: %s (ended %.1fs ago)", intent.slug, now - market_end)
-                self._log_decision(intent, "SKIP", f"MARKET_CLOSED: ended {now - market_end:.1f}s ago")
-                return OrderState(
-                    order_id=f"closed_{signal_ns}",
-                    intent=intent,
-                    status=OrderStatus.REJECTED,
-                    signal_ns=signal_ns,
-                    rejection_reason=f"Market closed ({now - market_end:.1f}s ago)",
-                    resolved_at_ns=time.time_ns(),
-                    dry_run=self.dry_run,
-                )
-        # ---------------------------
 
         result = await self.rest_client.place_order(intent, dry_run=self.dry_run)
 

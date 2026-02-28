@@ -61,26 +61,38 @@ def _clamp_price(
     token_id: str,
     known_tick_size: Optional[float] = None,
 ) -> float:
-    """Clamp *price* to the valid range ``[tick_size, 1 - tick_size]``.
+    """Clamp *price* to the valid range ``[tick_size, 1 - tick_size]`` and round
+    it to the nearest tick multiple to ensure grid compatibility.
 
     If *known_tick_size* is provided (e.g. taken directly from the WebSocket
     ``tick_size_change`` event), it is used as-is and no HTTP call is made.
     Otherwise the tick size is fetched live from the CLOB API as a fallback.
     """
+    import math
+
     tick = known_tick_size if known_tick_size is not None else _get_live_tick_size(token_id)
+    
+    # Calculate precision from tick size (e.g. 0.001 -> 3, 0.01 -> 2)
+    precision = 0
+    if tick > 0:
+        precision = max(0, int(-math.log10(tick) + 0.1))
+
+    # Range limits
     min_price = round(tick, 10)
     max_price = round(1.0 - tick, 10)
 
-    if price < min_price or price > max_price:
-        clamped = max(min_price, min(price, max_price))
-        logger.warning(
-            "Price %.4f out of valid range [%.4f, %.4f] for tick_size=%.4f "
-            "– clamping to %.4f (token=%s)",
-            price, min_price, max_price, tick, clamped, token_id[:20],
-        )
-        return clamped
+    # First clamp to range, then round to grid
+    clamped = max(min_price, min(price, max_price))
+    final_price = round(clamped, precision)
 
-    return price
+    if abs(price - final_price) > 1e-9:
+        logger.info(
+            "[CLAMP] Adjusted price for %s: %.6f -> %.4f (tick_size=%.4f)",
+            token_id[:16], price, final_price, tick
+        )
+        return final_price
+
+    return final_price
 
 
 def create_clob_client() -> Optional[ClobClient]:

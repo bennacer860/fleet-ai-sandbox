@@ -311,6 +311,20 @@ def print_summary(trades: list[dict[str, Any]]) -> None:
     first_dt = datetime.fromtimestamp(first_trade, tz=est_tz)
     last_dt = datetime.fromtimestamp(last_trade, tz=est_tz)
 
+    # Market/Asset aggregation for P&L tracking
+    market_stats = {} # (event_slug, asset, outcome) -> {buys: usdc, sells: usdc, buy_size: size, sell_size: size}
+    for t in trades:
+        key = (t["event_slug"], t["asset"], t["outcome"])
+        if key not in market_stats:
+            market_stats[key] = {"buy_usdc": 0.0, "sell_usdc": 0.0, "buy_size": 0.0, "sell_size": 0.0}
+        
+        if t["side"] == "BUY":
+            market_stats[key]["buy_usdc"] += t["usdc_value"]
+            market_stats[key]["buy_size"] += t["size"]
+        else:
+            market_stats[key]["sell_usdc"] += t["usdc_value"]
+            market_stats[key]["sell_size"] += t["size"]
+
     print("\n" + "=" * 60)
     print("WALLET TRADE SUMMARY")
     print("=" * 60)
@@ -323,6 +337,13 @@ def print_summary(trades: list[dict[str, Any]]) -> None:
     print(f"  Avg trade size:   ${total_volume / total:,.2f}")
     print(f"  Unique markets:   {len(unique_slugs)}")
     print(f"  Unique tokens:    {len(unique_assets)}")
+    print()
+    print("  Financials (Aggregate):")
+    total_buy_vol = sum(s["buy_usdc"] for s in market_stats.values())
+    total_sell_vol = sum(s["sell_usdc"] for s in market_stats.values())
+    print(f"    Total spent:    ${total_buy_vol:,.2f}")
+    print(f"    Total sold:     ${total_sell_vol:,.2f}")
+    print(f"    Net spend:      ${(total_buy_vol - total_sell_vol):,.2f}")
     print()
     print("  Price distribution:")
     print(f"    >= 0.99:        {above_99:>6d}  ({above_99 / total * 100:.1f}%)")

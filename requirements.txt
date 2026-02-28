@@ -7,3 +7,4 @@ aiohttp>=3.9
 orjson>=3.9
 aiosqlite>=0.19
 rich>=13.7
+py-builder-relayer-client

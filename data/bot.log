@@ -1,0 +1,874 @@
+2026-02-27 20:58:05 [INFO] src.trade_fetcher: Fetching trades: wallet=0xd015de9ba4b79a2e439d59f90c8236dbee940649, start=1772168400, end=1772254799, min_price=None
+2026-02-27 20:58:05 [INFO] src.trade_fetcher: Requesting trades: offset=0, limit=10000, start=1772168400, end=1772254799
+2026-02-27 20:58:05 [INFO] src.trade_fetcher: Received 372 trades (offset=0, latency=248ms)
+2026-02-27 20:58:05 [INFO] src.trade_fetcher: Last page received (372 < 10000). Done.
+2026-02-27 20:58:05 [INFO] src.trade_fetcher: Total trades fetched and filtered: 161
+2026-02-27 20:58:05 [INFO] src.trade_fetcher: Wrote 161 trades to wallet_trades_recent.csv
+2026-02-27 21:30:57 [INFO] src.trade_fetcher: Fetching trades: wallet=0xd015de9ba4b79a2e439d59f90c8236dbee940649, start=1772168400, end=1772254799, min_price=None
+2026-02-27 21:30:57 [INFO] src.trade_fetcher: Requesting trades: offset=0, limit=10000, start=1772168400, end=1772254799
+2026-02-27 21:30:57 [INFO] src.trade_fetcher: Received 372 trades (offset=0, latency=251ms)
+2026-02-27 21:30:57 [INFO] src.trade_fetcher: Last page received (372 < 10000). Done.
+2026-02-27 21:30:57 [INFO] src.trade_fetcher: Total trades fetched and filtered: 161
+2026-02-27 21:30:57 [INFO] src.trade_fetcher: Wrote 161 trades to wallet_trades.csv
+2026-02-27 21:42:05 [INFO] src.trade_fetcher: Fetching trades: wallet=0xd015de9ba4b79a2e439d59f90c8236dbee940649, start=1772168400, end=1772254799, min_price=None
+2026-02-27 21:42:05 [INFO] src.trade_fetcher: Requesting trades: offset=0, limit=10000, start=1772168400, end=1772254799
+2026-02-27 21:42:06 [INFO] src.trade_fetcher: Received 372 trades (offset=0, latency=437ms)
+2026-02-27 21:42:06 [INFO] src.trade_fetcher: Last page received (372 < 10000). Done.
+2026-02-27 21:42:06 [INFO] src.trade_fetcher: Total trades fetched and filtered: 161
+2026-02-27 21:42:06 [INFO] src.trade_fetcher: Wrote 161 trades to wallet_trades_recent.csv
+2026-02-27 21:42:39 [INFO] src.storage.database: [DB] Initialised database at data/bot.db
+2026-02-27 21:42:39 [INFO] src.execution.order_manager: [ORDER] Loaded 285 dedup entries for 2026-02-27
+2026-02-27 21:42:39 [INFO] src.execution.position_tracker: [POSITION] No open positions found in database
+2026-02-27 21:42:39 [INFO] src.bot: ============================================================
+2026-02-27 21:42:39 [INFO] src.bot: POLYMARKET HFT BOT v1 starting
+2026-02-27 21:42:39 [INFO] src.bot:   Slugs    : 16
+2026-02-27 21:42:39 [INFO] src.bot:   Strategies: sweep
+2026-02-27 21:42:39 [INFO] src.bot:   Dry-run  : False
+2026-02-27 21:42:39 [INFO] src.bot:   Dashboard: True
+2026-02-27 21:42:39 [INFO] src.bot:   DB path  : data/bot.db
+2026-02-27 21:42:39 [INFO] src.bot: ============================================================
+2026-02-27 21:42:39 [INFO] src.core.event_bus: [EVENT_BUS] Started
+2026-02-27 21:42:39 [INFO] src.storage.persistence: [PERSISTENCE] Drain loop started (interval=0.10s)
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:39 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] src.monitoring.dashboard: [DASHBOARD] Starting terminal dashboard
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=26310071571490908656686752723274421577767133923632367956972435279404676217847 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=15134048232116514642857992658759913667298588353809037708310142275988090913950 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=58961892674761531332795819150770704898208884792011574143455301523589688682497 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=2764748171797834956586834704025851032326696111355361347642490829354978991436 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=114913629129940761465238417544549345957980348052444917435223077664830945129138 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=36650963695955912318874155527521677034326300685523793387232396229624198129256 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=110919643046793830211943178928356715685480663800872495169663902261348222712371 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=101607331196849238329566922932371782097442612682181885832373217995927682407242 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=28024225909993744866211708165593616999132806245610846520861600101549642112005 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=91989685018282898014383982239898856936565152382240563612701316443881180981227 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=65918099373871898342143129836629442007971663097453427201625914015070105041648 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=24756273457980147953730420826341159614825138216725584240699162939563991234476 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-5m-1772246400 (2 tokens)
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=61629397933227788111535017050532727078196161296026349965945071893421997047982 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=38095294767679664645244588815718746291736130037740427667629643359747321764116 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=44794093676266082176376262886258876019266404462691850224129380804879600086358 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=3768565750575807281678888439851222445198586162902664921333475353017297475241 "HTTP/2 200 OK"
+2026-02-27 21:42:40 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-5m-1772246400 (2 tokens)
+2026-02-27 21:42:40 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-5m-1772246400 (2 tokens)
+2026-02-27 21:42:40 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-5m-1772246400 (2 tokens)
+2026-02-27 21:42:41 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-5m-1772246700 (2 tokens)
+2026-02-27 21:42:41 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-5m-1772246700 (2 tokens)
+2026-02-27 21:42:41 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-5m-1772246700 (2 tokens)
+2026-02-27 21:42:41 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-5m-1772246700 (2 tokens)
+2026-02-27 21:42:41 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-15m-1772245800 (2 tokens)
+2026-02-27 21:42:41 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-15m-1772245800 (2 tokens)
+2026-02-27 21:42:42 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-15m-1772245800 (2 tokens)
+2026-02-27 21:42:42 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-15m-1772245800 (2 tokens)
+2026-02-27 21:42:42 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-15m-1772246700 (2 tokens)
+2026-02-27 21:42:42 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-15m-1772246700 (2 tokens)
+2026-02-27 21:42:42 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-15m-1772246700 (2 tokens)
+2026-02-27 21:42:42 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-15m-1772246700 (2 tokens)
+2026-02-27 21:42:42 [INFO] src.gateway.market_ws: Initialised 16/16 markets
+2026-02-27 21:42:43 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 21:42:45 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 21:43:38 [INFO] src.trade_fetcher: Fetching trades: wallet=0xd015de9ba4b79a2e439d59f90c8236dbee940649, start=1772168400, end=1772254799, min_price=None
+2026-02-27 21:43:38 [INFO] src.trade_fetcher: Requesting trades: offset=0, limit=10000, start=1772168400, end=1772254799
+2026-02-27 21:43:39 [INFO] src.trade_fetcher: Received 372 trades (offset=0, latency=390ms)
+2026-02-27 21:43:39 [INFO] src.trade_fetcher: Last page received (372 < 10000). Done.
+2026-02-27 21:43:39 [INFO] src.trade_fetcher: Total trades fetched and filtered: 161
+2026-02-27 21:43:39 [INFO] src.trade_fetcher: Wrote 161 trades to wallet_trades_recent.csv
+2026-02-27 21:44:39 [CRITICAL] src.monitoring.alerting: [ALERT:CRITICAL] no_messages: No market data for >90 seconds (value=108.91)
+2026-02-27 21:44:57 [WARNING] src.gateway.market_ws: [HEARTBEAT] No message for 129s — forcing reconnect
+2026-02-27 21:45:07 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: sent 1000 (OK); no close frame received — reconnecting in 5s
+2026-02-27 21:45:09 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-02-27-21:50
+2026-02-27 21:45:09 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-02-27-21:50
+2026-02-27 21:45:09 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-02-27-21:50
+2026-02-27 21:45:09 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-02-27-21:50
+2026-02-27 21:45:09 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772247000 (2 tokens)
+2026-02-27 21:45:10 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772247000 (2 tokens)
+2026-02-27 21:45:10 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772247000 (2 tokens)
+2026-02-27 21:45:10 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772247000 (2 tokens)
+2026-02-27 21:45:10 [INFO] src.bot: [SUB] Adding next 15m market for BTC: btc-15min-up-or-down-2026-02-27-22:00
+2026-02-27 21:45:10 [INFO] src.bot: [SUB] Adding next 15m market for ETH: eth-15min-up-or-down-2026-02-27-22:00
+2026-02-27 21:45:10 [INFO] src.bot: [SUB] Adding next 15m market for SOL: sol-15min-up-or-down-2026-02-27-22:00
+2026-02-27 21:45:10 [INFO] src.bot: [SUB] Adding next 15m market for XRP: xrp-15min-up-or-down-2026-02-27-22:00
+2026-02-27 21:45:10 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-15m-1772247600 (2 tokens)
+2026-02-27 21:45:10 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-15m-1772247600 (2 tokens)
+2026-02-27 21:45:10 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=102386920390410245299668222506927936191972187046173709883153708591932912887949 "HTTP/2 200 OK"
+2026-02-27 21:45:10 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=10520796204538637857781509824513648989931875466056382884510957337810057101120 "HTTP/2 200 OK"
+2026-02-27 21:45:10 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=90088316695104970462406367591592741159348178883192599422663301974879828656773 "HTTP/2 200 OK"
+2026-02-27 21:45:10 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-15m-1772247600 (2 tokens)
+2026-02-27 21:45:10 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=40784993268718992429596387757177784654001090932085446679934907144837749241148 "HTTP/2 200 OK"
+2026-02-27 21:45:11 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-15m-1772247600 (2 tokens)
+2026-02-27 21:45:11 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=39043534496986639112092758361464302141172681646168312299939897770232134483008 "HTTP/2 200 OK"
+2026-02-27 21:45:11 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=64784980410409954106117147806174366594973450869643751321471134379957593336029 "HTTP/2 200 OK"
+2026-02-27 21:45:11 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=73877887649493261223705504275908617061324568872247444059957650997394426712079 "HTTP/2 200 OK"
+2026-02-27 21:45:11 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=106852277380325053135137324127458814640885737946756346709107207470053938627572 "HTTP/2 200 OK"
+2026-02-27 21:45:13 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772245800: 0.01 -> 0.001 (token=26310071571490908656…)
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772245800: 0.01 -> 0.001 (token=11493103579181477598…)
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772245800: 0.01 -> 0.001 (token=26310071571490908656…)
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772245800: 0.01 -> 0.001 (token=11493103579181477598…)
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772245800: price 0.910 < threshold 0.99 — skip
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772245800: price 0.910 < threshold 0.99 — skip
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772245800: price 0.910 < threshold 0.99 — skip
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772245800: price 0.910 < threshold 0.99 — skip
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772245800: 0.01 -> 0.001 (token=91989685018282898014…)
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772245800: 0.01 -> 0.001 (token=86664827164591046598…)
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772245800: 0.01 -> 0.001 (token=91989685018282898014…)
+2026-02-27 21:45:21 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772245800: 0.01 -> 0.001 (token=86664827164591046598…)
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] xrp-updown-15m-1772245800: price 0.880 < threshold 0.99 — skip
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] xrp-updown-15m-1772245800: price 0.880 < threshold 0.99 — skip
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] xrp-updown-15m-1772245800: price 0.880 < threshold 0.99 — skip
+2026-02-27 21:45:21 [INFO] src.strategy.sweep: [SWEEP] xrp-updown-15m-1772245800: price 0.880 < threshold 0.99 — skip
+2026-02-27 21:45:43 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:45:48 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 21:46:18 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:46:23 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 21:46:30 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772245800: 0.01 -> 0.001 (token=65918099373871898342…)
+2026-02-27 21:46:30 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772245800: Up @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 21:46:30 [WARNING] src.execution.order_manager: [ORDER] Market closed: sol-updown-15m-1772245800 (ended 90.6s ago)
+2026-02-27 21:46:30 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772245800: 0.01 -> 0.001 (token=61679010609570790101…)
+2026-02-27 21:46:30 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772245800: 0.01 -> 0.001 (token=65918099373871898342…)
+2026-02-27 21:46:30 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772245800: Up @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 21:46:30 [WARNING] src.execution.order_manager: [ORDER] Market closed: sol-updown-15m-1772245800 (ended 90.6s ago)
+2026-02-27 21:46:30 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772245800: Up @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 21:46:30 [WARNING] src.execution.order_manager: [ORDER] Market closed: sol-updown-15m-1772245800 (ended 90.6s ago)
+2026-02-27 21:46:30 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772245800: 0.01 -> 0.001 (token=61679010609570790101…)
+2026-02-27 21:46:30 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772245800: Up @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 21:46:30 [WARNING] src.execution.order_manager: [ORDER] Market closed: sol-updown-15m-1772245800 (ended 90.6s ago)
+2026-02-27 21:46:53 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:46:58 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 21:47:28 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:47:33 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 21:47:59 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-15m-1772245800 (winner=91989685018282898014383982239898856936565152382240563612701316443881180981227)
+2026-02-27 21:47:59 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-15m-1772245800
+2026-02-27 21:48:03 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:48:08 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 46 tokens
+2026-02-27 21:48:09 [CRITICAL] src.monitoring.alerting: [ALERT:CRITICAL] ws_market_disconnected: Market WebSocket disconnected (value=0.00)
+2026-02-27 21:48:38 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:48:43 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 46 tokens
+2026-02-27 21:49:03 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-15m-1772245800 (winner=26310071571490908656686752723274421577767133923632367956972435279404676217847)
+2026-02-27 21:49:03 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-15m-1772245800
+2026-02-27 21:49:03 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-15m-1772245800 (winner=58961892674761531332795819150770704898208884792011574143455301523589688682497)
+2026-02-27 21:49:03 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-15m-1772245800
+2026-02-27 21:49:13 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:49:19 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 42 tokens
+2026-02-27 21:49:48 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:49:54 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 42 tokens
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-5m-1772246400 (winner=40774868474748665997112714936820681908736471132795200487374369485449668348779)
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-5m-1772246400
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-5m-1772246400 (winner=101607331196849238329566922932371782097442612682181885832373217995927682407242)
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-5m-1772246400
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-5m-1772246400 (winner=19099265542301325107395012729649032886866193277919862795625312926424084312843)
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-5m-1772246400
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772246400 (winner=68212794003330626685155907864748191877995797340234460992267704125557759353832)
+2026-02-27 21:50:06 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772246400
+2026-02-27 21:50:07 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-15m-1772245800 (winner=65918099373871898342143129836629442007971663097453427201625914015070105041648)
+2026-02-27 21:50:07 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-15m-1772245800
+2026-02-27 21:50:11 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-02-27-21:55
+2026-02-27 21:50:11 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-02-27-21:55
+2026-02-27 21:50:11 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-02-27-21:55
+2026-02-27 21:50:11 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-02-27-21:55
+2026-02-27 21:50:11 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772247300 (2 tokens)
+2026-02-27 21:50:11 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772247300 (2 tokens)
+2026-02-27 21:50:11 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772247300 (2 tokens)
+2026-02-27 21:50:11 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772247300 (2 tokens)
+2026-02-27 21:50:12 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=73726499635759653670285086451766351288000854317495793657436925820176287025967 "HTTP/2 200 OK"
+2026-02-27 21:50:12 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=104480378754699586836782972329570700993224620324938241732401773275573177684229 "HTTP/2 200 OK"
+2026-02-27 21:50:12 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=13307668537727452567644963515472183503036112768287237292708822599251211050723 "HTTP/2 200 OK"
+2026-02-27 21:50:12 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=9476397737753900918200371053160710648663826173889606315037934797839654023005 "HTTP/2 200 OK"
+2026-02-27 21:50:23 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:50:29 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:50:49 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:50:55 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:51:24 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:51:30 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:51:33 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:51:39 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:52:09 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:52:14 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:52:44 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:52:49 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:53:18 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-5m-1772246700 (winner=114913629129940761465238417544549345957980348052444917435223077664830945129138)
+2026-02-27 21:53:18 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-5m-1772246700
+2026-02-27 21:53:19 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:53:24 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 38 tokens
+2026-02-27 21:53:54 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:53:59 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 38 tokens
+2026-02-27 21:54:29 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:54:34 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 38 tokens
+2026-02-27 21:55:04 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:55:09 [CRITICAL] src.monitoring.alerting: [ALERT:CRITICAL] ws_market_disconnected: Market WebSocket disconnected (value=0.00)
+2026-02-27 21:55:09 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 38 tokens
+2026-02-27 21:55:11 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-02-27-22:00
+2026-02-27 21:55:11 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-02-27-22:00
+2026-02-27 21:55:11 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-02-27-22:00
+2026-02-27 21:55:11 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-02-27-22:00
+2026-02-27 21:55:12 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772247600 (2 tokens)
+2026-02-27 21:55:12 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772247600 (2 tokens)
+2026-02-27 21:55:12 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772247600 (2 tokens)
+2026-02-27 21:55:12 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772247600 (2 tokens)
+2026-02-27 21:55:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=9411529197144824726599585455444369350767173693916114303709271063435075510764 "HTTP/2 200 OK"
+2026-02-27 21:55:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=25292850093889144283558253347060052185625847961433533908147694775134517898792 "HTTP/2 200 OK"
+2026-02-27 21:55:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=4077899526100207614882547004369840274048082044903056021085336180909096750822 "HTTP/2 200 OK"
+2026-02-27 21:55:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=18985868248985905428800747658868288576568919462640183676937179561880591525431 "HTTP/2 200 OK"
+2026-02-27 21:55:26 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-5m-1772246700 (winner=36650963695955912318874155527521677034326300685523793387232396229624198129256)
+2026-02-27 21:55:26 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-5m-1772246700
+2026-02-27 21:55:26 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772246700 (winner=15134048232116514642857992658759913667298588353809037708310142275988090913950)
+2026-02-27 21:55:26 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772246700
+2026-02-27 21:55:37 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:55:42 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 42 tokens
+2026-02-27 21:56:12 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:56:17 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 42 tokens
+2026-02-27 21:56:30 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-5m-1772246700 (winner=110919643046793830211943178928356715685480663800872495169663902261348222712371)
+2026-02-27 21:56:30 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-5m-1772246700
+2026-02-27 21:56:47 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:56:52 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:57:22 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:57:28 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:57:57 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:58:03 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:58:03 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:58:09 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:58:39 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:58:44 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:59:14 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:59:19 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 40 tokens
+2026-02-27 21:59:44 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-5m-1772247000 (winner=8505187190839987354313794778503887930091693355602916954193823936819405384445)
+2026-02-27 21:59:44 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-5m-1772247000
+2026-02-27 21:59:44 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772247000 (winner=86711784073766120597479045948119558238214108376689930503818332184564962140878)
+2026-02-27 21:59:44 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772247000
+2026-02-27 21:59:49 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 21:59:54 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 36 tokens
+2026-02-27 22:00:12 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-02-27-22:05
+2026-02-27 22:00:12 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-02-27-22:05
+2026-02-27 22:00:12 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-02-27-22:05
+2026-02-27 22:00:12 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-02-27-22:05
+2026-02-27 22:00:12 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772247900 (2 tokens)
+2026-02-27 22:00:13 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772247900 (2 tokens)
+2026-02-27 22:00:13 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772247900 (2 tokens)
+2026-02-27 22:00:13 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772247900 (2 tokens)
+2026-02-27 22:00:13 [INFO] src.bot: [SUB] Adding next 15m market for BTC: btc-15min-up-or-down-2026-02-27-22:15
+2026-02-27 22:00:13 [INFO] src.bot: [SUB] Adding next 15m market for ETH: eth-15min-up-or-down-2026-02-27-22:15
+2026-02-27 22:00:13 [INFO] src.bot: [SUB] Adding next 15m market for SOL: sol-15min-up-or-down-2026-02-27-22:15
+2026-02-27 22:00:13 [INFO] src.bot: [SUB] Adding next 15m market for XRP: xrp-15min-up-or-down-2026-02-27-22:15
+2026-02-27 22:00:13 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:00:13 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:00:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=77587963646946319502063398147132494745107504996320796500057143043422277929222 "HTTP/2 200 OK"
+2026-02-27 22:00:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=27553857976226796670543597819179931931598655403523124827827484369871057448904 "HTTP/2 200 OK"
+2026-02-27 22:00:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=109921893470156698027573047236338323553450643335598129350783643988238508526399 "HTTP/2 200 OK"
+2026-02-27 22:00:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=38317807515703570903669755944015638906021062311044217624076464552632362330546 "HTTP/2 200 OK"
+2026-02-27 22:00:14 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:00:14 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:00:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=94472549637469405704686452976893470695109746431241792274091293905999517180267 "HTTP/2 200 OK"
+2026-02-27 22:00:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=79435459511078244374371896479494765704768760233196207521187990446828747896686 "HTTP/2 200 OK"
+2026-02-27 22:00:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=62859535174042650550225819800915150033386754201369660346569778522505234495798 "HTTP/2 200 OK"
+2026-02-27 22:00:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=53640816077327660266583606978006783888848909304955314221619393154675234422087 "HTTP/2 200 OK"
+2026-02-27 22:00:24 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:00:29 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 52 tokens
+2026-02-27 22:00:59 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:01:04 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 52 tokens
+2026-02-27 22:01:34 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:01:39 [CRITICAL] src.monitoring.alerting: [ALERT:CRITICAL] ws_market_disconnected: Market WebSocket disconnected (value=0.00)
+2026-02-27 22:01:39 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 52 tokens
+2026-02-27 22:01:52 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-5m-1772247000 (winner=40784993268718992429596387757177784654001090932085446679934907144837749241148)
+2026-02-27 22:01:52 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-5m-1772247000
+2026-02-27 22:01:52 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-5m-1772247000 (winner=102386920390410245299668222506927936191972187046173709883153708591932912887949)
+2026-02-27 22:01:52 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-5m-1772247000
+2026-02-27 22:02:02 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:02:08 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 22:02:37 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:02:43 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 22:04:38 [WARNING] src.gateway.market_ws: [HEARTBEAT] No message for 110s — forcing reconnect
+2026-02-27 22:04:39 [CRITICAL] src.monitoring.alerting: [ALERT:CRITICAL] no_messages: No market data for >90 seconds (value=110.34)
+2026-02-27 22:04:48 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: sent 1000 (OK); no close frame received — reconnecting in 5s
+2026-02-27 22:04:53 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 22:05:01 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-15m-1772246700 (winner=89069712148080024031517570479098670629355818662379815118760318016600049156797)
+2026-02-27 22:05:01 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-15m-1772246700
+2026-02-27 22:05:01 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-15m-1772246700 (winner=100278451122402707525218170742355723272301797974926981708783882694054241616289)
+2026-02-27 22:05:01 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-15m-1772246700
+2026-02-27 22:05:02 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-5m-1772247300 (winner=62131784376335051595477916848499388595858293809269823030624378045284215194354)
+2026-02-27 22:05:02 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-5m-1772247300
+2026-02-27 22:05:02 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-5m-1772247300 (winner=84906164927894823969924343349768638919140076218430469492193628646729748144960)
+2026-02-27 22:05:02 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-5m-1772247300
+2026-02-27 22:05:02 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772247300 (winner=73128246628313704452043519849580630696394418007787654242167039805984173140706)
+2026-02-27 22:05:02 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772247300
+2026-02-27 22:05:14 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-02-27-22:10
+2026-02-27 22:05:14 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-02-27-22:10
+2026-02-27 22:05:14 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-02-27-22:10
+2026-02-27 22:05:14 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-02-27-22:10
+2026-02-27 22:05:14 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:05:14 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:05:14 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:05:14 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:05:15 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=57058592007263311504629280900833381291855379786882910885935423532374651185865 "HTTP/2 200 OK"
+2026-02-27 22:05:15 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=15019318421147431927492359026904388924563091912439344264432586021799491645007 "HTTP/2 200 OK"
+2026-02-27 22:05:15 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=30988377054327604590800683583070005569822224703371725695133562136667103476764 "HTTP/2 200 OK"
+2026-02-27 22:05:15 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=69489006659502381153330395686158404468153767844765193656871843693322612673925 "HTTP/2 200 OK"
+2026-02-27 22:05:25 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-5m-1772247600: 0.01 -> 0.001 (token=18985868248985905428…)
+2026-02-27 22:05:25 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-5m-1772247600: 0.01 -> 0.001 (token=51382932331572735047…)
+2026-02-27 22:05:25 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-5m-1772247600: 0.01 -> 0.001 (token=18985868248985905428…)
+2026-02-27 22:05:25 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-5m-1772247600: 0.01 -> 0.001 (token=51382932331572735047…)
+2026-02-27 22:05:25 [INFO] src.strategy.sweep: [SWEEP] Signal for btc-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:25 [WARNING] src.execution.order_manager: [ORDER] Market closed: btc-updown-5m-1772247600 (ended 25.8s ago)
+2026-02-27 22:05:25 [INFO] src.strategy.sweep: [SWEEP] Signal for btc-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:25 [WARNING] src.execution.order_manager: [ORDER] Market closed: btc-updown-5m-1772247600 (ended 25.8s ago)
+2026-02-27 22:05:25 [INFO] src.strategy.sweep: [SWEEP] Signal for btc-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:25 [WARNING] src.execution.order_manager: [ORDER] Market closed: btc-updown-5m-1772247600 (ended 25.8s ago)
+2026-02-27 22:05:25 [INFO] src.strategy.sweep: [SWEEP] Signal for btc-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:25 [WARNING] src.execution.order_manager: [ORDER] Market closed: btc-updown-5m-1772247600 (ended 25.8s ago)
+2026-02-27 22:05:26 [INFO] src.gateway.market_ws: [TICK_SIZE] eth-updown-5m-1772247600: 0.01 -> 0.001 (token=94115291971448247265…)
+2026-02-27 22:05:26 [INFO] src.gateway.market_ws: [TICK_SIZE] eth-updown-5m-1772247600: 0.01 -> 0.001 (token=53965199104093648979…)
+2026-02-27 22:05:26 [INFO] src.gateway.market_ws: [TICK_SIZE] eth-updown-5m-1772247600: 0.01 -> 0.001 (token=94115291971448247265…)
+2026-02-27 22:05:26 [INFO] src.gateway.market_ws: [TICK_SIZE] eth-updown-5m-1772247600: 0.01 -> 0.001 (token=53965199104093648979…)
+2026-02-27 22:05:26 [INFO] src.strategy.sweep: [SWEEP] Signal for eth-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:26 [WARNING] src.execution.order_manager: [ORDER] Market closed: eth-updown-5m-1772247600 (ended 26.5s ago)
+2026-02-27 22:05:26 [INFO] src.strategy.sweep: [SWEEP] Signal for eth-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:26 [WARNING] src.execution.order_manager: [ORDER] Market closed: eth-updown-5m-1772247600 (ended 26.5s ago)
+2026-02-27 22:05:26 [INFO] src.strategy.sweep: [SWEEP] Signal for eth-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:26 [WARNING] src.execution.order_manager: [ORDER] Market closed: eth-updown-5m-1772247600 (ended 26.5s ago)
+2026-02-27 22:05:26 [INFO] src.strategy.sweep: [SWEEP] Signal for eth-updown-5m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:05:26 [WARNING] src.execution.order_manager: [ORDER] Market closed: eth-updown-5m-1772247600 (ended 26.5s ago)
+2026-02-27 22:05:27 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:05:32 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 46 tokens
+2026-02-27 22:06:04 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-15m-1772246700 (winner=113513137811805876271829932157907696040717397527470498401536308764997025956301)
+2026-02-27 22:06:04 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-15m-1772246700
+2026-02-27 22:06:29 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-5m-1772247600: 0.01 -> 0.001 (token=40778995261002076148…)
+2026-02-27 22:06:29 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-5m-1772247600: 0.01 -> 0.001 (token=93100000155688553791…)
+2026-02-27 22:06:29 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-5m-1772247600: 0.01 -> 0.001 (token=40778995261002076148…)
+2026-02-27 22:06:29 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-5m-1772247600: 0.01 -> 0.001 (token=93100000155688553791…)
+2026-02-27 22:06:29 [INFO] src.strategy.sweep: [SWEEP] sol-updown-5m-1772247600: price 0.960 < threshold 0.99 — skip
+2026-02-27 22:06:29 [INFO] src.strategy.sweep: [SWEEP] sol-updown-5m-1772247600: price 0.960 < threshold 0.99 — skip
+2026-02-27 22:06:29 [INFO] src.strategy.sweep: [SWEEP] sol-updown-5m-1772247600: price 0.960 < threshold 0.99 — skip
+2026-02-27 22:06:29 [INFO] src.strategy.sweep: [SWEEP] sol-updown-5m-1772247600: price 0.960 < threshold 0.99 — skip
+2026-02-27 22:08:10 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-15m-1772246700 (winner=38095294767679664645244588815718746291736130037740427667629643359747321764116)
+2026-02-27 22:08:10 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-15m-1772246700
+2026-02-27 22:08:11 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-5m-1772247300 (winner=66354901382810725240617626989825767198021142927322546485423908680121185808395)
+2026-02-27 22:08:11 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-5m-1772247300
+2026-02-27 22:08:11 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772247600 (winner=5093101096784371465421817887346484257572816953774652238961790814295571752203)
+2026-02-27 22:08:11 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772247600
+2026-02-27 22:09:13 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-5m-1772247600 (winner=93100000155688553791490934244453060806333813837336469230759930841900272344016)
+2026-02-27 22:09:13 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-5m-1772247600
+2026-02-27 22:10:05 [INFO] src.core.event_bus: [EVENT_BUS] Stopped
+2026-02-27 22:10:05 [INFO] src.storage.persistence: [PERSISTENCE] Final flush complete
+2026-02-27 22:10:05 [INFO] src.storage.persistence: [PERSISTENCE] Drain loop stopped (total writes: 24)
+2026-02-27 22:10:05 [INFO] src.bot: Shutting down...
+2026-02-27 22:10:05 [INFO] src.gateway.user_ws: [WS_USER] Stopped
+2026-02-27 22:10:05 [INFO] src.gateway.market_ws: [WS_MARKET] Stopped
+2026-02-27 22:10:05 [INFO] src.bot: Shutdown complete
+2026-02-27 22:10:05 [INFO] src.bot: Bot stopped by user
+2026-02-27 22:10:07 [INFO] src.storage.database: [DB] Initialised database at data/bot.db
+2026-02-27 22:10:07 [INFO] src.execution.order_manager: [ORDER] Loaded 285 dedup entries for 2026-02-27
+2026-02-27 22:10:07 [INFO] src.execution.position_tracker: [POSITION] No open positions found in database
+2026-02-27 22:10:07 [INFO] src.bot: ============================================================
+2026-02-27 22:10:07 [INFO] src.bot: POLYMARKET HFT BOT v1 starting
+2026-02-27 22:10:07 [INFO] src.bot:   Slugs    : 16
+2026-02-27 22:10:07 [INFO] src.bot:   Strategies: sweep
+2026-02-27 22:10:07 [INFO] src.bot:   Dry-run  : False
+2026-02-27 22:10:07 [INFO] src.bot:   Dashboard: True
+2026-02-27 22:10:07 [INFO] src.bot:   DB path  : data/bot.db
+2026-02-27 22:10:07 [INFO] src.bot: ============================================================
+2026-02-27 22:10:07 [INFO] src.core.event_bus: [EVENT_BUS] Started
+2026-02-27 22:10:07 [INFO] src.storage.persistence: [PERSISTENCE] Drain loop started (interval=0.10s)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] src.monitoring.dashboard: [DASHBOARD] Starting terminal dashboard
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=87888095349540252377557625783447522648182387517244952476022447620282363647012 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=69489006659502381153330395686158404468153767844765193656871843693322612673925 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=15019318421147431927492359026904388924563091912439344264432586021799491645007 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=28751989008792436337493740513341951884103771750819316166153872744522910547774 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=89572890540165252666397074973006472090566561316925578653040241399496260731422 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=57058592007263311504629280900833381291855379786882910885935423532374651185865 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=35619307342567352284893688339947770352157228603336935037068365936912810629235 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=30988377054327604590800683583070005569822224703371725695133562136667103476764 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=106852277380325053135137324127458814640885737946756346709107207470053938627572 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=110473142565712988210991585980195687373920994042247701588807544882490438046601 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=46955917171913053704384966378899786046731900543062653494958785435468556679754 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=64784980410409954106117147806174366594973450869643751321471134379957593336029 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=53640816077327660266583606978006783888848909304955314221619393154675234422087 "HTTP/2 200 OK"
+2026-02-27 22:10:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=94472549637469405704686452976893470695109746431241792274091293905999517180267 "HTTP/2 200 OK"
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:10:08 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:10:09 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:10:09 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:10:09 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:10:09 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:10:09 [INFO] src.gateway.market_ws: Initialised 16/16 markets
+2026-02-27 22:10:09 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:10:13 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:10:26 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:10:32 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:11:39 [INFO] src.core.event_bus: [EVENT_BUS] Stopped
+2026-02-27 22:11:39 [INFO] src.storage.persistence: [PERSISTENCE] Final flush complete
+2026-02-27 22:11:39 [INFO] src.storage.persistence: [PERSISTENCE] Drain loop stopped (total writes: 0)
+2026-02-27 22:11:39 [INFO] src.bot: Shutting down...
+2026-02-27 22:11:39 [INFO] src.gateway.user_ws: [WS_USER] Stopped
+2026-02-27 22:11:39 [INFO] src.gateway.market_ws: [WS_MARKET] Stopped
+2026-02-27 22:11:39 [INFO] src.bot: Shutdown complete
+2026-02-27 22:11:51 [INFO] src.storage.database: [DB] Initialised database at data/bot.db
+2026-02-27 22:11:51 [INFO] src.execution.order_manager: [ORDER] Loaded 285 dedup entries for 2026-02-27
+2026-02-27 22:11:51 [INFO] src.execution.position_tracker: [POSITION] No open positions found in database
+2026-02-27 22:11:51 [INFO] src.bot: ============================================================
+2026-02-27 22:11:51 [INFO] src.bot: POLYMARKET HFT BOT v1 starting
+2026-02-27 22:11:51 [INFO] src.bot:   Slugs    : 16
+2026-02-27 22:11:51 [INFO] src.bot:   Strategies: sweep
+2026-02-27 22:11:51 [INFO] src.bot:   Dry-run  : False
+2026-02-27 22:11:51 [INFO] src.bot:   Dashboard: True
+2026-02-27 22:11:51 [INFO] src.bot:   DB path  : data/bot.db
+2026-02-27 22:11:51 [INFO] src.bot: ============================================================
+2026-02-27 22:11:51 [INFO] src.core.event_bus: [EVENT_BUS] Started
+2026-02-27 22:11:51 [INFO] src.storage.persistence: [PERSISTENCE] Drain loop started (interval=0.10s)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] src.monitoring.dashboard: [DASHBOARD] Starting terminal dashboard
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.clob_client: CLOB client initialized (host=https://clob.polymarket.com)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=69489006659502381153330395686158404468153767844765193656871843693322612673925 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=28751989008792436337493740513341951884103771750819316166153872744522910547774 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=87888095349540252377557625783447522648182387517244952476022447620282363647012 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=106852277380325053135137324127458814640885737946756346709107207470053938627572 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=64784980410409954106117147806174366594973450869643751321471134379957593336029 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=30988377054327604590800683583070005569822224703371725695133562136667103476764 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=89572890540165252666397074973006472090566561316925578653040241399496260731422 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=15019318421147431927492359026904388924563091912439344264432586021799491645007 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=57058592007263311504629280900833381291855379786882910885935423532374651185865 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=35619307342567352284893688339947770352157228603336935037068365936912810629235 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=110473142565712988210991585980195687373920994042247701588807544882490438046601 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=46955917171913053704384966378899786046731900543062653494958785435468556679754 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=53640816077327660266583606978006783888848909304955314221619393154675234422087 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=94472549637469405704686452976893470695109746431241792274091293905999517180267 "HTTP/2 200 OK"
+2026-02-27 22:11:52 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:11:53 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:11:53 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-5m-1772248200 (2 tokens)
+2026-02-27 22:11:54 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:11:54 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:11:55 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:11:55 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-5m-1772248500 (2 tokens)
+2026-02-27 22:11:55 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:11:55 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:11:55 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:11:56 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-15m-1772247600 (2 tokens)
+2026-02-27 22:11:56 [INFO] src.gateway.market_ws: [MARKET_OPEN] btc-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:11:56 [INFO] src.gateway.market_ws: [MARKET_OPEN] eth-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:11:56 [INFO] src.gateway.market_ws: [MARKET_OPEN] sol-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:11:56 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-15m-1772248500 (2 tokens)
+2026-02-27 22:11:56 [INFO] src.gateway.market_ws: Initialised 16/16 markets
+2026-02-27 22:11:57 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:11:58 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:12:22 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:12:26 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:12:32 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:12:33 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:12:57 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:13:02 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:13:07 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:13:08 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:13:33 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:13:37 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:13:42 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:13:43 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772247600: 0.01 -> 0.001 (token=39043534496986639112…)
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772247600: 0.01 -> 0.001 (token=64311766517809865491…)
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772247600: 0.01 -> 0.001 (token=39043534496986639112…)
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772247600: 0.01 -> 0.001 (token=64311766517809865491…)
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for xrp-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for xrp-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for xrp-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for xrp-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:47 [ERROR] src.clob_client: Order placement failed: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:47 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for xrp-updown-15m-1772247600
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772247600: 0.01 -> 0.001 (token=73877887649493261223…)
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772247600: 0.01 -> 0.001 (token=77033054623033207637…)
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772247600: 0.01 -> 0.001 (token=73877887649493261223…)
+2026-02-27 22:13:47 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772247600: 0.01 -> 0.001 (token=77033054623033207637…)
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772247600: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-02-27 22:13:47 [INFO] src.clob_client: Placing order: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.9990, size=5.00, side=BUY
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:47 [ERROR] src.clob_client: Order placement failed: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:47 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for xrp-updown-15m-1772247600
+2026-02-27 22:13:47 [ERROR] src.clob_client: Order placement failed: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:47 [ERROR] src.clob_client: Order placement failed: token_id=64311766517809865491909196049225022177667370085826481346117174697293341442503, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:47 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for xrp-updown-15m-1772247600
+2026-02-27 22:13:47 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for xrp-updown-15m-1772247600
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:48 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517 "HTTP/2 200 OK"
+2026-02-27 22:13:48 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:48 [ERROR] src.clob_client: Order placement failed: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:48 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:48 [ERROR] src.clob_client: Order placement failed: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:48 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for sol-updown-15m-1772247600
+2026-02-27 22:13:48 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for sol-updown-15m-1772247600
+2026-02-27 22:13:48 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:48 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:13:48 [ERROR] src.clob_client: Order placement failed: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:48 [ERROR] src.clob_client: Order placement failed: token_id=77033054623033207637019578538265148880596880330074814675348622425489851378517, price=0.999, size=5.0
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/clob_client.py", line 196, in place_limit_order
+    resp = client.post_order(signed_order, OrderType.GTC)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/client.py", line 614, in post_order
+    return post(
+        "{}{}".format(self.host, POST_ORDER),
+        headers=headers,
+        data=request_args.serialized_body,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 69, in post
+    return request(endpoint, POST, headers, data)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/py_clob_client/http_helpers/helpers.py", line 57, in request
+    raise PolyApiException(resp)
+py_clob_client.exceptions.PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}]
+2026-02-27 22:13:48 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for sol-updown-15m-1772247600
+2026-02-27 22:13:48 [WARNING] src.gateway.rest_client: [ORDER] Rejected: EXCEPTION: PolyApiException: PolyApiException[status_code=400, error_message={'error': 'invalid signature'}] for sol-updown-15m-1772247600
+2026-02-27 22:13:48 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772247600: 0.01 -> 0.001 (token=90267647831651089901…)
+2026-02-27 22:13:48 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772247600: price 0.980 < threshold 0.99 — skip
+2026-02-27 22:13:48 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772247600: 0.01 -> 0.001 (token=64784980410409954106…)
+2026-02-27 22:13:48 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772247600: 0.01 -> 0.001 (token=90267647831651089901…)
+2026-02-27 22:13:48 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772247600: price 0.980 < threshold 0.99 — skip
+2026-02-27 22:13:48 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772247600: price 0.980 < threshold 0.99 — skip
+2026-02-27 22:13:48 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772247600: 0.01 -> 0.001 (token=64784980410409954106…)
+2026-02-27 22:13:48 [INFO] src.strategy.sweep: [SWEEP] btc-updown-15m-1772247600: price 0.980 < threshold 0.99 — skip
+2026-02-27 22:14:08 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:14:12 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:14:17 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:14:18 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:14:43 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:14:47 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:14:51 [CRITICAL] src.monitoring.alerting: [ALERT:CRITICAL] ws_market_disconnected: Market WebSocket disconnected (value=0.00)
+2026-02-27 22:14:52 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens
+2026-02-27 22:14:53 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:15:18 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:15:21 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-02-27-22:20
+2026-02-27 22:15:21 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-02-27-22:20
+2026-02-27 22:15:21 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-02-27-22:20
+2026-02-27 22:15:21 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-02-27-22:20
+2026-02-27 22:15:22 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772248800 (2 tokens)
+2026-02-27 22:15:22 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772248800 (2 tokens)
+2026-02-27 22:15:22 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772248800 (2 tokens)
+2026-02-27 22:15:22 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:15:22 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772248800 (2 tokens)
+2026-02-27 22:15:22 [INFO] src.bot: [SUB] Adding next 15m market for BTC: btc-15min-up-or-down-2026-02-27-22:30
+2026-02-27 22:15:22 [INFO] src.bot: [SUB] Adding next 15m market for ETH: eth-15min-up-or-down-2026-02-27-22:30
+2026-02-27 22:15:22 [INFO] src.bot: [SUB] Adding next 15m market for SOL: sol-15min-up-or-down-2026-02-27-22:30
+2026-02-27 22:15:22 [INFO] src.bot: [SUB] Adding next 15m market for XRP: xrp-15min-up-or-down-2026-02-27-22:30
+2026-02-27 22:15:22 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-15m-1772249400 (2 tokens)
+2026-02-27 22:15:23 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-15m-1772249400 (2 tokens)
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=56562440848529431207253275402377718498665155827698483610428249943190857163899 "HTTP/2 200 OK"
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=29442641188690310874044821198774289008930930286649565521346373051685929694858 "HTTP/2 200 OK"
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=113645597617328049393319296711535898446722937061546027750545906002103887337279 "HTTP/2 200 OK"
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=41145097973492769895485315779004526011325184600767837532348376108078537818929 "HTTP/2 200 OK"
+2026-02-27 22:15:23 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-15m-1772249400 (2 tokens)
+2026-02-27 22:15:23 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-15m-1772249400 (2 tokens)
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=48183583756749088306356597470535627718098031864378510668697643038085652831000 "HTTP/2 200 OK"
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=50461991475673573740771070440906658182636632385071753097906870266816617943078 "HTTP/2 200 OK"
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=73489521836689607043703372756558244245387929671624592304799164317516001213308 "HTTP/2 200 OK"
+2026-02-27 22:15:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=56370982211007129427742496827049699074558227743797514292022880586066023197958 "HTTP/2 200 OK"
+2026-02-27 22:15:27 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 22:15:28 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:15:53 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:15:57 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:16:03 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 22:16:04 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:16:28 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:16:32 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:16:38 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 22:16:39 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:17:03 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:17:07 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-02-27 22:17:13 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 48 tokens
+2026-02-27 22:17:14 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-02-27 22:17:21 [INFO] src.core.event_bus: [EVENT_BUS] Stopped
+2026-02-27 22:17:21 [INFO] src.storage.persistence: [PERSISTENCE] Final flush complete
+2026-02-27 22:17:21 [INFO] src.storage.persistence: [PERSISTENCE] Drain loop stopped (total writes: 32)
+2026-02-27 22:17:21 [INFO] src.bot: Shutting down...
+2026-02-27 22:17:21 [INFO] src.gateway.user_ws: [WS_USER] Stopped
+2026-02-27 22:17:21 [INFO] src.gateway.market_ws: [WS_MARKET] Stopped
+2026-02-27 22:17:21 [INFO] src.bot: Shutdown complete
+2026-02-27 22:17:21 [INFO] src.bot: Bot stopped by user
+2026-02-27 22:19:58 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:19:59 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:19:59 [ERROR] src.gamma_client: Event not found: slug=us-strikes-iran-by-december-31-2026-966-364-754-215-994-869-583-739. Check the Polymarket URL.
+2026-02-27 22:20:25 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:20:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:20:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=90243325503506753930621691816281468582372219676994628181336121098731773998052 "HTTP/2 200 OK"
+2026-02-27 22:20:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:27 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 403 Forbidden"
+2026-02-27 22:20:42 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:20:42 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:20:42 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:42 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=90243325503506753930621691816281468582372219676994628181336121098731773998052 "HTTP/2 200 OK"
+2026-02-27 22:20:43 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:43 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:43 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:20:45 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:25:40 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:25:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:25:41 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:41 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=90243325503506753930621691816281468582372219676994628181336121098731773998052 "HTTP/2 200 OK"
+2026-02-27 22:25:42 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:42 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:42 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:45 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
+2026-02-27 22:25:54 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/auth/api-key "HTTP/2 400 Bad Request"
+2026-02-27 22:25:54 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/auth/derive-api-key "HTTP/2 200 OK"
+2026-02-27 22:25:55 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:55 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=90243325503506753930621691816281468582372219676994628181336121098731773998052 "HTTP/2 200 OK"
+2026-02-27 22:25:55 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/tick-size?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:55 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:56 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=103599770717172967719961451887620446300201640099216457678699864025236183422254 "HTTP/2 200 OK"
+2026-02-27 22:25:58 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 400 Bad Request"
