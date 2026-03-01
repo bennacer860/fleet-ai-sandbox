@@ -137,7 +137,9 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
     # 2. Timing Analysis (for FILLED orders)
     timing_row = conn.execute(
-        "SELECT AVG(time_to_expiry_s), MIN(time_to_expiry_s), MAX(time_to_expiry_s) FROM orders WHERE final_status = 'FILLED'"
+        "SELECT AVG(time_to_expiry_s), MIN(time_to_expiry_s), MAX(time_to_expiry_s), "
+        "AVG(signal_to_rest_ms), AVG(signal_to_fill_ms) "
+        "FROM orders WHERE final_status = 'FILLED'"
     ).fetchone()
     if timing_row and timing_row[0] is not None:
         print("\n  TIMING ANALYSIS (Filled Orders)")
@@ -145,6 +147,10 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print(f"    Avg Time to Expiry : {timing_row[0]:.2f}s")
         print(f"    Min Time to Expiry : {timing_row[1]:.2f}s")
         print(f"    Max Time to Expiry : {timing_row[2]:.2f}s")
+        if timing_row[3] is not None:
+            print(f"    Avg Placement Lat. : {timing_row[3]:.0f}ms")
+        if timing_row[4] is not None:
+            print(f"    Avg Fill Latency   : {timing_row[4]:.0f}ms")
 
     # 3. Late Trades (after expiration)
     late_rows = conn.execute(
