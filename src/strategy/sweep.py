@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 SWEEP_TICK_SIZE = "0.001"
 DEFAULT_PRICE_THRESHOLD = 0.95
 MAX_ORDER_PRICE = 0.999
-FALLBACK_MIN_ORDER_SIZE = 1.0
+FALLBACK_MIN_ORDER_SIZE = 5.0
 
 
 class SweepStrategy(Strategy):

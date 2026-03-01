@@ -19,7 +19,7 @@ from ..logging_config import get_logger
 logger = get_logger(__name__)
 
 # Fallback when the order book is unavailable
-FALLBACK_MIN_ORDER_SIZE: float = 1.0
+FALLBACK_MIN_ORDER_SIZE: float = 5.0
 
 
 # ── Market evaluation ────────────────────────────────────────────────────────

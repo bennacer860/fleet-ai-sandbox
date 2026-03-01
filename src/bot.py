@@ -44,7 +44,8 @@ from .monitoring.health import HealthMonitor
 from .monitoring.metrics import Metrics
 from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
-from .utils.market_data import get_market_evaluation, get_min_order_size
+from .utils.market_data import get_market_evaluation
+from .clob_client import precache_token_data, get_cached_min_order_size
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
@@ -179,16 +180,23 @@ class Bot:
 
     @staticmethod
     def _fetch_eval_with_min_size(slug: str) -> dict[str, Any] | None:
-        """Fetch eval data AND min_order_size in one blocking call."""
+        """Fetch eval data; min_order_size comes from the pre-cached value."""
         eval_data = get_market_evaluation(slug)
         if eval_data:
-            eval_data["min_order_size"] = get_min_order_size(
+            # min_order_size is cached by precache_token_data() at market init.
+            # This is an instant dict lookup — zero HTTP calls.
+            eval_data["min_order_size"] = get_cached_min_order_size(
                 eval_data["best_token_id"]
             )
         return eval_data
 
     async def _prefetch_eval(self, slug: str) -> None:
-        """Background-fetch eval + min_order_size for a single market."""
+        """Background-fetch eval + min_order_size for a single market.
+
+        Also pre-caches neg_risk and fee_rate_bps in the ClobClient so
+        that ``create_order()`` never needs HTTP calls for these values
+        during the latency-critical order placement path.
+        """
         if slug in self._eval_cache:
             return
         try:
@@ -206,6 +214,17 @@ class Bot:
                 logger.warning("[CACHE] Pre-fetch returned no data for %s", slug)
         except Exception:
             logger.exception("[CACHE] Pre-fetch failed for %s", slug)
+
+        # Pre-cache neg_risk + fee_rate in the ClobClient for all token IDs
+        # so the library won't need HTTP calls during order placement.
+        token_ids = list(self.market_ws.token_ids.get(slug, []))
+        if token_ids:
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, precache_token_data, token_ids
+                )
+            except Exception:
+                logger.warning("[CACHE] precache_token_data failed for %s", slug)
 
     def _launch_prefetch(self, slugs: list[str]) -> None:
         """Fire-and-forget background prefetch for a batch of slugs."""

@@ -66,6 +66,7 @@ class MarketWebSocket:
         self._running = False
         self._last_message_time: float = 0.0
         self._msg_count = 0
+        self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
 
     # ── Public read-only state ────────────────────────────────────────────
 
@@ -252,6 +253,18 @@ class MarketWebSocket:
         old_ts = str(data.get("old_tick_size", ""))
         new_ts = str(data.get("new_tick_size", ""))
         cond = self.condition_by_token.get(asset_id, "")
+
+        # ── Dedup: only publish ONE tick_size_change per slug transition ──
+        # Each market has 2 tokens and the WS often sends duplicate messages,
+        # yielding up to 4 identical events.  We gate on (slug, new_tick_size)
+        # so exactly one event reaches the strategy layer.
+        dedup_key = (slug, new_ts)
+        if dedup_key == self._last_tick_size.get(slug):
+            logger.debug(
+                "[TICK_SIZE] Dedup skip %s (already published %s)", slug, new_ts,
+            )
+            return
+        self._last_tick_size[slug] = dedup_key
 
         logger.info("[TICK_SIZE] %s: %s -> %s (token=%s…)", slug, old_ts, new_ts, asset_id[:20])
 

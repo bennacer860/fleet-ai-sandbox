@@ -98,6 +98,10 @@ class OrderManager:
             self._log_decision(intent, "SKIP", f"RISK: {reason}")
             return None
 
+        # Record dedup BEFORE the async REST call.  This prevents the race
+        # where multiple concurrent tick_size events all pass _is_duplicate()
+        # before any of them has completed the await and reached this point.
+        self._record_dedup(intent)
 
         result = await self.rest_client.place_order(intent, dry_run=self.dry_run)
 
@@ -113,7 +117,6 @@ class OrderManager:
                 dry_run=self.dry_run,
             )
             self._active_orders[result.order_id] = state
-            self._record_dedup(intent)
             self.risk_manager.record_order(intent)
             self._stats["submitted"] += 1
 
@@ -133,7 +136,6 @@ class OrderManager:
                 resolved_at_ns=rest_ns,
                 dry_run=self.dry_run,
             )
-            self._record_dedup(intent)
 
             if result.status == OrderStatus.REJECTED:
                 self._stats["rejected"] += 1
