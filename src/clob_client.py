@@ -6,6 +6,7 @@ from typing import Any, Optional
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
+from py_clob_client.exceptions import PolyApiException
 
 from .config import (
     CHAIN_ID,
@@ -54,45 +55,6 @@ def _get_live_tick_size(token_id: str) -> float:
     except Exception:
         logger.warning("Could not fetch tick size for %s – defaulting to 0.01", token_id)
         return 0.01
-
-
-def _clamp_price(
-    price: float,
-    token_id: str,
-    known_tick_size: Optional[float] = None,
-) -> float:
-    """Clamp *price* to the valid range ``[tick_size, 1 - tick_size]`` and round
-    it to the nearest tick multiple to ensure grid compatibility.
-
-    If *known_tick_size* is provided (e.g. taken directly from the WebSocket
-    ``tick_size_change`` event), it is used as-is and no HTTP call is made.
-    Otherwise the tick size is fetched live from the CLOB API as a fallback.
-    """
-    import math
-
-    tick = known_tick_size if known_tick_size is not None else _get_live_tick_size(token_id)
-    
-    # Calculate precision from tick size (e.g. 0.001 -> 3, 0.01 -> 2)
-    precision = 0
-    if tick > 0:
-        precision = max(0, int(-math.log10(tick) + 0.1))
-
-    # Range limits
-    min_price = round(tick, 10)
-    max_price = round(1.0 - tick, 10)
-
-    # First clamp to range, then round to grid
-    clamped = max(min_price, min(price, max_price))
-    final_price = round(clamped, precision)
-
-    if abs(price - final_price) > 1e-9:
-        logger.info(
-            "[CLAMP] Adjusted price for %s: %.6f -> %.4f (tick_size=%.4f)",
-            token_id[:16], price, final_price, tick
-        )
-        return final_price
-
-    return final_price
 
 
 def create_clob_client() -> Optional[ClobClient]:
@@ -181,11 +143,6 @@ def place_limit_order(
     )
 
     try:
-        # Clamp price to valid range. If tick_size was passed in (from the
-        # WebSocket event) we use it directly – zero extra HTTP calls.
-        # Otherwise _clamp_price falls back to a live fetch.
-        price = _clamp_price(price, token_id, known_tick_size=tick_size)
-
         order_args = OrderArgs(
             price=price,
             size=size,
@@ -196,9 +153,9 @@ def place_limit_order(
         resp = client.post_order(signed_order, OrderType.GTC)
 
         success = resp.get("success", False)
-        error_msg = resp.get("errorMsg", "")
-        order_id = resp.get("orderId", "")
-        status = resp.get("status", "")
+        error_msg = resp.get("errorMsg") or resp.get("error_msg") or ""
+        order_id = resp.get("orderId") or resp.get("orderID") or ""
+        status = resp.get("status") or resp.get("order_status") or ""
 
         if success:
             logger.info(
@@ -219,14 +176,62 @@ def place_limit_order(
         logger.debug("Raw API response: %s", resp)
         return resp
 
+    except PolyApiException as exc:
+        # Robust extraction: PolyApiException usually stores its data in 'error_message'
+        # but the string representation often contains exactly what we need.
+        error_msg = str(exc)
+        
+        # 1. Try to get it from attributes
+        raw_error = getattr(exc, "error_message", None) or getattr(exc, "message", None)
+        
+        # 2. Fallback to regex if we don't have a clean dict yet
+        if not isinstance(raw_error, dict):
+            import re
+            # Look for error_message={'error': '...'} or similar in the string
+            match = re.search(r"error_message=({.*?})", error_msg)
+            if match:
+                try:
+                    import ast
+                    raw_error = ast.literal_eval(match.group(1))
+                except Exception:
+                    pass
+
+        # 3. Extract the final human-readable string
+        if isinstance(raw_error, dict):
+            error_msg = (
+                raw_error.get("error") 
+                or raw_error.get("errorMsg") 
+                or raw_error.get("message") 
+                or str(raw_error)
+            )
+        elif error_msg.startswith("PolyApiException"):
+            # If we still have the class name, try a final cleanup
+            if "error_message=" in error_msg:
+                error_msg = error_msg.split("error_message=")[-1].strip(" ]")
+        
+        logger.warning("[ORDER] API rejection string: %s", error_msg)
+        return {
+            "success": False,
+            "errorMsg": error_msg,
+        }
+
     except Exception as exc:
-        logger.exception(
-            "Order placement failed: token_id=%s, price=%s, size=%s",
+        # Clean up the error message for the dashboard
+        error_msg = str(exc)
+        # Remove common technical prefixes
+        if error_msg.startswith("Exception: "):
+            error_msg = error_msg[11:]
+        elif ": " in error_msg and error_msg.split(": ")[0].endswith("Exception"):
+            error_msg = error_msg.split(": ", 1)[1]
+            
+        logger.warning(
+            "[ORDER] Rejected by validation/exception: %s (token_id=%s, price=%s, size=%s)",
+            error_msg,
             token_id,
             price,
             size,
         )
         return {
             "success": False,
-            "errorMsg": f"EXCEPTION: {type(exc).__name__}: {exc}",
+            "errorMsg": error_msg,
         }

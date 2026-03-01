@@ -10,9 +10,12 @@ into the new architecture.  Pure logic — no I/O, no side effects.
 
 from __future__ import annotations
 
+import time
+
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
+from ..markets.fifteen_min import extract_market_end_ts
 from .base import Strategy, StrategyContext
 
 logger = get_logger(__name__)

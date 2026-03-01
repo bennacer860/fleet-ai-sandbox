@@ -76,7 +76,7 @@ class AsyncRestClient:
             )
 
         if resp.get("success"):
-            order_id = resp.get("orderId")
+            order_id = resp.get("orderId") or resp.get("orderID")
             if not order_id:
                 logger.error("[ORDER] API reported success but missing orderId: %s", resp)
                 return OrderTerminal(
@@ -103,8 +103,13 @@ class AsyncRestClient:
             )
 
         error_code = resp.get("errorMsg", "unknown")
-        human_reason = ERROR_REASONS.get(error_code, error_code)
-        reason = f"{error_code}: {human_reason}" if human_reason != error_code else error_code
+        human_reason = ERROR_REASONS.get(error_code)
+        
+        if human_reason:
+            reason = f"{error_code}: {human_reason}"
+        else:
+            reason = error_code
+            
         logger.warning("[ORDER] Rejected: %s for %s", reason, intent.slug)
         return OrderTerminal(
             order_id=resp.get("orderId", ""),

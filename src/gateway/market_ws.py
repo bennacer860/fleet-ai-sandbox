@@ -177,6 +177,7 @@ class MarketWebSocket:
             msg = orjson.dumps({
                 "type": "subscribe",
                 "assets_ids": new_tids,
+                "channels": ["book", "tick_size_change"],
                 "custom_feature_enabled": False,
             })
             await self._websocket.send(msg)
@@ -209,8 +210,11 @@ class MarketWebSocket:
         if not slug or not self.market_active.get(slug, False):
             return
 
-        raw_bids = data.get("bids", [])
-        raw_asks = data.get("asks", [])
+        raw_bids = data.get("bids") or []
+        raw_asks = data.get("asks") or []
+
+        if not isinstance(raw_bids, list) or not isinstance(raw_asks, list):
+            return
 
         bids = tuple(
             (float(b["price"]), float(b["size"]))
@@ -364,10 +368,11 @@ class MarketWebSocket:
                         sub_msg = orjson.dumps({
                             "type": "subscribe",
                             "assets_ids": all_tids,
+                            "channels": ["book", "tick_size_change"],
                             "custom_feature_enabled": False,
                         })
                         await ws.send(sub_msg)
-                        logger.info("[WS_MARKET] Connected, subscribed to %d tokens", len(all_tids))
+                        logger.info("[WS_MARKET] Connected, subscribed to %d tokens (channels: book, tick_size_change)", len(all_tids))
 
                         try:
                             async for raw in ws:
@@ -385,17 +390,20 @@ class MarketWebSocket:
                                 except Exception:
                                     continue
 
-                                if isinstance(data, list):
-                                    continue
+                                # Handle both single dicts and lists of events
+                                items = data if isinstance(data, list) else [data]
+                                for item in items:
+                                    if not isinstance(item, dict):
+                                        continue
+                                        
+                                    msg_type = item.get("event_type", item.get("type", ""))
 
-                                msg_type = data.get("event_type", data.get("type", ""))
-
-                                if msg_type == "book":
-                                    self._process_book(data)
-                                elif msg_type == "tick_size_change":
-                                    self._process_tick_size(data)
-                                elif msg_type == "last_trade_price":
-                                    self._process_last_trade(data)
+                                    if msg_type == "book":
+                                        self._process_book(item)
+                                    elif msg_type == "tick_size_change":
+                                        self._process_tick_size(item)
+                                    elif msg_type == "last_trade_price":
+                                        self._process_last_trade(item)
                         finally:
                             self._websocket = None
 

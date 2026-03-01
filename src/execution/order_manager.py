@@ -318,9 +318,9 @@ class OrderManager:
                     fill_price = None
                     try:
                         raw = order_data.get("associate_trades", [])
-                        if raw and isinstance(raw, list):
+                        if raw and isinstance(raw, list) and isinstance(raw[-1], dict):
                             fill_price = float(raw[-1].get("price", 0))
-                    except (ValueError, TypeError, IndexError):
+                    except (ValueError, TypeError, IndexError, AttributeError):
                         pass
                     if not fill_price:
                         try:

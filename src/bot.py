@@ -151,6 +151,30 @@ class Bot:
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
 
+    @staticmethod
+    def _clean_reason(reason: str) -> str:
+        """Strip technical technical wrappers from error messages for the dashboard."""
+        if not reason:
+            return ""
+        # Remove common prefixes
+        r = reason
+        prefixes = ["EXCEPTION: ", "Exception: ", "PolyApiException: ", "AttributeError: "]
+        for p in prefixes:
+            if r.startswith(p):
+                r = r[len(p):]
+        # Remove PolyApiException class format if it persists
+        if "PolyApiException[" in r:
+            import re
+            match = re.search(r"error_message=({.*?})", r)
+            if match:
+                try:
+                    import ast
+                    d = ast.literal_eval(match.group(1))
+                    r = d.get('error') or d.get('errorMsg') or r
+                except Exception:
+                    pass
+        return r
+
     # ── Eval pre-fetch (min_order_size) ───────────────────────────────────
 
     @staticmethod
@@ -290,7 +314,7 @@ class Bot:
                     timing += f"  expires={expiry_s:.0f}s"
 
                 if state.is_terminal:
-                    reason = state.rejection_reason or state.status.value
+                    reason = self._clean_reason(state.rejection_reason or state.status.value)
                     self.dashboard.push_event(
                         f"[red]{state.status.value}[/red]  {display_slug}  {reason}{timing}"
                     )
@@ -332,7 +356,7 @@ class Bot:
         state = self.order_manager.active_orders.get(event.order_id)
         slug = state.intent.slug if state else "?"
         display = format_slug_with_est_time(slug) if slug != "?" else "?"
-        reason = event.reason or event.status.value
+        reason = self._clean_reason(event.reason or event.status.value)
         self.dashboard.push_event(
             f"[red]{event.status.value}[/red]  {display}  {reason}"
         )
