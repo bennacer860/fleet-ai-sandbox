@@ -6,7 +6,7 @@ This document describes the multi-event monitoring capabilities added to the Pol
 
 The bot now supports:
 1. **Multi-event monitoring**: Monitor multiple event slugs simultaneously
-2. **Continuous 15-minute market monitoring**: Automatically track current 15-minute crypto markets
+2. **Continuous 5/15/60-minute market monitoring**: Automatically track current crypto markets for various durations
 3. **Market status tracking**: Automatically detect when markets end and close WebSocket connections
 
 ## New Features
@@ -53,10 +53,10 @@ python monitor_multi_events.py continuous-15min --markets BTC ETH SOL
 ```
 
 **Supported Markets:**
-- `BTC` - Bitcoin 15-minute markets
-- `ETH` - Ethereum 15-minute markets  
-- `SOL` - Solana 15-minute markets
-- `XRP` - Ripple 15-minute markets
+- `BTC` - Bitcoin 5, 15 and 60-minute markets
+- `ETH` - Ethereum 5, 15 and 60-minute markets  
+- `SOL` - Solana 5, 15 and 60-minute markets
+- `XRP` - Ripple 5, 15 and 60-minute markets
 
 **Example:**
 ```bash
@@ -99,8 +99,8 @@ src/
 #### `src/markets/fifteen_min.py`
 
 Utilities for working with 15-minute crypto markets:
-- `get_current_15m_utc()`: Get current 15-minute timestamp block
-- `get_next_15m_utc()`: Get next 15-minute timestamp block (NEW)
+- `get_current_interval_utc(duration)`: Get current interval timestamp block
+- `get_next_interval_utc(duration)`: Get next interval timestamp block
 - `get_market_slug()`: Generate market slug for a given crypto and timestamp
 - `MARKET_IDS`: Mapping of crypto symbols to market ID prefixes
 

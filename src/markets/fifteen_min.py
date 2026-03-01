@@ -9,21 +9,31 @@ logger = get_logger(__name__)
 
 # ── Supported durations ──────────────────────────────────────────────────────
 
-SUPPORTED_DURATIONS: set[int] = {5, 15}
+SUPPORTED_DURATIONS: set[int] = {5, 15, 60}
 
 # Polymarket API slug fragment for each duration (e.g. "5m", "15m")
 _DURATION_SLUG: dict[int, str] = {
     5: "5m",
     15: "15m",
+    60: "1h",
 }
 
 # Human-readable label used in formatted slugs (e.g. "5min", "15min")
 _DURATION_LABEL: dict[int, str] = {
     5: "5min",
     15: "15min",
+    60: "1hour",
 }
 
 MarketSelection = Literal["BTC", "ETH", "SOL", "XRP"]
+
+# Mapping for 1-hour human-readable slugs
+_ASSET_NAME_MAP: dict[str, str] = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "SOL": "solana",
+    "XRP": "xrp",
+}
 
 
 # ── Duration helpers ─────────────────────────────────────────────────────────
@@ -44,14 +54,19 @@ def detect_duration_from_slug(slug: str) -> Optional[int]:
     """Detect market duration from a raw Polymarket API slug.
 
     Looks for '-5m-' or '-15m-' (or as a trailing segment) inside the slug.
+    Also handles 1h human-readable slugs containing '-up-or-down-'.
 
     Args:
         slug: Raw slug, e.g. "btc-updown-5m-1707523200"
 
     Returns:
-        Duration in minutes (5 or 15), or None if not detectable.
+        Duration in minutes (5, 15, or 60), or None if not detectable.
     """
     slug_lower = slug.lower()
+
+    if "-up-or-down-" in slug_lower and slug_lower.endswith("-et"):
+        return 60
+
     # Check longer pattern first to avoid "-15m-" matching "-5m-" substring
     if "-15m-" in slug_lower or slug_lower.endswith("-15m"):
         return 15
@@ -121,21 +136,52 @@ def get_market_slug(
 
     Args:
         market_selection: Crypto asset to trade (BTC, ETH, SOL, XRP)
-        duration_minutes: Market duration in minutes (5 or 15, default 15)
+        duration_minutes: Market duration in minutes (5, 15, or 60)
         timestamp: Optional Unix timestamp (if None, uses current interval)
 
     Returns:
-        Market slug in format: "{market_base}-{timestamp}"
-        Example: "btc-updown-5m-1707523200" or "btc-updown-15m-1707523200"
+        Market slug.
+        5/15m format: "{crypto}-updown-{5m|15m}-{timestamp}"
+        1h format: "{asset}-up-or-down-{month}-{day}-{hour_est}-et"
 
     Raises:
         ValueError: If market_selection or duration_minutes is invalid.
     """
-    base = _market_base(market_selection, duration_minutes)
+    if duration_minutes not in SUPPORTED_DURATIONS:
+        raise ValueError(f"Unsupported duration: {duration_minutes}")
 
     if timestamp is None:
         timestamp = get_current_interval_utc(duration_minutes)
 
+    # 1-hour markets use a human-readable slug format
+    if duration_minutes == 60:
+        import pytz
+        from datetime import datetime
+        
+        asset = _ASSET_NAME_MAP.get(market_selection.upper(), market_selection.lower())
+        
+        # Polymarket 1h slugs use US/Eastern time strings
+        est_tz = pytz.timezone("US/Eastern")
+        dt = datetime.fromtimestamp(timestamp, tz=pytz.utc).astimezone(est_tz)
+        
+        month = dt.strftime("%B").lower()
+        day = dt.day
+        hour_int = dt.hour
+        
+        # Hour formatting: 11am, 12pm, 1pm, etc.
+        if hour_int == 0:
+            hour_str = "12am"
+        elif hour_int < 12:
+            hour_str = f"{hour_int}am"
+        elif hour_int == 12:
+            hour_str = "12pm"
+        else:
+            hour_str = f"{hour_int - 12}pm"
+            
+        return f"{asset}-up-or-down-{month}-{day}-{hour_str}-et"
+
+    # Default to legacy format for 5m/15m
+    base = _market_base(market_selection, duration_minutes)
     slug = f"{base}-{timestamp}"
     logger.debug("Generated market slug: %s", slug)
     return slug
