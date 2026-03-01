@@ -34,3 +34,601 @@
 2026-03-01 10:51:35 [INFO] src.gateway.market_ws: [MARKET_OPEN] xrp-updown-15m-1772380800 (2 tokens)
 2026-03-01 10:51:35 [INFO] src.gateway.market_ws: Initialised 16/16 markets
 2026-03-01 10:51:35 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens (channels: book, tick_size_change)
+2026-03-01 10:52:12 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 10:52:18 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens (channels: book, tick_size_change)
+2026-03-01 10:52:20 [WARNING] src.gateway.market_ws: [WS_MARKET] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 10:52:26 [INFO] src.gateway.market_ws: [WS_MARKET] Connected, subscribed to 32 tokens (channels: book, tick_size_change)
+2026-03-01 10:53:29 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 10:53:39 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-03-01 10:55:22 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-03-01-11:00
+2026-03-01 10:55:22 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-03-01-11:00
+2026-03-01 10:55:22 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-03-01-11:00
+2026-03-01 10:55:22 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-03-01-11:00
+2026-03-01 10:55:22 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772380800 (2 tokens)
+2026-03-01 10:55:22 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772380800 (2 tokens)
+2026-03-01 10:55:22 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772380800 (2 tokens)
+2026-03-01 10:55:23 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772380800 (2 tokens)
+2026-03-01 10:55:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=93524384271811135919652130550493671222461933990832404961599753214984945345547 "HTTP/2 200 OK"
+2026-03-01 10:55:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=100204299313058461549078094381245288375205993973272290522037975934563819986183 "HTTP/2 200 OK"
+2026-03-01 10:55:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=3215029874478414382229951786859039376038657147668177660475422865070489950555 "HTTP/2 200 OK"
+2026-03-01 10:55:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=100204299313058461549078094381245288375205993973272290522037975934563819986183 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=93524384271811135919652130550493671222461933990832404961599753214984945345547 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=100862047636145585963616416439846453310718073951382401129403911986703074936312 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=3215029874478414382229951786859039376038657147668177660475422865070489950555 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=100862047636145585963616416439846453310718073951382401129403911986703074936312 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=100204299313058461549078094381245288375205993973272290522037975934563819986183 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=93524384271811135919652130550493671222461933990832404961599753214984945345547 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=3215029874478414382229951786859039376038657147668177660475422865070489950555 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=100887882619984301901100432269790260692995136813428343051454596129089214785993 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=66582886139826077296219995916576410842420903995365655215797599108871910258215 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=78484974512674245605769595674530066606074004254639125877781393375231741684074 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=100862047636145585963616416439846453310718073951382401129403911986703074936312 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=78484974512674245605769595674530066606074004254639125877781393375231741684074 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=66582886139826077296219995916576410842420903995365655215797599108871910258215 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=27978900663969612614400138830927368995441240942738626741305774846564379233410 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=100887882619984301901100432269790260692995136813428343051454596129089214785993 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=78484974512674245605769595674530066606074004254639125877781393375231741684074 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=27978900663969612614400138830927368995441240942738626741305774846564379233410 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=66582886139826077296219995916576410842420903995365655215797599108871910258215 "HTTP/2 200 OK"
+2026-03-01 10:55:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=100887882619984301901100432269790260692995136813428343051454596129089214785993 "HTTP/2 200 OK"
+2026-03-01 10:55:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=27978900663969612614400138830927368995441240942738626741305774846564379233410 "HTTP/2 200 OK"
+2026-03-01 10:55:39 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 10:55:50 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-03-01 10:56:16 [INFO] src.gateway.market_ws: [TICK_SIZE] eth-updown-15m-1772379900: 0.01 -> 0.001 (token=10360809369174957567…)
+2026-03-01 10:56:16 [INFO] src.strategy.sweep: [SWEEP] eth-updown-15m-1772379900: price 0.980 < threshold 0.99 — skip
+2026-03-01 10:56:18 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-15m-1772379900: 0.01 -> 0.001 (token=11320687649648283022…)
+2026-03-01 10:56:18 [INFO] src.strategy.sweep: [SWEEP] xrp-updown-15m-1772379900: price 0.970 < threshold 0.99 — skip
+2026-03-01 10:56:19 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-5m-1772380200: 0.01 -> 0.001 (token=47750815970490627029…)
+2026-03-01 10:56:19 [INFO] src.strategy.sweep: [SWEEP] Signal for btc-updown-5m-1772380200: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 10:56:19 [INFO] src.clob_client: Placing order: token_id=106356845256556952236075745852458351547758257561693749043608225222917587144295, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 10:56:19 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-5m-1772380200: 0.01 -> 0.001 (token=45372781680127916038…)
+2026-03-01 10:56:19 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-5m-1772380200: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 10:56:19 [INFO] src.clob_client: Placing order: token_id=37021582912596375934986201609775121788990733423984094286181347257250964279918, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 10:56:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=106356845256556952236075745852458351547758257561693749043608225222917587144295 "HTTP/2 200 OK"
+2026-03-01 10:56:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=37021582912596375934986201609775121788990733423984094286181347257250964279918 "HTTP/2 200 OK"
+2026-03-01 10:56:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=106356845256556952236075745852458351547758257561693749043608225222917587144295 "HTTP/2 200 OK"
+2026-03-01 10:56:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=37021582912596375934986201609775121788990733423984094286181347257250964279918 "HTTP/2 200 OK"
+2026-03-01 10:56:20 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-5m-1772380200: 0.01 -> 0.001 (token=12235229659228455258…)
+2026-03-01 10:56:20 [INFO] src.strategy.sweep: [SWEEP] Signal for xrp-updown-5m-1772380200: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 10:56:20 [INFO] src.clob_client: Placing order: token_id=30327477790996785034026829856195147318859287840685226348550043294060963065817, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 10:56:20 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 10:56:20 [INFO] src.clob_client: Order placed: orderId=0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01, status=live
+2026-03-01 10:56:20 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01: BUY btc-updown-5m-1772380200 @ 0.9990 x 5.00 (1881ms)
+2026-03-01 10:56:21 [INFO] src.gateway.market_ws: [TICK_SIZE] eth-updown-5m-1772380200: 0.01 -> 0.001 (token=58903482216659023034…)
+2026-03-01 10:56:21 [INFO] src.strategy.sweep: [SWEEP] Signal for eth-updown-5m-1772380200: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 10:56:21 [INFO] src.clob_client: Placing order: token_id=47407964557888676565434960201980889009355252239236125783571407214119730116554, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 10:56:21 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 10:56:21 [INFO] src.clob_client: Order placed: orderId=0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d, status=live
+2026-03-01 10:56:21 [INFO] src.gateway.rest_client: [ORDER] Submitted 0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d: BUY sol-updown-5m-1772380200 @ 0.9990 x 5.00 (1946ms)
+2026-03-01 10:56:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=47407964557888676565434960201980889009355252239236125783571407214119730116554 "HTTP/2 200 OK"
+2026-03-01 10:56:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=30327477790996785034026829856195147318859287840685226348550043294060963065817 "HTTP/2 200 OK"
+2026-03-01 10:56:23 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:56:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=47407964557888676565434960201980889009355252239236125783571407214119730116554 "HTTP/2 200 OK"
+2026-03-01 10:56:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:56:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=30327477790996785034026829856195147318859287840685226348550043294060963065817 "HTTP/2 200 OK"
+2026-03-01 10:56:26 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 10:56:27 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 10:56:27 [INFO] src.clob_client: Order placed: orderId=0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03, status=live
+2026-03-01 10:56:27 [INFO] src.clob_client: Order placed: orderId=0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae, status=live
+2026-03-01 10:56:27 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03: BUY eth-updown-5m-1772380200 @ 0.9990 x 5.00 (5408ms)
+2026-03-01 10:56:27 [INFO] src.gateway.rest_client: [ORDER] Submitted 0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae: BUY xrp-updown-5m-1772380200 @ 0.9990 x 5.00 (6314ms)
+2026-03-01 10:56:43 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:56:44 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:56:44 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:56:44 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:57:00 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:57:00 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:57:00 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:57:00 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:57:16 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:57:17 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:57:17 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:57:17 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:57:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:57:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:57:34 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:57:34 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:57:53 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:57:53 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:57:54 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:57:54 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:58:12 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:58:12 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:58:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:58:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:58:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:58:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:58:31 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:58:31 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:58:45 [INFO] src.gateway.market_ws: [TICK_SIZE] eth-updown-5m-1772380500: 0.01 -> 0.001 (token=31842136603914575308…)
+2026-03-01 10:58:45 [INFO] src.strategy.sweep: [SWEEP] Signal for eth-updown-5m-1772380500: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 10:58:45 [INFO] src.clob_client: Placing order: token_id=12915048241000664482832280162913726979442308313948021009326077565490781816849, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 10:58:46 [INFO] src.gateway.market_ws: [TICK_SIZE] xrp-updown-5m-1772380500: 0.01 -> 0.001 (token=77968141075514490228…)
+2026-03-01 10:58:46 [INFO] src.strategy.sweep: [SWEEP] Signal for xrp-updown-5m-1772380500: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 10:58:46 [INFO] src.clob_client: Placing order: token_id=11386736864828918197433222834031597534402613640223203910425757007721474189303, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 10:58:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=12915048241000664482832280162913726979442308313948021009326077565490781816849 "HTTP/2 200 OK"
+2026-03-01 10:58:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=11386736864828918197433222834031597534402613640223203910425757007721474189303 "HTTP/2 200 OK"
+2026-03-01 10:58:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=12915048241000664482832280162913726979442308313948021009326077565490781816849 "HTTP/2 200 OK"
+2026-03-01 10:58:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:58:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=11386736864828918197433222834031597534402613640223203910425757007721474189303 "HTTP/2 200 OK"
+2026-03-01 10:58:50 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:58:50 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 10:58:50 [INFO] src.clob_client: Order placed: orderId=0x1f12ddee6d99b391037ef7395537c285b454c97b4305eb481551e629d8872b7c, status=live
+2026-03-01 10:58:50 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x1f12ddee6d99b391037ef7395537c285b454c97b4305eb481551e629d8872b7c: BUY eth-updown-5m-1772380500 @ 0.9990 x 5.00 (5124ms)
+2026-03-01 10:58:50 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:58:51 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 10:58:51 [INFO] src.clob_client: Order placed: orderId=0x3fc884d0445134c4a4799f7fb0e03f4d205f5b4b6a67f85853eebe3ac81cf62c, status=matched
+2026-03-01 10:58:51 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x3fc884d0445134c4a4799f7fb0e03f4d205f5b4b6a67f85853eebe3ac81cf62c: BUY xrp-updown-5m-1772380500 @ 0.9990 x 5.00 (4925ms)
+2026-03-01 10:58:51 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:59:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:59:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:59:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:59:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:59:07 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1f12ddee6d99b391037ef7395537c285b454c97b4305eb481551e629d8872b7c "HTTP/2 200 OK"
+2026-03-01 10:59:08 [INFO] src.execution.order_manager: [RECONCILE] Fill detected for 0x1f12ddee6d99b3: +5.00 (total 5.00)
+2026-03-01 10:59:08 [INFO] src.execution.order_manager: [ORDER] FILLED 0x1f12ddee6d99b3: eth-updown-5m-1772380500 @ 0.9990 x 5.00
+2026-03-01 10:59:08 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x3fc884d0445134c4a4799f7fb0e03f4d205f5b4b6a67f85853eebe3ac81cf62c "HTTP/2 200 OK"
+2026-03-01 10:59:08 [INFO] src.execution.order_manager: [RECONCILE] Fill detected for 0x3fc884d0445134: +5.00 (total 5.00)
+2026-03-01 10:59:08 [INFO] src.execution.order_manager: [ORDER] FILLED 0x3fc884d0445134: xrp-updown-5m-1772380500 @ 0.9990 x 5.00
+2026-03-01 10:59:24 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:59:24 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:59:24 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:59:24 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:59:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:59:41 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:59:41 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:59:42 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 10:59:57 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 10:59:57 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 10:59:57 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 10:59:58 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:00:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 11:00:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 11:00:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:00:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:00:19 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-5m-1772380200 (winner=106356845256556952236075745852458351547758257561693749043608225222917587144295)
+2026-03-01 11:00:19 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-5m-1772380200
+2026-03-01 11:00:20 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-5m-1772380200 (winner=37021582912596375934986201609775121788990733423984094286181347257250964279918)
+2026-03-01 11:00:20 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-5m-1772380200
+2026-03-01 11:00:23 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-03-01-11:05
+2026-03-01 11:00:23 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-03-01-11:05
+2026-03-01 11:00:23 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-03-01-11:05
+2026-03-01 11:00:23 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-03-01-11:05
+2026-03-01 11:00:24 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772380200 (winner=30327477790996785034026829856195147318859287840685226348550043294060963065817)
+2026-03-01 11:00:24 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772380200
+2026-03-01 11:00:25 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772381100 (2 tokens)
+2026-03-01 11:00:25 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772381100 (2 tokens)
+2026-03-01 11:00:25 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772381100 (2 tokens)
+2026-03-01 11:00:26 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772381100 (2 tokens)
+2026-03-01 11:00:26 [INFO] src.bot: [SUB] Adding next 15m market for BTC: btc-15min-up-or-down-2026-03-01-11:15
+2026-03-01 11:00:26 [INFO] src.bot: [SUB] Adding next 15m market for ETH: eth-15min-up-or-down-2026-03-01-11:15
+2026-03-01 11:00:26 [INFO] src.bot: [SUB] Adding next 15m market for SOL: sol-15min-up-or-down-2026-03-01-11:15
+2026-03-01 11:00:26 [INFO] src.bot: [SUB] Adding next 15m market for XRP: xrp-15min-up-or-down-2026-03-01-11:15
+2026-03-01 11:00:26 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-15m-1772381700 (2 tokens)
+2026-03-01 11:00:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=59265590207043884049941333709581250095380658161964248303733847776447290358542 "HTTP/2 200 OK"
+2026-03-01 11:00:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=45791694354627609860996995464684896219113137597163711655558136136714271187710 "HTTP/2 200 OK"
+2026-03-01 11:00:26 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-15m-1772381700 (2 tokens)
+2026-03-01 11:00:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=59265590207043884049941333709581250095380658161964248303733847776447290358542 "HTTP/2 200 OK"
+2026-03-01 11:00:26 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=45791694354627609860996995464684896219113137597163711655558136136714271187710 "HTTP/2 200 OK"
+2026-03-01 11:00:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=45791694354627609860996995464684896219113137597163711655558136136714271187710 "HTTP/2 200 OK"
+2026-03-01 11:00:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=59265590207043884049941333709581250095380658161964248303733847776447290358542 "HTTP/2 200 OK"
+2026-03-01 11:00:27 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=12391244219309511238643641958729254867817868679090119766663379978049654440306 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-15m-1772381700 (2 tokens)
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=12391244219309511238643641958729254867817868679090119766663379978049654440306 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=85887655248420904570014223023402408742820744255266933337344987628210915368702 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=22310169420574774250649171353170398335932949127507019786670197432022919773349 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=61276605419126431515009876970321409777749890449872536987110020414285069762506 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=85887655248420904570014223023402408742820744255266933337344987628210915368702 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=61276605419126431515009876970321409777749890449872536987110020414285069762506 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=22310169420574774250649171353170398335932949127507019786670197432022919773349 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=12391244219309511238643641958729254867817868679090119766663379978049654440306 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=85887655248420904570014223023402408742820744255266933337344987628210915368702 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=61276605419126431515009876970321409777749890449872536987110020414285069762506 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=22310169420574774250649171353170398335932949127507019786670197432022919773349 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=51451735893381757111700882019565699271953903094406826878020267772232115562234 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=3659551460029982689214094910814724364938508344757870642084214017572944104140 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=51451735893381757111700882019565699271953903094406826878020267772232115562234 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=3659551460029982689214094910814724364938508344757870642084214017572944104140 "HTTP/2 200 OK"
+2026-03-01 11:00:28 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=51451735893381757111700882019565699271953903094406826878020267772232115562234 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-15m-1772381700 (2 tokens)
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=3659551460029982689214094910814724364938508344757870642084214017572944104140 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=73172156693916228518907734532720160636321750312765689217000889385107301626989 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=19898250737578206934121533770096755475032652759822820125551297076980761485195 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=110253955748934412498745956556559854646776493757273307136063388686159164325170 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=98652659698838268286737390147356418775414410747209504886682674923439500024128 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=73172156693916228518907734532720160636321750312765689217000889385107301626989 "HTTP/2 200 OK"
+2026-03-01 11:00:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=19898250737578206934121533770096755475032652759822820125551297076980761485195 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=110253955748934412498745956556559854646776493757273307136063388686159164325170 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=98652659698838268286737390147356418775414410747209504886682674923439500024128 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=73172156693916228518907734532720160636321750312765689217000889385107301626989 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=19898250737578206934121533770096755475032652759822820125551297076980761485195 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=110253955748934412498745956556559854646776493757273307136063388686159164325170 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=104758088098467402869572786493434796176046573853682267397064986536450413215356 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=88327637179564482142657019177751631341700038365634187756450014583710080406507 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=94570599947050017940242559126636066809339962951022643466790504338743202523312 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=104758088098467402869572786493434796176046573853682267397064986536450413215356 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=98652659698838268286737390147356418775414410747209504886682674923439500024128 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=88327637179564482142657019177751631341700038365634187756450014583710080406507 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=86848004236613526074467826393433218206809058252121827302982076253899804825016 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=94570599947050017940242559126636066809339962951022643466790504338743202523312 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=104758088098467402869572786493434796176046573853682267397064986536450413215356 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=86848004236613526074467826393433218206809058252121827302982076253899804825016 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=88327637179564482142657019177751631341700038365634187756450014583710080406507 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=94570599947050017940242559126636066809339962951022643466790504338743202523312 "HTTP/2 200 OK"
+2026-03-01 11:00:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=86848004236613526074467826393433218206809058252121827302982076253899804825016 "HTTP/2 200 OK"
+2026-03-01 11:00:34 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-15m-1772379900: 0.01 -> 0.001 (token=12866613907743506570…)
+2026-03-01 11:00:34 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-15m-1772379900: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 11:00:34 [INFO] src.clob_client: Placing order: token_id=18198736193769911341648774292466553812438498330797363644165554121093651762871, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 11:00:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=18198736193769911341648774292466553812438498330797363644165554121093651762871 "HTTP/2 200 OK"
+2026-03-01 11:00:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=18198736193769911341648774292466553812438498330797363644165554121093651762871 "HTTP/2 200 OK"
+2026-03-01 11:00:35 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-15m-1772379900: 0.01 -> 0.001 (token=23264972783652588799…)
+2026-03-01 11:00:35 [INFO] src.strategy.sweep: [SWEEP] Signal for btc-updown-15m-1772379900: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 11:00:35 [INFO] src.clob_client: Placing order: token_id=36914053983235695430354425453524817452839511625473593357642910182607420186486, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 11:00:35 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 11:00:35 [INFO] src.clob_client: Order placed: orderId=0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74, status=live
+2026-03-01 11:00:35 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74: BUY sol-updown-15m-1772379900 @ 0.9990 x 5.00 (532ms)
+2026-03-01 11:00:36 [INFO] src.gateway.market_ws: [TICK_SIZE] btc-updown-5m-1772380500: 0.01 -> 0.001 (token=80151063419074844659…)
+2026-03-01 11:00:36 [INFO] src.strategy.sweep: [SWEEP] Signal for btc-updown-5m-1772380500: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 11:00:36 [INFO] src.clob_client: Placing order: token_id=9966620314357542159057286840768024719920505412334513621497138056733076991952, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=36914053983235695430354425453524817452839511625473593357642910182607420186486 "HTTP/2 200 OK"
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=9966620314357542159057286840768024719920505412334513621497138056733076991952 "HTTP/2 200 OK"
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=9966620314357542159057286840768024719920505412334513621497138056733076991952 "HTTP/2 200 OK"
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=36914053983235695430354425453524817452839511625473593357642910182607420186486 "HTTP/2 200 OK"
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 11:00:36 [INFO] src.clob_client: Order placed: orderId=0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede, status=live
+2026-03-01 11:00:36 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede: BUY btc-updown-5m-1772380500 @ 0.9990 x 5.00 (346ms)
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 11:00:36 [INFO] src.clob_client: Order placed: orderId=0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887, status=live
+2026-03-01 11:00:36 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887: BUY btc-updown-15m-1772379900 @ 0.9990 x 5.00 (1296ms)
+2026-03-01 11:00:36 [INFO] src.gateway.market_ws: [TICK_SIZE] sol-updown-5m-1772380500: 0.01 -> 0.001 (token=50822556067753019584…)
+2026-03-01 11:00:36 [INFO] src.strategy.sweep: [SWEEP] Signal for sol-updown-5m-1772380500: Down @ 0.990 → BUY 0.9990 x 5.00
+2026-03-01 11:00:36 [INFO] src.clob_client: Placing order: token_id=83621961721246158320932659199084080268179192434794430103474427555369571370041, price=0.9990, size=5.00, side=BUY, tick=0.001
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=83621961721246158320932659199084080268179192434794430103474427555369571370041 "HTTP/2 200 OK"
+2026-03-01 11:00:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=83621961721246158320932659199084080268179192434794430103474427555369571370041 "HTTP/2 200 OK"
+2026-03-01 11:00:37 [INFO] httpx: HTTP Request: POST https://clob.polymarket.com/order "HTTP/2 200 OK"
+2026-03-01 11:00:37 [INFO] src.clob_client: Order placed: orderId=0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e, status=live
+2026-03-01 11:00:37 [INFO] src.gateway.rest_client: [ORDER] Submitted 0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e: BUY sol-updown-5m-1772380500 @ 0.9990 x 5.00 (332ms)
+2026-03-01 11:00:45 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 11:00:45 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 11:00:45 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:00:45 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:00:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:00:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:00:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:00:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:01:02 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 11:01:04 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 11:01:04 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:01:04 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:01:04 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:01:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:01:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:01:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:01:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x27f7a21157e10e623d71bdf37f41c7fcd669ea74592cc5ad638051eea1910c01 "HTTP/2 200 OK"
+2026-03-01 11:01:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xdb3ae7dec723d3fec07ac937656467f45539a729fe2aa973a3da4fa0751ef47d "HTTP/2 200 OK"
+2026-03-01 11:01:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:01:21 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:01:21 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:01:21 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:01:21 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:01:22 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:01:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0x27f7a21157e10e: btc-updown-5m-1772380200 (pending 301s)
+2026-03-01 11:01:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0xdb3ae7dec723d3: sol-updown-5m-1772380200 (pending 300s)
+2026-03-01 11:01:37 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:01:37 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:01:37 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:01:37 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:01:37 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:01:38 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:01:55 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:01:55 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:01:56 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:01:56 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:01:56 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:01:56 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:02:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x4e7003ac91165609b8fae1ba569df978d9c91cda4184239b29eced8c7e150d03 "HTTP/2 200 OK"
+2026-03-01 11:02:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0xe29e5a11bc4adc389aa142c8a0f8ef64eedba9209d6357c81e8b19726b0e8bae "HTTP/2 200 OK"
+2026-03-01 11:02:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:02:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:02:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:02:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:02:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0x4e7003ac911656: eth-updown-5m-1772380200 (pending 355s)
+2026-03-01 11:02:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0xe29e5a11bc4adc: xrp-updown-5m-1772380200 (pending 355s)
+2026-03-01 11:02:29 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:02:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:02:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:02:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:02:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:02:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:02:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:02:48 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:02:57 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-5m-1772380200 (winner=47407964557888676565434960201980889009355252239236125783571407214119730116554)
+2026-03-01 11:02:57 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-5m-1772380200
+2026-03-01 11:03:03 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:03:03 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:03:03 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:03:03 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:03:19 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:03:19 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:03:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:03:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:03:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:03:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:03:37 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:03:37 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:03:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:03:52 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:03:53 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:03:53 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:04:06 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 11:04:08 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:04:09 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:04:09 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:04:09 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:04:17 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-03-01 11:04:24 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:04:24 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:04:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:04:25 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:04:36 [ERROR] src.gamma_client: Failed to fetch event: slug=eth-updown-15m-1772381700
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+    raise new_e
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+    self._validate_conn(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connection.py", line 796, in connect
+    sock_and_verified = _ssl_wrap_socket_and_match_hostname(
+        sock=sock,
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connection.py", line 975, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/util/ssl_.py", line 483, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/util/ssl_.py", line 527, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/requests/adapters.py", line 644, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/util/retry.py", line 490, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/util/util.py", line 38, in reraise
+    raise value.with_traceback(tb)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+    raise new_e
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+    self._validate_conn(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connection.py", line 796, in connect
+    sock_and_verified = _ssl_wrap_socket_and_match_hostname(
+        sock=sock,
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/connection.py", line 975, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/util/ssl_.py", line 483, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/urllib3/util/ssl_.py", line 527, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/src/gamma_client.py", line 28, in fetch_event_by_slug
+    resp = requests.get(url, timeout=30)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/requests/api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "/Users/rafikben/coding/polymarket/polymarket-bot-sample/.venv/lib/python3.14/site-packages/requests/adapters.py", line 659, in send
+    raise ConnectionError(err, request=request)
+requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+2026-03-01 11:04:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:04:40 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:04:41 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:04:41 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:04:57 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:04:57 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:04:57 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:04:57 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:05:13 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:05:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:05:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:05:14 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:05:29 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-03-01-11:10
+2026-03-01 11:05:29 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-03-01-11:10
+2026-03-01 11:05:29 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-03-01-11:10
+2026-03-01 11:05:29 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-03-01-11:10
+2026-03-01 11:05:30 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772381400 (2 tokens)
+2026-03-01 11:05:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:05:30 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772381400 (2 tokens)
+2026-03-01 11:05:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:05:30 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:05:31 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:05:31 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772381400 (2 tokens)
+2026-03-01 11:05:31 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772381400 (2 tokens)
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=45075946064564996700410591621497336488684249092493748211141149991934944140613 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=25859143379160504352812191281480985771416152180993655580838114981418799755343 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=45075946064564996700410591621497336488684249092493748211141149991934944140613 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=25859143379160504352812191281480985771416152180993655580838114981418799755343 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=45075946064564996700410591621497336488684249092493748211141149991934944140613 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=25859143379160504352812191281480985771416152180993655580838114981418799755343 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=44531522752424693295722934165135874932346220847155462759960155722244855394053 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=4261984987089917118931437262448866396022368467832095837953550952918742939948 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=32336713198500136768729750222720079928910934632384777387529832652758687760269 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=44531522752424693295722934165135874932346220847155462759960155722244855394053 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=4261984987089917118931437262448866396022368467832095837953550952918742939948 "HTTP/2 200 OK"
+2026-03-01 11:05:32 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=32336713198500136768729750222720079928910934632384777387529832652758687760269 "HTTP/2 200 OK"
+2026-03-01 11:05:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=44531522752424693295722934165135874932346220847155462759960155722244855394053 "HTTP/2 200 OK"
+2026-03-01 11:05:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=4261984987089917118931437262448866396022368467832095837953550952918742939948 "HTTP/2 200 OK"
+2026-03-01 11:05:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=32336713198500136768729750222720079928910934632384777387529832652758687760269 "HTTP/2 200 OK"
+2026-03-01 11:05:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=76608295176698257834130952526166931668862607741221738817916555959809303698730 "HTTP/2 200 OK"
+2026-03-01 11:05:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=76608295176698257834130952526166931668862607741221738817916555959809303698730 "HTTP/2 200 OK"
+2026-03-01 11:05:33 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=76608295176698257834130952526166931668862607741221738817916555959809303698730 "HTTP/2 200 OK"
+2026-03-01 11:05:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=47910489771067022409176598797082395565761930488929942512136283065318075098717 "HTTP/2 200 OK"
+2026-03-01 11:05:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=47910489771067022409176598797082395565761930488929942512136283065318075098717 "HTTP/2 200 OK"
+2026-03-01 11:05:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=47910489771067022409176598797082395565761930488929942512136283065318075098717 "HTTP/2 200 OK"
+2026-03-01 11:05:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=58946294237118626527840624033896574303534546889160332877626380665868365977994 "HTTP/2 200 OK"
+2026-03-01 11:05:35 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=58946294237118626527840624033896574303534546889160332877626380665868365977994 "HTTP/2 200 OK"
+2026-03-01 11:05:36 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=58946294237118626527840624033896574303534546889160332877626380665868365977994 "HTTP/2 200 OK"
+2026-03-01 11:05:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:05:46 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:05:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:05:47 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:06:02 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:06:02 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:06:03 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:06:03 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:06:17 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 11:06:19 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x1aa78f190a04a0b464b070725ad07adccd5eaebf7ae10b7709a9fbe092c68a74 "HTTP/2 200 OK"
+2026-03-01 11:06:19 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x75fe6197cc245379a8b8834b4ea4a9e14e5da7ec6b4ec26ad54bfa4c2ea95ede "HTTP/2 200 OK"
+2026-03-01 11:06:19 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x5f15b1ae317737d78940a9843e0217d2c0f85a4f094500e6775903ac8163e887 "HTTP/2 200 OK"
+2026-03-01 11:06:20 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/data/order/0x11916d43fc4b84cb2b651954dc3be3af62ed9365bfd56969d65611b93e49a01e "HTTP/2 200 OK"
+2026-03-01 11:06:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0x1aa78f190a04a0: sol-updown-15m-1772379900 (pending 347s)
+2026-03-01 11:06:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0x75fe6197cc2453: btc-updown-5m-1772380500 (pending 346s)
+2026-03-01 11:06:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0x5f15b1ae317737: btc-updown-15m-1772379900 (pending 345s)
+2026-03-01 11:06:22 [WARNING] src.execution.order_manager: [ORDER] Stale-expired 0x11916d43fc4b84: sol-updown-5m-1772380500 (pending 345s)
+2026-03-01 11:06:27 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-03-01 11:07:09 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-5m-1772380500 (winner=12915048241000664482832280162913726979442308313948021009326077565490781816849)
+2026-03-01 11:07:09 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-5m-1772380500
+2026-03-01 11:07:09 [INFO] src.execution.position_tracker: [POSITION] Closed eth-updown-5m-1772380500/sweep: 5.00 shares @ entry=0.9990 exit=1.0000 pnl=$0.0050
+2026-03-01 11:07:10 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-5m-1772380500 (winner=83621961721246158320932659199084080268179192434794430103474427555369571370041)
+2026-03-01 11:07:10 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-5m-1772380500
+2026-03-01 11:07:14 [INFO] src.gateway.market_ws: [RESOLVED] sol-updown-15m-1772379900 (winner=18198736193769911341648774292466553812438498330797363644165554121093651762871)
+2026-03-01 11:07:14 [INFO] src.gateway.market_ws: [MARKET_REMOVE] sol-updown-15m-1772379900
+2026-03-01 11:07:15 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-15m-1772379900 (winner=79510547911141703520617544975719004620818275273934715486486995879089509736751)
+2026-03-01 11:07:15 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-15m-1772379900
+2026-03-01 11:08:28 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 11:08:28 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-5m-1772380500 (winner=9966620314357542159057286840768024719920505412334513621497138056733076991952)
+2026-03-01 11:08:28 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-5m-1772380500
+2026-03-01 11:08:28 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772380500 (winner=11386736864828918197433222834031597534402613640223203910425757007721474189303)
+2026-03-01 11:08:28 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772380500
+2026-03-01 11:08:28 [INFO] src.execution.position_tracker: [POSITION] Closed xrp-updown-5m-1772380500/sweep: 5.00 shares @ entry=0.9990 exit=1.0000 pnl=$0.0050
+2026-03-01 11:08:31 [INFO] src.gateway.market_ws: [RESOLVED] btc-updown-15m-1772379900 (winner=36914053983235695430354425453524817452839511625473593357642910182607420186486)
+2026-03-01 11:08:31 [INFO] src.gateway.market_ws: [MARKET_REMOVE] btc-updown-15m-1772379900
+2026-03-01 11:08:38 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
+2026-03-01 11:09:22 [INFO] src.execution.order_manager: [ORDER] Pruned 2 terminal orders from memory
+2026-03-01 11:09:58 [INFO] src.gateway.market_ws: [RESOLVED] eth-updown-15m-1772379900 (winner=54904180934757108280068457480598558148642676640692639368023758877204892056354)
+2026-03-01 11:09:58 [INFO] src.gateway.market_ws: [MARKET_REMOVE] eth-updown-15m-1772379900
+2026-03-01 11:10:01 [INFO] src.bot: [SUB] Adding next 5m market for BTC: btc-5min-up-or-down-2026-03-01-11:15
+2026-03-01 11:10:01 [INFO] src.bot: [SUB] Adding next 5m market for ETH: eth-5min-up-or-down-2026-03-01-11:15
+2026-03-01 11:10:01 [INFO] src.bot: [SUB] Adding next 5m market for SOL: sol-5min-up-or-down-2026-03-01-11:15
+2026-03-01 11:10:01 [INFO] src.bot: [SUB] Adding next 5m market for XRP: xrp-5min-up-or-down-2026-03-01-11:15
+2026-03-01 11:10:02 [INFO] src.gateway.market_ws: [MARKET_ADD] btc-updown-5m-1772381700 (2 tokens)
+2026-03-01 11:10:03 [INFO] src.gateway.market_ws: [MARKET_ADD] eth-updown-5m-1772381700 (2 tokens)
+2026-03-01 11:10:03 [INFO] src.gateway.market_ws: [MARKET_ADD] sol-updown-5m-1772381700 (2 tokens)
+2026-03-01 11:10:03 [INFO] src.gateway.market_ws: [MARKET_ADD] xrp-updown-5m-1772381700 (2 tokens)
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=6575921320605814178802591048864667540897483995802898295344182565925439707936 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=66357585739843490781255226748422279647405029586893799329456813696845648205411 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=44564564582440012849365610444853674561870168354537087853417987150893996822630 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=89772909246443062401994146253426696962648766406099000370187520175405401963837 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=6575921320605814178802591048864667540897483995802898295344182565925439707936 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=44564564582440012849365610444853674561870168354537087853417987150893996822630 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=66357585739843490781255226748422279647405029586893799329456813696845648205411 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=89772909246443062401994146253426696962648766406099000370187520175405401963837 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=66357585739843490781255226748422279647405029586893799329456813696845648205411 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=6575921320605814178802591048864667540897483995802898295344182565925439707936 "HTTP/2 200 OK"
+2026-03-01 11:10:05 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=44564564582440012849365610444853674561870168354537087853417987150893996822630 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=20105605591558558391209325111068566562540624189611576616383625768190096180177 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=24181189781350418976249267567195405850660667194036445021832856104833931199802 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=53106116849763963179548070211769868700121782501587269558003937404686773244277 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=20105605591558558391209325111068566562540624189611576616383625768190096180177 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=24181189781350418976249267567195405850660667194036445021832856104833931199802 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=53106116849763963179548070211769868700121782501587269558003937404686773244277 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=89772909246443062401994146253426696962648766406099000370187520175405401963837 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/neg-risk?token_id=115399297949287207717735043706711729914092053634078974959896729891300226564860 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/fee-rate?token_id=115399297949287207717735043706711729914092053634078974959896729891300226564860 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=53106116849763963179548070211769868700121782501587269558003937404686773244277 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=24181189781350418976249267567195405850660667194036445021832856104833931199802 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=20105605591558558391209325111068566562540624189611576616383625768190096180177 "HTTP/2 200 OK"
+2026-03-01 11:10:06 [INFO] httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=115399297949287207717735043706711729914092053634078974959896729891300226564860 "HTTP/2 200 OK"
+2026-03-01 11:10:07 [INFO] src.gateway.market_ws: [RESOLVED] xrp-updown-5m-1772380800 (winner=100862047636145585963616416439846453310718073951382401129403911986703074936312)
+2026-03-01 11:10:07 [INFO] src.gateway.market_ws: [MARKET_REMOVE] xrp-updown-5m-1772380800
+2026-03-01 11:10:39 [WARNING] src.gateway.user_ws: [WS_USER] Disconnected: no close frame received or sent — reconnecting in 5s
+2026-03-01 11:10:49 [WARNING] src.gateway.user_ws: [WS_USER] Auth response timeout — continuing
