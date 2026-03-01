@@ -119,15 +119,59 @@ def cmd_stats(args: argparse.Namespace) -> int:
     print(f"  Trades       : {total_trades}")
     print(f"  Win rate     : {wins / total_trades * 100:.1f}%" if total_trades > 0 else "  Win rate     : N/A")
 
-    print()
-    print("  Recent decisions (last 10):")
+    # 1. Rejection Breakdown
+    if rejected > 0:
+        print("\n  REJECTION BREAKDOWN")
+        print("  " + "-" * 20)
+        rejection_rows = conn.execute(
+            "SELECT rejection_reason, COUNT(*) as count FROM orders WHERE final_status IN ('REJECTED', 'FAILED') GROUP BY rejection_reason ORDER BY count DESC"
+        ).fetchall()
+        for r in rejection_rows:
+            reason = r[0] if r[0] else "Unknown/None"
+            # Truncate and clean up HTML blobs
+            if "<html>" in reason.lower() or "<!doctype" in reason.lower():
+                reason = "HTML Error Page (e.g. 502 Bad Gateway)"
+            elif len(reason) > 100:
+                reason = reason[:97] + "..."
+            print(f"    {r[1]:3d}x  {reason}")
+
+    # 2. Timing Analysis (for FILLED orders)
+    timing_row = conn.execute(
+        "SELECT AVG(time_to_expiry_s), MIN(time_to_expiry_s), MAX(time_to_expiry_s) FROM orders WHERE final_status = 'FILLED'"
+    ).fetchone()
+    if timing_row and timing_row[0] is not None:
+        print("\n  TIMING ANALYSIS (Filled Orders)")
+        print("  " + "-" * 32)
+        print(f"    Avg Time to Expiry : {timing_row[0]:.2f}s")
+        print(f"    Min Time to Expiry : {timing_row[1]:.2f}s")
+        print(f"    Max Time to Expiry : {timing_row[2]:.2f}s")
+
+    # 3. Late Trades (after expiration)
+    late_rows = conn.execute(
+        "SELECT slug, side, price, size, time_to_expiry_s, order_id FROM orders WHERE time_to_expiry_s < 0 AND final_status = 'FILLED' ORDER BY time_to_expiry_s ASC"
+    ).fetchall()
+    if late_rows:
+        from src.utils.timestamps import format_slug_with_est_time
+        print(f"\n  LATE TRADES ({len(late_rows)} filled after Expiry)")
+        print("  " + "-" * 40)
+        for r in late_rows:
+            display_slug = format_slug_with_est_time(r[0])
+            # time_to_expiry_s is negative for late trades
+            seconds_late = abs(r[4])
+            print(f"    {display_slug:40s}  {r[1]} {r[2]:.4f} x {r[3]:<6.1f}  {seconds_late:6.1f}s LATE")
+
+    print("\n  Recent decisions (last 10):")
     rows = conn.execute(
         "SELECT timestamp, strategy, slug, decision, reason FROM decisions ORDER BY id DESC LIMIT 10"
     ).fetchall()
+    
+    from src.utils.timestamps import format_slug_with_est_time
+    from datetime import datetime
+
     for r in rows:
-        from datetime import datetime
         ts = datetime.fromtimestamp(r[0]).strftime("%m-%d %H:%M:%S")
-        print(f"    {ts}  [{r[1]}] {r[2]:30s}  {r[3]:8s}  {r[4]}")
+        display_slug = format_slug_with_est_time(r[2])
+        print(f"    {ts}  [{r[1]}] {display_slug:40s}  {r[3]:8s}  {r[4]}")
 
     conn.close()
     print("=" * 50)
