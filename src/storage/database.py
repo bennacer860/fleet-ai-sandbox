@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS orders (
     signal_to_fill_ms REAL,
     tick_to_order_ms REAL,
     time_to_expiry_s REAL,
+    market          TEXT DEFAULT '',
+    best_bid        REAL,
+    best_ask        REAL,
     dry_run         INTEGER NOT NULL DEFAULT 0
 );
 
@@ -115,6 +118,24 @@ CREATE INDEX IF NOT EXISTS idx_dedup_session ON dedup(session_date);
 """
 
 
+_MIGRATIONS = [
+    ("orders", "market", "ALTER TABLE orders ADD COLUMN market TEXT DEFAULT ''"),
+    ("orders", "best_bid", "ALTER TABLE orders ADD COLUMN best_bid REAL"),
+    ("orders", "best_ask", "ALTER TABLE orders ADD COLUMN best_ask REAL"),
+]
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Add columns that may be missing from an older schema."""
+    for table, column, sql in _MIGRATIONS:
+        cursor = conn.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in cursor.fetchall()}
+        if column not in existing:
+            conn.execute(sql)
+            logger.info("[DB] Migration: added %s.%s", table, column)
+    conn.commit()
+
+
 def init_db(db_path: str) -> sqlite3.Connection:
     """Create the database file (if needed) and ensure all tables exist.
 
@@ -128,6 +149,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(SCHEMA_SQL)
+    _run_migrations(conn)
     conn.commit()
 
     logger.info("[DB] Initialised database at %s", db_path)

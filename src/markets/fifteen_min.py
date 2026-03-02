@@ -36,6 +36,29 @@ _ASSET_NAME_MAP: dict[str, str] = {
 }
 
 
+_SLUG_PREFIX_TO_MARKET: dict[str, str] = {
+    "btc": "BTC",
+    "eth": "ETH",
+    "sol": "SOL",
+    "xrp": "XRP",
+    "bitcoin": "BTC",
+    "ethereum": "ETH",
+    "solana": "SOL",
+}
+
+
+def extract_market_from_slug(slug: str) -> str:
+    """Extract the crypto asset name from a market slug.
+
+    Handles both short-form (btc-updown-5m-...) and long-form
+    (bitcoin-up-or-down-...) slug formats.
+
+    Returns uppercase ticker (e.g. "BTC") or the raw prefix if unknown.
+    """
+    prefix = slug.split("-")[0].lower()
+    return _SLUG_PREFIX_TO_MARKET.get(prefix, prefix.upper())
+
+
 # ── Duration helpers ─────────────────────────────────────────────────────────
 
 def duration_label(duration_minutes: int) -> str:

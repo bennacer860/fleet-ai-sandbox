@@ -56,6 +56,9 @@ class OrderState:
     dry_run: bool = False
     tick_event_ns: int | None = None
     market_end_ts: float | None = None
+    market: str = ""
+    best_bid: float | None = None
+    best_ask: float | None = None
 
     @property
     def is_terminal(self) -> bool:

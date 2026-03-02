@@ -386,7 +386,7 @@ class OrderManager:
         if not self._persistence:
             return
         self._persistence.enqueue(
-            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, tick_to_order_ms, time_to_expiry_s, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, tick_to_order_ms, time_to_expiry_s, market, best_bid, best_ask, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 state.order_id,
                 state.intent.strategy,
@@ -404,6 +404,9 @@ class OrderManager:
                 state.signal_to_fill_ms,
                 state.tick_to_order_ms,
                 state.time_to_expiry_s,
+                state.market,
+                state.best_bid,
+                state.best_ask,
                 1 if state.dry_run else 0,
             ),
         )

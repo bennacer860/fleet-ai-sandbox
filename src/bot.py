@@ -41,6 +41,7 @@ from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
     extract_market_end_ts,
+    extract_market_from_slug,
     get_current_interval_utc,
     get_market_slug,
     get_next_interval_utc,
@@ -332,6 +333,10 @@ class Bot:
             if state is not None:
                 state.tick_event_ns = tick_event_ns
                 state.market_end_ts = extract_market_end_ts(intent.slug)
+                state.market = extract_market_from_slug(intent.slug)
+                bp = self._strategy_ctx.best_prices.get(intent.token_id, {})
+                state.best_bid = bp.get("bid")
+                state.best_ask = bp.get("ask")
                 self.order_manager.re_persist(state)
 
             if state is None and self.dashboard:
