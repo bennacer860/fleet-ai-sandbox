@@ -277,9 +277,15 @@ class Bot:
                     reason = getattr(strategy, "last_skip_reason", None) or "no signal"
                     price = getattr(strategy, "last_best_price", None)
                     price_str = f"  price={price:.3f}" if price is not None else ""
-                    self.dashboard.push_event(
-                        f"[dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason}"
-                    )
+                    watching = getattr(strategy, "last_watching", False)
+                    if watching:
+                        self.dashboard.push_event(
+                            f"[yellow]WATCHING[/yellow]  {display_slug}{price_str}  waiting for bid >= threshold"
+                        )
+                    else:
+                        self.dashboard.push_event(
+                            f"[dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason}"
+                        )
             except Exception:
                 logger.exception("Strategy %s error on tick_size_change", strategy.name())
 

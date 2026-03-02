@@ -38,6 +38,7 @@ class SweepStrategy(Strategy):
         self._order_price = order_price
         self.last_skip_reason: str | None = None
         self.last_best_price: float | None = None
+        self.last_watching: bool = False
         self._watching: dict[str, dict] = {}
 
     def name(self) -> str:
@@ -48,6 +49,7 @@ class SweepStrategy(Strategy):
     ) -> list[OrderIntent] | None:
         self.last_skip_reason = None
         self.last_best_price = None
+        self.last_watching = False
 
         if event.old_tick_size == event.new_tick_size:
             self.last_skip_reason = "duplicate tick_size (unchanged)"
@@ -70,6 +72,7 @@ class SweepStrategy(Strategy):
 
         if best_price < self._price_threshold:
             self._watching[event.slug] = eval_data
+            self.last_watching = True
             logger.info(
                 "[SWEEP] %s: price %.3f < threshold %.2f — monitoring until %.2f",
                 event.slug, best_price, self._price_threshold, self._price_threshold,
