@@ -15,7 +15,7 @@ import time
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
-from ..markets.fifteen_min import extract_market_end_ts
+from ..markets.fifteen_min import detect_duration_from_slug, extract_market_end_ts
 from .base import Strategy, StrategyContext
 
 logger = get_logger(__name__)
@@ -78,6 +78,30 @@ class SweepStrategy(Strategy):
             return None
 
         order_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
+
+        # TTE gate: only trade in the last 1/10th of the market duration.
+        # e.g. 15-min market → last 90s, 5-min market → last 30s.
+        end_ts = extract_market_end_ts(event.slug)
+        tte = (end_ts - time.time()) if end_ts is not None else None
+        if tte is not None:
+            duration_s = (detect_duration_from_slug(event.slug) or 15) * 60
+            window_s = duration_s / 10
+            if tte > window_s:
+                logger.info(
+                    "[SWEEP] %s: TTE %.1fs > window %.1fs — too early, skipping",
+                    event.slug, tte, window_s,
+                )
+                self.last_skip_reason = f"TTE {tte:.1f}s > {window_s:.0f}s window (last 1/10th)"
+                return None
+
+        # Double size for post-expiry trades — outcome is effectively locked,
+        # the oracle just hasn't confirmed yet, so risk is minimal.
+        if tte is not None and tte < 0:
+            order_size *= 2.0
+            logger.info(
+                "[SWEEP] Post-expiry signal for %s (%.1fs late) — doubling size to %.2f",
+                event.slug, abs(tte), order_size,
+            )
 
         logger.info(
             "[SWEEP] Signal for %s: %s @ %.3f → BUY %.4f x %.2f",
