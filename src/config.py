@@ -51,3 +51,8 @@ HEALTH_HTTP_PORT = int(os.getenv("HEALTH_HTTP_PORT", "0")) or None
 
 # Alerts
 ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
+
+# Telegram
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_NOTIFICATIONS_ENABLED = os.getenv("TELEGRAM_NOTIFICATIONS_ENABLED", "false").lower() in ("true", "1", "yes")

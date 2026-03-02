@@ -279,7 +279,7 @@ def write_trades_csv(trades: list[dict[str, Any]], output_path: str) -> None:
 
 def print_summary(trades: list[dict[str, Any]]) -> None:
     """
-    Print summary statistics for fetched trades to stdout.
+    Print summary statistics for fetched trades to stdout, including P&L.
 
     Args:
         trades: List of enriched trade dicts.
@@ -287,6 +287,9 @@ def print_summary(trades: list[dict[str, Any]]) -> None:
     if not trades:
         print("\nNo trades found for the given wallet and date range.")
         return
+
+    # Sort trades by timestamp (oldest first) for accurate P&L calculation
+    sorted_trades = sorted(trades, key=lambda x: x["timestamp"])
 
     total = len(trades)
     buys = [t for t in trades if t["side"] == "BUY"]
@@ -299,11 +302,78 @@ def print_summary(trades: list[dict[str, Any]]) -> None:
     above_95 = len([p for p in prices if p >= 0.95])
     below_95 = len([p for p in prices if p < 0.95])
 
-    # Unique markets
-    unique_slugs = set(t["event_slug"] for t in trades if t["event_slug"])
-    unique_assets = set(t["asset"] for t in trades if t["asset"])
+    # P&L and Position Tracking
+    positions = {}
+    
+    for t in sorted_trades:
+        key = (t["event_slug"], t["asset"], t["outcome"])
+        if key not in positions:
+            positions[key] = {
+                "quantity": 0.0,
+                "avg_price": 0.0,
+                "realized_pnl": 0.0,
+                "buy_vol": 0.0,
+                "sell_vol": 0.0,
+                "buy_count": 0,
+                "sell_count": 0,
+                "last_timestamp": t["timestamp"]
+            }
+        
+        pos = positions[key]
+        price = t["price"]
+        size = t["size"]
+        value = t["usdc_value"]
+        pos["last_timestamp"] = max(pos["last_timestamp"], t["timestamp"])
 
-    # Date range of actual trades
+        if t["side"] == "BUY":
+            current_cost = pos["quantity"] * pos["avg_price"]
+            pos["quantity"] += size
+            if pos["quantity"] > 0:
+                pos["avg_price"] = (current_cost + value) / pos["quantity"]
+            pos["buy_vol"] += value
+            pos["buy_count"] += 1
+        else:
+            # Handle SELL trades
+            # If we don't have current quantity (buy was before start_ts), 
+            # we cant calculate exact PnL, but we can assume a reasonable entry or flag it
+            if pos["quantity"] > 0:
+                realized = size * (price - pos["avg_price"])
+                pos["realized_pnl"] += realized
+            else:
+                # Fallback for "Sell before Buy" (outside range):
+                # We record the sell vol but don't add to realized_pnl since basis is unknown
+                pass
+            
+            pos["quantity"] -= size
+            pos["sell_vol"] += value
+            pos["sell_count"] += 1
+            
+            if pos["quantity"] <= 1e-9:
+                pos["quantity"] = 0.0
+                pos["avg_price"] = 0.0
+
+    total_realized_pnl = sum(p["realized_pnl"] for p in positions.values())
+    total_buy_vol = sum(p["buy_vol"] for p in positions.values())
+    total_sell_vol = sum(p["sell_vol"] for p in positions.values())
+    
+    # Estimate settlement P&L for "Open" positions that are likely resolved
+    # For a sweeper bot, almost all of these will settle at $1.00
+    now_ts = int(time.time())
+    total_estimated_settlement_pnl = 0.0
+    settled_count = 0
+
+    for key, pos in positions.items():
+        if pos["quantity"] > 0.01:
+            # Check market resolution (heuristic: if trade was > 1 hour ago, it's likely finished)
+            if (now_ts - pos["last_timestamp"]) > 3600:
+                # Assume $1.00 payout for winners (99% chance in sweep strategies)
+                potential_pnl = pos["quantity"] * (1.0 - pos["avg_price"])
+                total_estimated_settlement_pnl += potential_pnl
+                settled_count += 1
+
+    total_open_cost = sum(v["quantity"] * v["avg_price"] for v in positions.values() if v["quantity"] > 0.01)
+
+    # Date range analysis
     timestamps = [t["timestamp"] for t in trades]
     first_trade = min(timestamps)
     last_trade = max(timestamps)
@@ -311,39 +381,77 @@ def print_summary(trades: list[dict[str, Any]]) -> None:
     first_dt = datetime.fromtimestamp(first_trade, tz=est_tz)
     last_dt = datetime.fromtimestamp(last_trade, tz=est_tz)
 
-    # Market/Asset aggregation for P&L tracking
-    market_stats = {} # (event_slug, asset, outcome) -> {buys: usdc, sells: usdc, buy_size: size, sell_size: size}
-    for t in trades:
-        key = (t["event_slug"], t["asset"], t["outcome"])
-        if key not in market_stats:
-            market_stats[key] = {"buy_usdc": 0.0, "sell_usdc": 0.0, "buy_size": 0.0, "sell_size": 0.0}
-        
-        if t["side"] == "BUY":
-            market_stats[key]["buy_usdc"] += t["usdc_value"]
-            market_stats[key]["buy_size"] += t["size"]
-        else:
-            market_stats[key]["sell_usdc"] += t["usdc_value"]
-            market_stats[key]["sell_size"] += t["size"]
+    print("\n" + "=" * 100)
+    print(f"DETAILED TRADE CHRONOLOGY: {trades[0]['wallet']}")
+    print("=" * 100)
+    print(f"{'Time (EST)':<20} | {'Side':<5} | {'Size':>10} | {'Price':>8} | {'Value':>10} | {'Market/Asset'}")
+    print("-" * 100)
+    
+    for t in sorted_trades:
+        val = t["usdc_value"]
+        side = t["side"]
+        size = t["size"]
+        price = t["price"]
+        time_str = t["timestamp_est"]
+        slug = t["event_slug"][:40]
+        outcome = t["outcome"]
+        print(f"{time_str:<20} | {side:<5} | {size:>10,.0f} | {price:>8.4f} | ${val:>9,.2f} | {slug} ({outcome})")
 
-    print("\n" + "=" * 60)
-    print("WALLET TRADE SUMMARY")
-    print("=" * 60)
+    print("\n" + "=" * 100)
+    print("MARKET-BY-MARKET P&L BREAKDOWN")
+    print("=" * 100)
+    # Header: Market | Buys | Sells | Realized | Est. Settle | Total P&L
+    print(f"{'Market (Asset/Outcome)':<50} | {'Buys':>8} | {'Sells':>8} | {'Realized':>10} | {'Settled*':>10}")
+    print("-" * 100)
+
+    for key, pos in sorted(positions.items(), key=lambda x: x[0][0]):
+        slug, asset, outcome = key
+        short_id = f"{slug[:35]} ({outcome})"
+        realized = pos["realized_pnl"]
+        
+        # Est settle if holding > 0.01 and trade was > 1hr ago
+        now_ts = int(time.time())
+        est_settle = 0.0
+        if pos["quantity"] > 0.01 and (now_ts - pos["last_timestamp"]) > 3600:
+            est_settle = pos["quantity"] * (1.0 - pos["avg_price"])
+            
+        print(f"{short_id:<50} | ${pos['buy_vol']:>7.2f} | ${pos['sell_vol']:>7.2f} | {realized:>+10.4f} | {est_settle:>+10.4f}")
+
+    # Financial Totals (CLOB Trades)
+    total_realized_pnl = sum(p["realized_pnl"] for p in positions.values())
+    total_buy_vol = sum(p["buy_vol"] for p in positions.values())
+    total_sell_vol = sum(p["sell_vol"] for p in positions.values())
+    
+    # Financial Totals (Estimated)
+    now_ts = int(time.time())
+    total_est_settle = 0.0
+    for pos in positions.values():
+        if pos["quantity"] > 0.01 and (now_ts - pos["last_timestamp"]) > 3600:
+            total_est_settle += (pos["quantity"] * (1.0 - pos["avg_price"]))
+
+    total_open_cost = sum(v["quantity"] * v["avg_price"] for v in positions.values() if v["quantity"] > 0.01)
+
+    unique_slugs = set(t["event_slug"] for t in trades if t["event_slug"])
+    unique_assets = set(t["asset"] for t in trades if t["asset"])
+
+    print("\n" + "=" * 100)
+    print("FINANCIAL SUMMARY")
+    print("=" * 100)
     print(f"  Wallet:           {trades[0]['wallet']}")
-    print(f"  Date range:       {first_dt:%Y-%m-%d %H:%M} — {last_dt:%Y-%m-%d %H:%M} EST")
-    print(f"  Total trades:     {total}")
-    print(f"  Buys:             {len(buys)}")
-    print(f"  Sells:            {len(sells)}")
-    print(f"  Total volume:     ${total_volume:,.2f}")
-    print(f"  Avg trade size:   ${total_volume / total:,.2f}")
-    print(f"  Unique markets:   {len(unique_slugs)}")
-    print(f"  Unique tokens:    {len(unique_assets)}")
+    print(f"  Range:            {first_dt:%Y-%m-%d %H:%M} — {last_dt:%Y-%m-%d %H:%M} EST")
+    print(f"  Trades:           {total} ({len(buys)} Buys, {len(sells)} Sells)")
+    print(f"  Markets:          {len(unique_slugs)}")
+    print(f"  Unique Tokens:    {len(unique_assets)}")
     print()
-    print("  Financials (Aggregate):")
-    total_buy_vol = sum(s["buy_usdc"] for s in market_stats.values())
-    total_sell_vol = sum(s["sell_usdc"] for s in market_stats.values())
-    print(f"    Total spent:    ${total_buy_vol:,.2f}")
-    print(f"    Total sold:     ${total_sell_vol:,.2f}")
-    print(f"    Net spend:      ${(total_buy_vol - total_sell_vol):,.2f}")
+    print(f"  CLOB Buy Volume:  ${float(total_buy_vol):,.2f}")
+    print(f"  CLOB Sell Volume: ${float(total_sell_vol):,.2f}")
+    print(f"  Realized P&L:     ${float(total_realized_pnl):+,.4f}")
+    print()
+    print(f"  Est Settle P&L:   ${total_est_settle:+,.4f} (@ $1.00 payout)")
+    print(f"  Combined Gain:    ${(total_realized_pnl + total_est_settle):+,.4f}")
+    print()
+    print(f"  Open Position:    ${total_open_cost:,.2f} (cost basis of held/unsettled)")
+    print(f"  Net Cash Flow:    ${(total_sell_vol - total_buy_vol):+,.2f}")
     print()
     print("  Price distribution:")
     print(f"    >= 0.99:        {above_99:>6d}  ({above_99 / total * 100:.1f}%)")
@@ -353,5 +461,7 @@ def print_summary(trades: list[dict[str, Any]]) -> None:
     if above_95 / total > 0.5:
         print()
         print("  ⚠  >50% of trades at price >= 0.95 — consistent with endgame sweep pattern")
-
-    print("=" * 60)
+    
+    print("-" * 100)
+    print("  * Settled P&L assumes a $1.00 payout for winners. Only calculated for trades >1hr old.")
+    print("=" * 100 + "\n")

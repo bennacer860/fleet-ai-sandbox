@@ -163,10 +163,8 @@ def cmd_stats(args: argparse.Namespace) -> int:
         for r in late_rows:
             raw_slug = r[0]
             display_slug = format_slug_with_est_time(raw_slug)
-            # time_to_expiry_s is negative for late trades
             seconds_late = abs(r[4])
-            print(f"    {raw_slug:30s} ({display_slug})")
-            print(f"    {'':30s}  {r[1]} {r[2]:.4f} x {r[3]:<6.1f}  {seconds_late:6.1f}s LATE")
+            print(f"    {display_slug:<45s}  {r[1]} {r[2]:.4f} x {r[3]:<6.1f}  {seconds_late:.1f}s LATE")
 
     print("\n  Recent decisions (last 10):")
     rows = conn.execute(
@@ -180,7 +178,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
         ts = datetime.fromtimestamp(r[0]).strftime("%m-%d %H:%M:%S")
         raw_slug = r[2]
         display_slug = format_slug_with_est_time(raw_slug)
-        print(f"    {ts}  [{r[1]}] {raw_slug:30s} ({display_slug})")
+        print(f"    {ts}  [{r[1]}] {display_slug}")
         print(f"    {'':17}  {r[3]:8s}  {r[4]}")
 
     conn.close()

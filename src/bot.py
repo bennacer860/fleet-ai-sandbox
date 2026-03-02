@@ -10,15 +10,6 @@ import asyncio
 import time
 from typing import Any
 
-from .config import (
-    DB_PATH,
-    DRY_RUN,
-    HEALTH_FILE_PATH,
-    MAX_DAILY_LOSS,
-    MAX_ORDERS_PER_MINUTE,
-    MAX_POSITION_PER_MARKET,
-    MAX_TOTAL_EXPOSURE,
-)
 from .core.event_bus import EventBus
 from .core.events import (
     BookUpdate,
@@ -57,6 +48,19 @@ from .markets.fifteen_min import (
 from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
 from .utils.slug_helpers import slugs_for_timestamp
+from .utils.telegram_notifier import TelegramNotifier
+from .config import (
+    DB_PATH,
+    DRY_RUN,
+    HEALTH_FILE_PATH,
+    MAX_DAILY_LOSS,
+    MAX_ORDERS_PER_MINUTE,
+    MAX_POSITION_PER_MARKET,
+    MAX_TOTAL_EXPOSURE,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
+    TELEGRAM_NOTIFICATIONS_ENABLED,
+)
 
 logger = get_logger(__name__)
 
@@ -146,6 +150,12 @@ class Bot:
                 risk_manager=self.risk_manager,
                 dry_run=self.dry_run,
             )
+
+        self.telegram = TelegramNotifier(
+            token=TELEGRAM_BOT_TOKEN,
+            chat_id=TELEGRAM_CHAT_ID,
+            enabled=TELEGRAM_NOTIFICATIONS_ENABLED,
+        )
 
         self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
         self._eval_cache: dict[str, dict[str, Any]] = {}
@@ -300,6 +310,13 @@ class Bot:
                 f"[blue]RESOLVED[/blue]  {display_slug}  unsubscribed"
             )
 
+        # Telegram notification
+        display_slug = format_slug_with_est_time(event.slug)
+        await self.telegram.push_message(
+            f"<b>RESOLVED</b> {display_slug}\n"
+            f"Unsubscribed from market."
+        )
+
     async def _submit_intents(self, intents: list[OrderIntent], event: Any) -> None:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
@@ -342,6 +359,20 @@ class Bot:
                         f"[green]SUBMITTED[/green]  {display_slug}  "
                         f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}{timing}"
                     )
+            
+            # Telegram notification for submission (only if not dry-run for cleaner feed)
+            if state and not self.dry_run:
+                if state.is_terminal:
+                    reason = self._clean_reason(state.rejection_reason or state.status.value)
+                    await self.telegram.push_message(
+                        f"❌ <b>{state.status.value}</b> {display_slug}\n"
+                        f"Reason: {reason}"
+                    )
+                else:
+                    await self.telegram.push_message(
+                        f"📝 <b>SUBMITTED</b> {display_slug}\n"
+                        f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
+                    )
 
             if state and not state.is_terminal:
                 self.position_tracker.register_order(
@@ -369,6 +400,13 @@ class Bot:
             f"@ {event.fill_price:.4f} x {event.fill_size:.2f}"
         )
 
+        # Telegram notification
+        emoji = "💰" if label == "FILLED" else "🌓"
+        await self.telegram.push_message(
+            f"{emoji} <b>{label}</b> {display}\n"
+            f"Price: {event.fill_price:.4f} | Size: {event.fill_size:.2f}"
+        )
+
     async def _dashboard_on_terminal(self, event: OrderTerminal) -> None:
         if not self.dashboard:
             return
@@ -378,6 +416,12 @@ class Bot:
         reason = self._clean_reason(event.reason or event.status.value)
         self.dashboard.push_event(
             f"[red]{event.status.value}[/red]  {display}  {reason}"
+        )
+
+        # Telegram notification
+        await self.telegram.push_message(
+            f"🚫 <b>{event.status.value}</b> {display}\n"
+            f"Reason: {reason}"
         )
 
     # ── Context maintenance ───────────────────────────────────────────────
@@ -603,6 +647,7 @@ class Bot:
         await self.market_ws.stop()
         await self.user_ws.stop()
         await self.event_bus.stop()
+        await self.telegram.stop()
         await self.persistence.stop()
         await self.health_monitor.stop()
         await self.alert_manager.stop()
