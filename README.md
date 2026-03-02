@@ -210,6 +210,64 @@ The script will:
 
 Output columns include `result` (WIN / LOSS / UNRESOLVED), `winning_outcome`, `winning_token`, `duration`, and all position details.
 
+## Sweep Strategy Architecture
+
+The bot uses an event-driven **Endgame Sweep** strategy that monitors crypto Up/Down markets and places BUY orders at $0.999 to capture the spread to $1.00 at settlement.
+
+### How It Works
+
+When a market's tick size drops to `0.001` (indicating the market is approaching settlement), the strategy enters one of two paths:
+
+1. **Immediate order** — if the best bid is already >= 0.99 and within the TTE window, a BUY at 0.999 is placed right away.
+2. **Watchlist monitoring** — if the best bid is < 0.99, the market is added to an internal watchlist. The strategy then monitors every order book update for that market. Once the bid reaches 0.99 (and the TTE window is satisfied), the order is placed.
+
+```
+TickSizeChange (0.001)
+        │
+   bid >= 0.99? ──Yes──► TTE check ──► BUY @ 0.999
+        │
+       No
+        │
+   Add to watchlist
+        │
+   BookUpdate events ──► bid >= 0.99? ──Yes──► TTE check ──► BUY @ 0.999
+                              │
+                             No ──► keep watching
+```
+
+### Guard Rails
+
+- **Tick size gate**: only acts when tick size reaches `0.001`
+- **Price threshold**: configurable via `--price-threshold` (default: 0.99)
+- **TTE gate**: only trades in the last 1/10th of market duration (e.g., last 90s of a 15-min market)
+- **Post-expiry doubling**: order size is doubled after market expiry (outcome locked, oracle pending)
+- **Dedup**: prevents duplicate orders for the same market
+- **Risk limits**: max position per market, max total exposure, max orders/minute, max daily loss
+- **Watchlist cleanup**: markets are automatically removed from the watchlist on resolution
+
+### Key Components
+
+| Component | Role |
+|-----------|------|
+| `MarketWebSocket` | Single WS connection publishing `BookUpdate` and `TickSizeChange` events |
+| `EventBus` | Routes events to strategy and execution layers |
+| `SweepStrategy` | Pure logic — receives events, returns `OrderIntent` objects, no I/O |
+| `OrderManager` | Dedup, risk check, REST submission, lifecycle tracking |
+| `PositionTracker` | Tracks fills and P&L |
+
+### Running the Bot
+
+```bash
+# Dry run with dashboard (no real orders)
+python main.py run --dry-run --dashboard
+
+# Live trading
+python main.py run --markets BTC --durations 5 15
+
+# Custom threshold
+python main.py run --markets BTC ETH --price-threshold 0.98
+```
+
 ## Configuration
 
 See `.env.example` for required variables. You need a Polymarket account with funded USDC and the appropriate wallet setup (EOA, email/Magic, or browser proxy).

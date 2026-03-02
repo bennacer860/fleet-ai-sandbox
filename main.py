@@ -204,8 +204,8 @@ def main() -> int:
         help="Market durations in minutes (default: all supported)",
     )
     run_parser.add_argument(
-        "--price-threshold", type=float, default=0.95,
-        help="Min outcome price to trigger sweep order (default: 0.95)",
+        "--price-threshold", type=float, default=0.99,
+        help="Min outcome price to trigger sweep order (default: 0.99)",
     )
     run_parser.add_argument(
         "--dry-run", action="store_true",

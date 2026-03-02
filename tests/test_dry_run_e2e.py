@@ -15,7 +15,7 @@ import sqlite3
 import tempfile
 
 from src.core.event_bus import EventBus
-from src.core.events import BookUpdate, OrderSubmitted, TickSizeChange
+from src.core.events import BookUpdate, MarketResolved, OrderSubmitted, TickSizeChange
 from src.core.models import OrderIntent, Side
 from src.execution.order_manager import OrderManager
 from src.execution.position_tracker import PositionTracker
@@ -144,34 +144,116 @@ async def run_test():
     assert result is None, "Strategy should return None for non-sweep tick size"
     print("[PASS] Strategy correctly ignored non-sweep tick size")
 
-    # ── Test 5: Strategy ignores low-price markets ──────────────────────
+    # ── Test 5: Low-price market enters watchlist ───────────────────────
+
+    watch_slug = "btc-5m-watch-market"
+    watch_strategy = SweepStrategy(price_threshold=0.99)
 
     low_ctx = StrategyContext(
         best_prices={
-            token_id_yes: {"bid": 0.50, "ask": 0.52},
-            token_id_no: {"bid": 0.48, "ask": 0.50},
+            token_id_yes: {"bid": 0.95, "ask": 0.96},
+            token_id_no: {"bid": 0.05, "ask": 0.06},
         },
-        market_meta=ctx.market_meta,
+        market_meta={
+            watch_slug: {
+                "token_ids": (token_id_yes, token_id_no),
+                "outcomes": ("Up", "Down"),
+                "condition_id": "cond_watch",
+            }
+        },
         dry_run=True,
     )
-    result = await strategy.on_tick_size_change(tick_event, low_ctx)
-    assert result is None, "Strategy should skip low-price market"
-    print("[PASS] Strategy correctly skipped low-price market")
 
-    # ── Test 6: BookUpdate returns None from sweep strategy ─────────────
+    watch_tick = TickSizeChange(
+        condition_id="cond_watch",
+        slug=watch_slug,
+        token_id=token_id_yes,
+        old_tick_size="0.01",
+        new_tick_size="0.001",
+    )
+    result = await watch_strategy.on_tick_size_change(watch_tick, low_ctx)
+    assert result is None, "Strategy should not order when bid < threshold"
+    assert watch_slug in watch_strategy._watching, "Market should be in watchlist"
+    print("[PASS] Low-price market added to watchlist")
 
-    book_event = BookUpdate(
+    # ── Test 6: BookUpdate below threshold keeps watching ──────────────
+
+    book_low = BookUpdate(
+        token_id=token_id_yes,
+        condition_id="cond_watch",
+        slug=watch_slug,
+        bids=((0.96, 100.0),),
+        asks=((0.97, 100.0),),
+        best_bid=0.96,
+        best_ask=0.97,
+    )
+    low_book_ctx = StrategyContext(
+        best_prices={
+            token_id_yes: {"bid": 0.96, "ask": 0.97},
+            token_id_no: {"bid": 0.04, "ask": 0.05},
+        },
+        market_meta=low_ctx.market_meta,
+        dry_run=True,
+    )
+    result = await watch_strategy.on_book_update(book_low, low_book_ctx)
+    assert result is None, "Should keep watching when bid < threshold"
+    assert watch_slug in watch_strategy._watching, "Market should still be in watchlist"
+    print("[PASS] BookUpdate below threshold keeps watching")
+
+    # ── Test 6b: BookUpdate at/above threshold triggers order ──────────
+
+    high_book_ctx = StrategyContext(
+        best_prices={
+            token_id_yes: {"bid": 0.993, "ask": 0.995},
+            token_id_no: {"bid": 0.005, "ask": 0.007},
+        },
+        market_meta=low_ctx.market_meta,
+        dry_run=True,
+    )
+    book_high = BookUpdate(
+        token_id=token_id_yes,
+        condition_id="cond_watch",
+        slug=watch_slug,
+        bids=((0.993, 100.0),),
+        asks=((0.995, 100.0),),
+        best_bid=0.993,
+        best_ask=0.995,
+    )
+    result = await watch_strategy.on_book_update(book_high, high_book_ctx)
+    assert result is not None, "Should place order when bid >= threshold"
+    assert len(result) == 1
+    assert result[0].price == 0.999
+    assert result[0].side == Side.BUY
+    assert watch_slug not in watch_strategy._watching, "Market should be removed from watchlist"
+    print("[PASS] BookUpdate at threshold triggers order and removes from watchlist")
+
+    # ── Test 6c: BookUpdate for non-watched market is a no-op ──────────
+
+    book_unwatched = BookUpdate(
         token_id=token_id_yes,
         condition_id="cond_test",
-        slug=slug,
-        bids=((0.97, 100.0),),
-        asks=((0.98, 100.0),),
-        best_bid=0.97,
-        best_ask=0.98,
+        slug="some-other-market",
+        bids=((0.99, 100.0),),
+        asks=((0.995, 100.0),),
+        best_bid=0.99,
+        best_ask=0.995,
     )
-    result = await strategy.on_book_update(book_event, ctx)
+    result = await watch_strategy.on_book_update(book_unwatched, high_book_ctx)
     assert result is None
-    print("[PASS] SweepStrategy.on_book_update returns None (as expected)")
+    print("[PASS] BookUpdate for non-watched market returns None")
+
+    # ── Test 6d: MarketResolved cleans up watchlist ────────────────────
+
+    cleanup_slug = "btc-5m-cleanup-market"
+    watch_strategy._watching[cleanup_slug] = {"dummy": True}
+    resolved = MarketResolved(
+        slug=cleanup_slug,
+        condition_id="cond_cleanup",
+        winning_token_id=token_id_yes,
+    )
+    await watch_strategy.on_market_resolved(resolved, low_ctx)
+    assert cleanup_slug not in watch_strategy._watching, "Resolved market should be removed"
+    print("[PASS] MarketResolved cleans up watchlist")
 
     # ── Test 7: Persistence writes to SQLite ────────────────────────────
 
@@ -202,7 +284,7 @@ async def run_test():
 
     print()
     print("=" * 50)
-    print("  ALL 8 TESTS PASSED")
+    print("  ALL 12 TESTS PASSED")
     print("=" * 50)
 
 

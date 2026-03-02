@@ -7,7 +7,7 @@
 ## Strategy: Endgame Sweep (Sweeping the Closing Market)
 
 ### Concept
-When an event's outcome is essentially decided and the market price rises above **0.95** (approaching 0.99), buy in at that price and wait for official settlement, pocketing the remaining spread as near-certain profit.
+When an event's outcome is essentially decided and the market price rises to **0.99**, buy in at 0.999 and wait for official settlement, pocketing the remaining spread as near-certain profit. If the tick size changes but the bid hasn't reached 0.99 yet, the bot monitors the market until it does.
 
 ### Core Logic
 **"Trading time for certainty."** After an event has occurred (e.g., an election result is clear, a sports event has ended) but the market hasn't officially settled, the price hovers close to — but not exactly at — 1.00. Retail investors often can't wait for settlement and sell at 0.997–0.999, leaving arbitrage space.

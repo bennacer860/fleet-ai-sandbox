@@ -21,7 +21,7 @@ from .base import Strategy, StrategyContext
 logger = get_logger(__name__)
 
 SWEEP_TICK_SIZE = "0.001"
-DEFAULT_PRICE_THRESHOLD = 0.95
+DEFAULT_PRICE_THRESHOLD = 0.99
 MAX_ORDER_PRICE = 0.999
 FALLBACK_MIN_ORDER_SIZE = 5.0
 
@@ -38,6 +38,7 @@ class SweepStrategy(Strategy):
         self._order_price = order_price
         self.last_skip_reason: str | None = None
         self.last_best_price: float | None = None
+        self._watching: dict[str, dict] = {}
 
     def name(self) -> str:
         return "sweep"
@@ -68,44 +69,94 @@ class SweepStrategy(Strategy):
         self.last_best_price = best_price
 
         if best_price < self._price_threshold:
+            self._watching[event.slug] = eval_data
             logger.info(
-                "[SWEEP] %s: price %.3f < threshold %.2f — skip",
-                event.slug, best_price, self._price_threshold,
+                "[SWEEP] %s: price %.3f < threshold %.2f — monitoring until %.2f",
+                event.slug, best_price, self._price_threshold, self._price_threshold,
             )
             self.last_skip_reason = (
-                f"price {best_price:.3f} < threshold {self._price_threshold:.2f}"
+                f"price {best_price:.3f} < {self._price_threshold:.2f} — monitoring"
             )
             return None
 
+        return self._build_order(event.slug, eval_data)
+
+    async def on_book_update(
+        self, event: BookUpdate, ctx: StrategyContext
+    ) -> list[OrderIntent] | None:
+        if event.slug not in self._watching:
+            return None
+
+        eval_data = self._watching[event.slug]
+        tids = eval_data["token_ids"]
+        outcomes = eval_data["outcomes"]
+        prices = list(eval_data["prices"])
+
+        for i, tid in enumerate(tids):
+            rt = ctx.best_prices.get(tid, {}).get("bid")
+            if rt is not None and rt > 0:
+                prices[i] = rt
+
+        best_idx = max(range(len(prices)), key=lambda i: prices[i])
+        best_price = prices[best_idx]
+
+        if best_price < self._price_threshold:
+            return None
+
+        eval_data.update({
+            "prices": prices,
+            "best_idx": best_idx,
+            "best_price": best_price,
+            "best_outcome": outcomes[best_idx] if best_idx < len(outcomes) else "?",
+            "best_token_id": tids[best_idx],
+        })
+
+        del self._watching[event.slug]
+
+        logger.info(
+            "[SWEEP] %s bid reached %.3f (>= %.2f) — placing order",
+            event.slug, best_price, self._price_threshold,
+        )
+
+        return self._build_order(event.slug, eval_data)
+
+    async def on_market_resolved(
+        self, event: MarketResolved, ctx: StrategyContext
+    ) -> None:
+        self._watching.pop(event.slug, None)
+
+    # ── Internal helpers ──────────────────────────────────────────────────
+
+    def _build_order(self, slug: str, eval_data: dict) -> list[OrderIntent] | None:
+        """Apply TTE gate, post-expiry doubling, and build the OrderIntent."""
+        best_price = eval_data["best_price"]
+        best_token = eval_data["best_token_id"]
+        best_outcome = eval_data["best_outcome"]
         order_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
 
-        # TTE gate: only trade in the last 1/10th of the market duration.
-        # e.g. 15-min market → last 90s, 5-min market → last 30s.
-        end_ts = extract_market_end_ts(event.slug)
+        end_ts = extract_market_end_ts(slug)
         tte = (end_ts - time.time()) if end_ts is not None else None
         if tte is not None:
-            duration_s = (detect_duration_from_slug(event.slug) or 15) * 60
+            duration_s = (detect_duration_from_slug(slug) or 15) * 60
             window_s = duration_s / 10
             if tte > window_s:
                 logger.info(
                     "[SWEEP] %s: TTE %.1fs > window %.1fs — too early, skipping",
-                    event.slug, tte, window_s,
+                    slug, tte, window_s,
                 )
                 self.last_skip_reason = f"TTE {tte:.1f}s > {window_s:.0f}s window (last 1/10th)"
                 return None
 
-        # Double size for post-expiry trades — outcome is effectively locked,
-        # the oracle just hasn't confirmed yet, so risk is minimal.
         if tte is not None and tte < 0:
             order_size *= 2.0
             logger.info(
                 "[SWEEP] Post-expiry signal for %s (%.1fs late) — doubling size to %.2f",
-                event.slug, abs(tte), order_size,
+                slug, abs(tte), order_size,
             )
 
         logger.info(
             "[SWEEP] Signal for %s: %s @ %.3f → BUY %.4f x %.2f",
-            event.slug, best_outcome, best_price, self._order_price, order_size,
+            slug, best_outcome, best_price, self._order_price, order_size,
         )
 
         return [OrderIntent(
@@ -114,16 +165,9 @@ class SweepStrategy(Strategy):
             size=order_size,
             side=Side.BUY,
             strategy=self.name(),
-            slug=event.slug,
-            tick_size=float(event.new_tick_size),
+            slug=slug,
+            tick_size=float(SWEEP_TICK_SIZE),
         )]
-
-    async def on_book_update(
-        self, event: BookUpdate, ctx: StrategyContext
-    ) -> list[OrderIntent] | None:
-        return None
-
-    # ── Internal helpers ──────────────────────────────────────────────────
 
     @staticmethod
     def _is_sweep_signal(new_tick_size: str) -> bool:
