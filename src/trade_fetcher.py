@@ -9,7 +9,7 @@ import requests
 from pytz import timezone as pytz_timezone
 
 from .logging_config import get_logger
-from .markets.fifteen_min import detect_duration_from_slug, duration_label
+from .markets.fifteen_min import detect_duration_from_slug, duration_label, extract_market_end_ts
 
 logger = get_logger(__name__)
 
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 DATA_API_BASE = "https://data-api.polymarket.com"
 
 # Pagination settings
-DEFAULT_LIMIT = 10000
+DEFAULT_LIMIT = 1000
 RATE_LIMIT_DELAY = 0.5  # seconds between paginated requests
 
 # Known crypto prefixes for slug formatting
@@ -40,6 +40,8 @@ CSV_COLUMNS = [
     "event_slug",
     "transaction_hash",
     "fee_rate",
+    "expiry_ts",
+    "is_post_expiry",
 ]
 
 
@@ -226,9 +228,17 @@ def fetch_trades_for_wallet(
             dt_utc = datetime.fromtimestamp(trade_ts, tz=utc_tz)
             dt_est = dt_utc.astimezone(est_tz)
 
-            # Format event slug to match sweeper_analysis.csv
+            # Format event_slug and check for post-expiry
             raw_slug = trade.get("market_slug") or trade.get("slug") or ""
-            event_slug = format_slug_with_est_time(raw_slug) if raw_slug else ""
+            event_slug = ""
+            expiry_ts = None
+            is_post_expiry = False
+            
+            if raw_slug:
+                event_slug = format_slug_with_est_time(raw_slug)
+                expiry_ts = extract_market_end_ts(raw_slug)
+                if expiry_ts and trade_ts > expiry_ts:
+                    is_post_expiry = True
 
             enriched = {
                 "id": trade.get("id", ""),
@@ -246,6 +256,8 @@ def fetch_trades_for_wallet(
                 "event_slug": event_slug,
                 "transaction_hash": trade.get("transactionHash", ""),
                 "fee_rate": trade.get("feeRateBps", ""),
+                "expiry_ts": expiry_ts,
+                "is_post_expiry": is_post_expiry,
             }
             all_trades.append(enriched)
 
@@ -433,6 +445,36 @@ def print_summary(trades: list[dict[str, Any]]) -> None:
 
     unique_slugs = set(t["event_slug"] for t in trades if t["event_slug"])
     unique_assets = set(t["asset"] for t in trades if t["asset"])
+
+    # Post-expiry analysis
+    post_expiry_trades = [t for t in sorted_trades if t.get("is_post_expiry")]
+    
+    if post_expiry_trades:
+        print("\n" + "=" * 100)
+        print(f"TRADES EXECUTED AFTER MARKET EXPIRY (Likely Late Sweeps)")
+        print("=" * 100)
+        print(f"{'Time (EST)':<20} | {'Side':<5} | {'Size':>10} | {'Price':>8} | {'Value':>10} | {'Delay':>10} | {'Market'}")
+        print("-" * 100)
+        
+        for t in post_expiry_trades:
+            val = t["usdc_value"]
+            side = t["side"]
+            size = t["size"]
+            price = t["price"]
+            time_str = t["timestamp_est"]
+            slug = t["event_slug"][:40]
+            
+            # Calculate delay
+            delay_sec = t["timestamp"] - t["expiry_ts"]
+            if delay_sec < 60:
+                delay_str = f"{delay_sec}s"
+            else:
+                delay_str = f"{delay_sec // 60}m {delay_sec % 60}s"
+                
+            print(f"{time_str:<20} | {side:<5} | {size:>10,.0f} | {price:>8.4f} | ${val:>9,.2f} | {delay_str:>10} | {slug}")
+        print("-" * 100)
+        print(f"  Total post-expiry trades: {len(post_expiry_trades)}")
+        print(f"  Post-expiry volume:      ${sum(t['usdc_value'] for t in post_expiry_trades):,.2f}")
 
     print("\n" + "=" * 100)
     print("FINANCIAL SUMMARY")
