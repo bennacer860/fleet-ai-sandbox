@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS fills (
     order_id        TEXT NOT NULL,
     fill_price      REAL NOT NULL,
     fill_size       REAL NOT NULL,
+    cumulative_filled REAL NOT NULL DEFAULT 0,
     status          TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'ws',
     timestamp       REAL NOT NULL,
     FOREIGN KEY (order_id) REFERENCES orders(order_id)
 );
@@ -122,6 +124,8 @@ _MIGRATIONS = [
     ("orders", "market", "ALTER TABLE orders ADD COLUMN market TEXT DEFAULT ''"),
     ("orders", "best_bid", "ALTER TABLE orders ADD COLUMN best_bid REAL"),
     ("orders", "best_ask", "ALTER TABLE orders ADD COLUMN best_ask REAL"),
+    ("fills", "cumulative_filled", "ALTER TABLE fills ADD COLUMN cumulative_filled REAL NOT NULL DEFAULT 0"),
+    ("fills", "source", "ALTER TABLE fills ADD COLUMN source TEXT NOT NULL DEFAULT 'ws'"),
 ]
 
 

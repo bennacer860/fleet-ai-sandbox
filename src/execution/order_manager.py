@@ -176,6 +176,7 @@ class OrderManager:
             state.status = OrderStatus.PARTIAL
             self._stats["partial"] += 1
 
+        self._persist_fill(event, state.filled_size, state.status)
         self._persist_order(state)
 
     async def on_order_live(self, event: OrderLive) -> None:
@@ -302,6 +303,32 @@ class OrderManager:
                 ).upper()
 
                 matched_status = self._CLOB_STATUS_MAP.get(api_status)
+
+                if matched_status is None and api_status == "LIVE":
+                    size_matched_raw = (
+                        order_data.get("size_matched")
+                        or order_data.get("matched_amount")
+                        or order_data.get("filled_size")
+                    )
+                    if size_matched_raw:
+                        try:
+                            sm = float(size_matched_raw)
+                        except (ValueError, TypeError):
+                            sm = 0.0
+                        new_fill = sm - state.filled_size
+                        if new_fill > 0.001:
+                            logger.info(
+                                "[RECONCILE] Partial fill on live order %s: +%.2f (total %.2f)",
+                                oid[:16], new_fill, sm,
+                            )
+                            self.event_bus.publish_nowait(OrderFill(
+                                order_id=oid,
+                                fill_price=float(order_data.get("price", 0)) or state.intent.price,
+                                fill_size=new_fill,
+                                status=OrderStatus.PARTIAL,
+                            ))
+                    continue
+
                 if matched_status is None:
                     continue
 
@@ -381,6 +408,28 @@ class OrderManager:
         logger.info("[ORDER] Loaded %d dedup entries for %s", len(self._dedup), today)
 
     # ── Persistence helpers ───────────────────────────────────────────────
+
+    def _persist_fill(
+        self,
+        event: OrderFill,
+        cumulative_filled: float,
+        status: OrderStatus,
+        source: str = "ws",
+    ) -> None:
+        if not self._persistence:
+            return
+        self._persistence.enqueue(
+            "INSERT INTO fills (order_id, fill_price, fill_size, cumulative_filled, status, source, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                event.order_id,
+                event.fill_price,
+                event.fill_size,
+                cumulative_filled,
+                status.value,
+                source,
+                event.timestamp_ns / 1e9,
+            ),
+        )
 
     def _persist_order(self, state: OrderState) -> None:
         if not self._persistence:
