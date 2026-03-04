@@ -16,12 +16,14 @@ from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
 from ..markets.fifteen_min import detect_duration_from_slug, extract_market_end_ts
+from ..config import DEFAULT_TRADE_SIZE, POST_EXPIRY_MULTIPLIER
 from .base import Strategy, StrategyContext
 
 logger = get_logger(__name__)
 
 SWEEP_TICK_SIZE = "0.001"
 DEFAULT_PRICE_THRESHOLD = 0.99
+DEFAULT_EARLY_TICK_THRESHOLD = 0.995
 MAX_ORDER_PRICE = 0.999
 FALLBACK_MIN_ORDER_SIZE = 5.0
 
@@ -33,12 +35,15 @@ class SweepStrategy(Strategy):
         self,
         price_threshold: float = DEFAULT_PRICE_THRESHOLD,
         order_price: float = MAX_ORDER_PRICE,
+        early_tick_threshold: float = DEFAULT_EARLY_TICK_THRESHOLD,
     ) -> None:
         self._price_threshold = price_threshold
+        self._early_tick_threshold = early_tick_threshold
         self._order_price = order_price
         self.last_skip_reason: str | None = None
         self.last_best_price: float | None = None
         self.last_watching: bool = False
+        self._too_early: bool = False
         self._watching: dict[str, dict] = {}
 
     def name(self) -> str:
@@ -82,7 +87,17 @@ class SweepStrategy(Strategy):
             )
             return None
 
-        return self._build_order(event.slug, eval_data)
+        result = self._build_order(event.slug, eval_data)
+        if result is None and self._too_early:
+            eval_data["tte_early"] = True
+            self._watching[event.slug] = eval_data
+            self.last_watching = True
+            logger.info(
+                "[SWEEP] %s: TTE too early, price %.3f >= threshold — watching with stricter threshold %.3f",
+                event.slug, best_price, self._early_tick_threshold,
+            )
+            return None
+        return result
 
     async def on_book_update(
         self, event: BookUpdate, ctx: StrategyContext
@@ -103,7 +118,12 @@ class SweepStrategy(Strategy):
         best_idx = max(range(len(prices)), key=lambda i: prices[i])
         best_price = prices[best_idx]
 
-        if best_price < self._price_threshold:
+        threshold = (
+            self._early_tick_threshold
+            if eval_data.get("tte_early")
+            else self._price_threshold
+        )
+        if best_price < threshold:
             return None
 
         eval_data.update({
@@ -114,14 +134,16 @@ class SweepStrategy(Strategy):
             "best_token_id": tids[best_idx],
         })
 
-        del self._watching[event.slug]
-
-        logger.info(
-            "[SWEEP] %s bid reached %.3f (>= %.2f) — placing order",
-            event.slug, best_price, self._price_threshold,
-        )
-
-        return self._build_order(event.slug, eval_data)
+        result = self._build_order(event.slug, eval_data)
+        if result is not None:
+            del self._watching[event.slug]
+            logger.info(
+                "[SWEEP] %s bid reached %.3f (>= %.3f) — placing order",
+                event.slug, best_price, threshold,
+            )
+        elif self._too_early:
+            eval_data["tte_early"] = True
+        return result
 
     async def on_market_resolved(
         self, event: MarketResolved, ctx: StrategyContext
@@ -132,10 +154,14 @@ class SweepStrategy(Strategy):
 
     def _build_order(self, slug: str, eval_data: dict) -> list[OrderIntent] | None:
         """Apply TTE gate, post-expiry doubling, and build the OrderIntent."""
+        self._too_early = False
         best_price = eval_data["best_price"]
         best_token = eval_data["best_token_id"]
         best_outcome = eval_data["best_outcome"]
-        order_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
+        
+        # Use DEFAULT_TRADE_SIZE as the primary base, falling back to CLOB min_size
+        min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
+        order_size = max(DEFAULT_TRADE_SIZE, min_size)
 
         end_ts = extract_market_end_ts(slug)
         tte = (end_ts - time.time()) if end_ts is not None else None
@@ -143,18 +169,19 @@ class SweepStrategy(Strategy):
             duration_s = (detect_duration_from_slug(slug) or 15) * 60
             window_s = duration_s / 10
             if tte > window_s:
-                logger.info(
-                    "[SWEEP] %s: TTE %.1fs > window %.1fs — too early, skipping",
+                logger.debug(
+                    "[SWEEP] %s: TTE %.1fs > window %.1fs — too early",
                     slug, tte, window_s,
                 )
+                self._too_early = True
                 self.last_skip_reason = f"TTE {tte:.1f}s > {window_s:.0f}s window (last 1/10th)"
                 return None
 
         if tte is not None and tte < 0:
-            order_size *= 2.0
+            order_size *= POST_EXPIRY_MULTIPLIER
             logger.info(
-                "[SWEEP] Post-expiry signal for %s (%.1fs late) — doubling size to %.2f",
-                slug, abs(tte), order_size,
+                "[SWEEP] Post-expiry signal for %s (%.1fs late) — multiplying size (x%.1f) to %.2f",
+                slug, abs(tte), POST_EXPIRY_MULTIPLIER, order_size,
             )
 
         logger.info(

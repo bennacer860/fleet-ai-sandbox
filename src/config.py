@@ -40,6 +40,8 @@ DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
 
 # Risk limits
+DEFAULT_TRADE_SIZE = float(os.getenv("DEFAULT_TRADE_SIZE", "5.0"))
+POST_EXPIRY_MULTIPLIER = float(os.getenv("POST_EXPIRY_MULTIPLIER", "2.0"))
 MAX_POSITION_PER_MARKET = float(os.getenv("MAX_POSITION_PER_MARKET", "50.0"))
 MAX_TOTAL_EXPOSURE = float(os.getenv("MAX_TOTAL_EXPOSURE", "500.0"))
 MAX_ORDERS_PER_MINUTE = int(os.getenv("MAX_ORDERS_PER_MINUTE", "30"))

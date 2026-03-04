@@ -13,6 +13,8 @@ import asyncio
 import os
 import sqlite3
 import tempfile
+import time as _time
+from unittest.mock import patch
 
 from src.core.event_bus import EventBus
 from src.core.events import BookUpdate, MarketResolved, OrderSubmitted, TickSizeChange
@@ -255,6 +257,157 @@ async def run_test():
     assert cleanup_slug not in watch_strategy._watching, "Resolved market should be removed"
     print("[PASS] MarketResolved cleans up watchlist")
 
+    # ── Test 6e: TTE too early → market enters watchlist with tte_early flag
+
+    tte_strategy = SweepStrategy(price_threshold=0.99, early_tick_threshold=0.995)
+    future_start = int(_time.time()) + 200
+    tte_slug = f"btc-updown-5m-{future_start}"
+
+    tte_ctx = StrategyContext(
+        best_prices={
+            token_id_yes: {"bid": 0.993, "ask": 0.995},
+            token_id_no: {"bid": 0.005, "ask": 0.007},
+        },
+        market_meta={
+            tte_slug: {
+                "token_ids": (token_id_yes, token_id_no),
+                "outcomes": ("Up", "Down"),
+                "condition_id": "cond_tte",
+            }
+        },
+        dry_run=True,
+    )
+
+    tte_tick = TickSizeChange(
+        condition_id="cond_tte",
+        slug=tte_slug,
+        token_id=token_id_yes,
+        old_tick_size="0.01",
+        new_tick_size="0.001",
+    )
+    result = await tte_strategy.on_tick_size_change(tte_tick, tte_ctx)
+    assert result is None, "Should not order when TTE is too early"
+    assert tte_slug in tte_strategy._watching, "TTE-rejected market should be in watchlist"
+    assert tte_strategy._watching[tte_slug].get("tte_early") is True, "Should be flagged as tte_early"
+    assert tte_strategy.last_watching is True, "last_watching should be True"
+    print("[PASS] TTE too early: market added to watchlist with tte_early flag")
+
+    # ── Test 6f: BookUpdate keeps watching while TTE still too early ──
+
+    tte_book_high = BookUpdate(
+        token_id=token_id_yes,
+        condition_id="cond_tte",
+        slug=tte_slug,
+        bids=((0.996, 100.0),),
+        asks=((0.998, 100.0),),
+        best_bid=0.996,
+        best_ask=0.998,
+    )
+    tte_ctx_high = StrategyContext(
+        best_prices={
+            token_id_yes: {"bid": 0.996, "ask": 0.998},
+            token_id_no: {"bid": 0.002, "ask": 0.004},
+        },
+        market_meta=tte_ctx.market_meta,
+        dry_run=True,
+    )
+    result = await tte_strategy.on_book_update(tte_book_high, tte_ctx_high)
+    assert result is None, "Should not order while TTE still too early"
+    assert tte_slug in tte_strategy._watching, "Market should remain in watchlist"
+    print("[PASS] BookUpdate keeps watching while TTE still too early")
+
+    # ── Test 6g: Early-tick market rejects price between normal and stricter threshold
+
+    tte_ctx_mid = StrategyContext(
+        best_prices={
+            token_id_yes: {"bid": 0.993, "ask": 0.995},
+            token_id_no: {"bid": 0.005, "ask": 0.007},
+        },
+        market_meta=tte_ctx.market_meta,
+        dry_run=True,
+    )
+    tte_book_mid = BookUpdate(
+        token_id=token_id_yes,
+        condition_id="cond_tte",
+        slug=tte_slug,
+        bids=((0.993, 100.0),),
+        asks=((0.995, 100.0),),
+        best_bid=0.993,
+        best_ask=0.995,
+    )
+    end_ts = future_start + 300
+    mock_time_val = end_ts - 10.0
+    with patch("src.strategy.sweep.time") as mock_time_mod:
+        mock_time_mod.time.return_value = mock_time_val
+        result = await tte_strategy.on_book_update(tte_book_mid, tte_ctx_mid)
+    assert result is None, "0.993 is above normal threshold 0.99 but below early_tick 0.995 — should skip"
+    assert tte_slug in tte_strategy._watching, "Market should remain in watchlist"
+    print("[PASS] Early-tick market rejects price between normal and stricter threshold")
+
+    # ── Test 6h: BookUpdate places order once price meets stricter threshold and TTE in window
+
+    with patch("src.strategy.sweep.time") as mock_time_mod:
+        mock_time_mod.time.return_value = mock_time_val
+        result = await tte_strategy.on_book_update(tte_book_high, tte_ctx_high)
+    assert result is not None, "Should place order: price 0.996 >= 0.995 and TTE in window"
+    assert len(result) == 1
+    assert result[0].price == 0.999
+    assert result[0].side == Side.BUY
+    assert tte_slug not in tte_strategy._watching, "Market should be removed from watchlist"
+    print("[PASS] Early-tick market places order once price meets stricter threshold and TTE in window")
+
+    # ── Test 6i: Normal watchlist market uses standard threshold (not stricter)
+
+    normal_watch_strategy = SweepStrategy(price_threshold=0.99, early_tick_threshold=0.995)
+    normal_watch_slug = "btc-5m-normal-watch"
+    normal_watch_ctx = StrategyContext(
+        best_prices={
+            token_id_yes: {"bid": 0.95, "ask": 0.96},
+            token_id_no: {"bid": 0.05, "ask": 0.06},
+        },
+        market_meta={
+            normal_watch_slug: {
+                "token_ids": (token_id_yes, token_id_no),
+                "outcomes": ("Up", "Down"),
+                "condition_id": "cond_normal",
+            }
+        },
+        dry_run=True,
+    )
+    normal_tick = TickSizeChange(
+        condition_id="cond_normal",
+        slug=normal_watch_slug,
+        token_id=token_id_yes,
+        old_tick_size="0.01",
+        new_tick_size="0.001",
+    )
+    result = await normal_watch_strategy.on_tick_size_change(normal_tick, normal_watch_ctx)
+    assert result is None
+    assert normal_watch_slug in normal_watch_strategy._watching
+    assert normal_watch_strategy._watching[normal_watch_slug].get("tte_early") is not True
+
+    normal_book_ctx = StrategyContext(
+        best_prices={
+            token_id_yes: {"bid": 0.993, "ask": 0.995},
+            token_id_no: {"bid": 0.005, "ask": 0.007},
+        },
+        market_meta=normal_watch_ctx.market_meta,
+        dry_run=True,
+    )
+    normal_book = BookUpdate(
+        token_id=token_id_yes,
+        condition_id="cond_normal",
+        slug=normal_watch_slug,
+        bids=((0.993, 100.0),),
+        asks=((0.995, 100.0),),
+        best_bid=0.993,
+        best_ask=0.995,
+    )
+    result = await normal_watch_strategy.on_book_update(normal_book, normal_book_ctx)
+    assert result is not None, "Normal watchlist: 0.993 >= 0.99 should place order (no tte_early)"
+    assert normal_watch_slug not in normal_watch_strategy._watching
+    print("[PASS] Normal watchlist market uses standard threshold (0.993 >= 0.99 triggers order)")
+
     # ── Test 7: Persistence writes to SQLite ────────────────────────────
 
     await asyncio.sleep(0.3)  # wait for drain
@@ -284,7 +437,7 @@ async def run_test():
 
     print()
     print("=" * 50)
-    print("  ALL 12 TESTS PASSED")
+    print("  ALL 18 TESTS PASSED")
     print("=" * 50)
 
 

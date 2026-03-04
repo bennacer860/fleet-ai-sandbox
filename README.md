@@ -216,30 +216,38 @@ The bot uses an event-driven **Endgame Sweep** strategy that monitors crypto Up/
 
 ### How It Works
 
-When a market's tick size drops to `0.001` (indicating the market is approaching settlement), the strategy enters one of two paths:
+When a market's tick size drops to `0.001` (indicating the market is approaching settlement), the strategy enters one of three paths:
 
 1. **Immediate order** — if the best bid is already >= 0.99 and within the TTE window, a BUY at 0.999 is placed right away.
-2. **Watchlist monitoring** — if the best bid is < 0.99, the market is added to an internal watchlist. The strategy then monitors every order book update for that market. Once the bid reaches 0.99 (and the TTE window is satisfied), the order is placed.
+2. **Price watchlist** — if the best bid is < 0.99, the market is added to an internal watchlist. The strategy monitors every order book update until the bid reaches 0.99.
+3. **TTE watchlist (early tick)** — if the best bid is >= 0.99 but the TTE window hasn't been reached yet (tick change fired too early), the market is added to the watchlist with a **stricter price threshold** (default 0.995). This reduces reversal risk: an early tick change means more time for the market to swing, so a higher price bar is required before committing.
+
+In both watchlist paths, once the price meets the applicable threshold **and** TTE is within the window, the order is placed and the market is removed from the watchlist.
 
 ```
 TickSizeChange (0.001)
         │
-   bid >= 0.99? ──Yes──► TTE check ──► BUY @ 0.999
+   bid >= 0.99? ──Yes──► TTE check ──Pass──► BUY @ 0.999
+        │                    │
+       No               Too early (flag tte_early, use 0.995 threshold)
+        │                    │
+   Add to watchlist ◄────────┘
         │
-       No
-        │
-   Add to watchlist
-        │
-   BookUpdate events ──► bid >= 0.99? ──Yes──► TTE check ──► BUY @ 0.999
-                              │
-                             No ──► keep watching
+   BookUpdate events ──► bid >= threshold? ──Yes──► TTE check ──Pass──► BUY @ 0.999
+                              │                         │
+                             No                    Too early
+                              │                         │
+                          keep watching ◄────────────────┘
+
+   threshold = 0.995 for early-tick markets, 0.99 for normal watchlist
 ```
 
 ### Guard Rails
 
 - **Tick size gate**: only acts when tick size reaches `0.001`
 - **Price threshold**: configurable via `--price-threshold` (default: 0.99)
-- **TTE gate**: only trades in the last 1/10th of market duration (e.g., last 90s of a 15-min market)
+- **Early-tick threshold**: when a tick change fires too early (TTE outside window), a stricter threshold (default: 0.995) is applied to reduce reversal risk
+- **TTE gate**: only trades in the last 1/10th of market duration (e.g., last 90s of a 15-min market). If the tick change fires too early, the market is watched and retried on every book update until TTE enters the window.
 - **Post-expiry doubling**: order size is doubled after market expiry (outcome locked, oracle pending)
 - **Dedup**: prevents duplicate orders for the same market
 - **Risk limits**: max position per market, max total exposure, max orders/minute, max daily loss

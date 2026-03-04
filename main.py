@@ -45,7 +45,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         print("ERROR: No initial slugs generated. Check market/duration settings.")
         return 1
 
-    strategy = SweepStrategy(price_threshold=args.price_threshold)
+    strategy = SweepStrategy(
+        price_threshold=args.price_threshold,
+        early_tick_threshold=args.early_tick_threshold,
+    )
 
     bot = Bot(
         slugs=initial_slugs,
@@ -206,6 +209,10 @@ def main() -> int:
     run_parser.add_argument(
         "--price-threshold", type=float, default=0.99,
         help="Min outcome price to trigger sweep order (default: 0.99)",
+    )
+    run_parser.add_argument(
+        "--early-tick-threshold", type=float, default=0.995,
+        help="Stricter price threshold for markets where tick changed too early (default: 0.995)",
     )
     run_parser.add_argument(
         "--dry-run", action="store_true",
