@@ -18,8 +18,9 @@ logger = get_logger(__name__)
 _UTC = pytz_timezone("UTC")
 _EST = pytz_timezone("US/Eastern")
 
-# Known crypto prefixes for slug formatting
+# Known crypto prefixes for slug formatting (short and long names)
 _CRYPTO_PREFIXES = ("btc", "eth", "sol", "xrp")
+_LONG_TO_SHORT = {"bitcoin": "btc", "ethereum": "eth", "solana": "sol"}
 
 
 # ── Basic timestamp helpers ──────────────────────────────────────────────────
@@ -76,6 +77,16 @@ def format_slug_with_est_time(slug: str, timestamp_ms: Optional[int] = None) -> 
     # Detect duration from slug (defaults to 15min if undetectable)
     detected_dur = detect_duration_from_slug(slug)
     dur_label = duration_label(detected_dur if detected_dur is not None else 15)
+
+    # 1h slugs are already human-readable (e.g. bitcoin-up-or-down-march-4-5pm-et)
+    # Just normalize the crypto prefix and return.
+    if detected_dur == 60 and "-up-or-down-" in slug_lower:
+        # Normalize long asset names (bitcoin→btc, ethereum→eth, solana→sol)
+        first_seg = slug_lower.split("-")[0]
+        short = _LONG_TO_SHORT.get(first_seg, first_seg)
+        # Strip the original asset prefix and rebuild
+        rest = slug_lower[len(first_seg):]  # e.g. "-up-or-down-march-4-5pm-et"
+        return f"{short}-{dur_label}{rest}"
 
     # Identify crypto prefix
     crypto: Optional[str] = None

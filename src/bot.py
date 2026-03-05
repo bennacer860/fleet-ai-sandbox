@@ -346,8 +346,9 @@ class Bot:
                         f"[yellow]SKIP[/yellow]  {display_slug}  DEDUP: already ordered this session"
                     )
                 elif stats.get("risk_blocks", 0) > 0:
+                    risk_reason = self.order_manager._last_risk_reason or "limit exceeded"
                     self.dashboard.push_event(
-                        f"[yellow]SKIP[/yellow]  {display_slug}  RISK: limit exceeded"
+                        f"[yellow]SKIP[/yellow]  {display_slug}  RISK: {risk_reason}"
                     )
                 continue
 
@@ -687,3 +688,4 @@ class Bot:
                     attempt, MAX_RETRIES, RETRY_BASE_DELAY * attempt,
                 )
                 time.sleep(RETRY_BASE_DELAY * attempt)
+

@@ -64,6 +64,7 @@ class OrderManager:
             "dedup_skips": 0,
             "risk_blocks": 0,
         }
+        self._last_risk_reason: str = ""
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -94,6 +95,7 @@ class OrderManager:
         allowed, reason = self.risk_manager.check(intent)
         if not allowed:
             self._stats["risk_blocks"] += 1
+            self._last_risk_reason = reason
             logger.warning("[ORDER] Risk blocked: %s — %s", intent.slug, reason)
             self._log_decision(intent, "SKIP", f"RISK: {reason}")
             return None

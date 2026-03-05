@@ -210,10 +210,71 @@ def get_market_slug(
     return slug
 
 
+def _parse_1h_slug_start_ts(slug: str) -> int | None:
+    """Parse start timestamp from a 1-hour human-readable slug.
+
+    Expected format: ``{asset}-up-or-down-{month}-{day}-{hour}{am|pm}-et``
+    Example: ``bitcoin-up-or-down-march-4-3pm-et``
+
+    Returns:
+        Start Unix timestamp, or None if parsing fails.
+    """
+    import re
+    import calendar
+    from datetime import datetime
+
+    import pytz
+
+    slug_lower = slug.lower()
+    # Match: anything-up-or-down-{month}-{day}-{hour}{am/pm}-et
+    m = re.search(
+        r"-up-or-down-([a-z]+)-(\d+)-(\d{1,2})(am|pm)-et$",
+        slug_lower,
+    )
+    if not m:
+        return None
+
+    month_name, day_str, hour_str, ampm = m.groups()
+
+    # Resolve month name → number
+    month_abbrevs = {v.lower(): k for k, v in enumerate(calendar.month_name) if k}
+    month_full = {v.lower(): k for k, v in enumerate(calendar.month_abbr) if k}
+    month_num = month_abbrevs.get(month_name) or month_full.get(month_name)
+    if month_num is None:
+        return None
+
+    day = int(day_str)
+    hour = int(hour_str)
+
+    # Convert 12-hour → 24-hour
+    if ampm == "am":
+        if hour == 12:
+            hour = 0
+    else:  # pm
+        if hour != 12:
+            hour += 12
+
+    est = pytz.timezone("US/Eastern")
+    now_est = datetime.now(est)
+    # Use current year; if month is far in the future, assume last year
+    year = now_est.year
+
+    try:
+        naive = datetime(year, month_num, day, hour, 0, 0)
+        local_dt = est.localize(naive)
+    except Exception:
+        return None
+
+    return int(local_dt.timestamp())
+
+
 def extract_market_end_ts(slug: str) -> int | None:
     """Extract the market end unix timestamp from a slug.
 
-    Slug format: ``{crypto}-updown-{5m|15m}-{start_ts}``
+    Handles both formats:
+    - 5m/15m: ``{crypto}-updown-{5m|15m}-{start_ts}``
+    - 1h: ``{asset}-up-or-down-{month}-{day}-{hour}{am|pm}-et``
+
     Market end = start_ts + duration_seconds.
 
     Returns:
@@ -222,6 +283,15 @@ def extract_market_end_ts(slug: str) -> int | None:
     duration = detect_duration_from_slug(slug)
     if duration is None:
         return None
+
+    # 1-hour human-readable slugs
+    if duration == 60:
+        start_ts = _parse_1h_slug_start_ts(slug)
+        if start_ts is None:
+            return None
+        return start_ts + 60 * 60
+
+    # 5m / 15m numeric-timestamp slugs
     parts = slug.rsplit("-", 1)
     if len(parts) != 2:
         return None
