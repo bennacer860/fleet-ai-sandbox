@@ -70,6 +70,11 @@ RETRY_BASE_DELAY = 5
 SUB_CHECK_INTERVAL = 30
 GRACE_PERIOD_SECONDS = 5 * 60
 
+# Lazy subscription: only subscribe to markets with duration >= this
+# threshold when they are within LAZY_SUB_LEAD_S of expiry.
+LAZY_SUB_MIN_DURATION = 30   # minutes — applies to 30m, 60m, etc.
+LAZY_SUB_LEAD_S = 15 * 60    # subscribe 15 minutes before expiry
+
 
 class Bot:
     """Top-level orchestrator that creates, wires, and manages all components."""
@@ -82,6 +87,7 @@ class Bot:
         db_path: str | None = None,
         dashboard_enabled: bool = False,
         price_threshold: float = 0.95,
+        early_tick_threshold: float = 0.995,
         market_selections: list[MarketSelection] | None = None,
         durations: list[int] | None = None,
     ) -> None:
@@ -93,6 +99,13 @@ class Bot:
         self._durations = durations or sorted(SUPPORTED_DURATIONS)
 
         self._monitored_ts: dict[int, dict[str, set[int]]] = {
+            dur: {sel: set() for sel in self._market_selections}
+            for dur in self._durations
+        }
+
+        # Timestamps that we know about but haven't subscribed yet
+        # because the market is too far from expiry (lazy subscription).
+        self._deferred_ts: dict[int, dict[str, set[int]]] = {
             dur: {sel: set() for sel in self._market_selections}
             for dur in self._durations
         }
@@ -125,14 +138,26 @@ class Bot:
         self.position_tracker = PositionTracker(persistence=self.persistence)
         self.position_tracker.load_positions_from_db(conn)
 
+        # Shared set: token IDs here get full BookUpdate events published
+        # on the event bus.  Tokens NOT in this set still get best_prices
+        # updated (cheap), but skip the expensive sort + event publish.
+        # This prevents long-duration market traffic from starving
+        # time-critical short-duration events.
+        self._hot_tokens: set[str] = set()
+
         self.market_ws = MarketWebSocket(
             event_bus=self.event_bus,
             initial_slugs=list(self._slugs),
+            book_event_filter=self._hot_tokens,
         )
         self.user_ws = UserWebSocket(event_bus=self.event_bus)
 
         self.strategies: list[Strategy] = strategies or [
-            SweepStrategy(price_threshold=price_threshold)
+            SweepStrategy(
+                price_threshold=price_threshold,
+                early_tick_threshold=early_tick_threshold,
+                hot_tokens=self._hot_tokens,
+            )
         ]
 
         self.health_monitor = HealthMonitor(
@@ -258,7 +283,10 @@ class Bot:
         bus.subscribe(OrderTerminal, self._dashboard_on_terminal)
 
         bus.subscribe(OrderFill, self.position_tracker.on_fill)
-        bus.subscribe(BookUpdate, self.position_tracker.on_book_update)
+        # NOTE: PositionTracker no longer subscribes to BookUpdate events.
+        # best_prices are synced periodically from market_ws.best_prices
+        # in _metrics_loop, avoiding the event bus overhead for every
+        # book update across all tokens.
         bus.subscribe(MarketResolved, self.position_tracker.on_market_resolved)
 
         bus.subscribe(TickSizeChange, self._metrics_tick_size)
@@ -267,12 +295,13 @@ class Bot:
     # ── Strategy dispatchers ──────────────────────────────────────────────
 
     async def _on_tick_size_change(self, event: TickSizeChange) -> None:
+        handler_start_ns = time.time_ns()
         self._update_context()
         for strategy in self.strategies:
             try:
                 intents = await strategy.on_tick_size_change(event, self._strategy_ctx)
                 if intents:
-                    await self._submit_intents(intents, event)
+                    await self._submit_intents(intents, event, handler_start_ns)
                 elif self.dashboard:
                     display_slug = format_slug_with_est_time(event.slug)
                     reason = getattr(strategy, "last_skip_reason", None) or "no signal"
@@ -291,12 +320,13 @@ class Bot:
                 logger.exception("Strategy %s error on tick_size_change", strategy.name())
 
     async def _on_book_update(self, event: BookUpdate) -> None:
+        handler_start_ns = time.time_ns()
         self._update_context()
         for strategy in self.strategies:
             try:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
-                    await self._submit_intents(intents, event)
+                    await self._submit_intents(intents, event, handler_start_ns)
             except Exception:
                 logger.exception("Strategy %s error on book_update", strategy.name())
 
@@ -324,7 +354,7 @@ class Bot:
             f"Unsubscribed from market."
         )
 
-    async def _submit_intents(self, intents: list[OrderIntent], event: Any) -> None:
+    async def _submit_intents(self, intents: list[OrderIntent], event: Any, handler_start_ns: int | None = None) -> None:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
             display_slug = format_slug_with_est_time(intent.slug)
@@ -332,6 +362,7 @@ class Bot:
 
             if state is not None:
                 state.tick_event_ns = tick_event_ns
+                state.handler_start_ns = handler_start_ns
                 state.market_end_ts = extract_market_end_ts(intent.slug)
                 state.market = extract_market_from_slug(intent.slug)
                 bp = self._strategy_ctx.best_prices.get(intent.token_id, {})
@@ -358,6 +389,11 @@ class Bot:
                 timing = ""
                 if tick_ms is not None:
                     timing += f"  tick→order={tick_ms:.0f}ms"
+                    q_ms = state.queue_wait_ms
+                    e_ms = state.eval_ms
+                    r_ms = state.signal_to_rest_ms
+                    if q_ms is not None and e_ms is not None and r_ms is not None:
+                        timing += f" (bus={q_ms:.0f}ms eval={e_ms:.0f}ms rest={r_ms:.0f}ms)"
                 if expiry_s is not None:
                     timing += f"  expires={expiry_s:.0f}s"
 
@@ -367,9 +403,12 @@ class Bot:
                         f"[red]{state.status.value}[/red]  {display_slug}  {reason}{timing}"
                     )
                 else:
+                    bid_str = f"{state.best_bid:.3f}" if state.best_bid is not None else "--"
+                    ask_str = f"{state.best_ask:.3f}" if state.best_ask is not None else "--"
                     self.dashboard.push_event(
                         f"[green]SUBMITTED[/green]  {display_slug}  "
-                        f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}{timing}"
+                        f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}  "
+                        f"(bid={bid_str} ask={ask_str}){timing}"
                     )
             
             # Telegram notification for submission (only if not dry-run for cleaner feed)
@@ -482,6 +521,13 @@ class Bot:
             self._metrics.set("ws_market_msg_age_s", self.market_ws.last_message_age_s)
             self._metrics.set("persistence_pending", float(self.persistence.pending))
             self._metrics.set("orders_pending", float(self.order_manager.pending_count))
+            self._metrics.set("books_filtered", float(self.market_ws._books_filtered))
+
+            # Sync best_prices into PositionTracker (replaces per-event subscription)
+            for tid, prices in self.market_ws.best_prices.items():
+                bid = prices.get("bid")
+                if bid is not None:
+                    self.position_tracker._best_prices[tid] = bid
 
     # ── Subscription management (market rolling) ───────────────────────────
 
@@ -508,32 +554,74 @@ class Bot:
         nxt_ts = get_next_interval_utc(duration)
         now = int(time.time())
 
+        # For long durations, only subscribe when close to expiry.
+        use_lazy = duration >= LAZY_SUB_MIN_DURATION
+
         slugs_to_add: list[str] = []
         slugs_to_remove: list[str] = []
 
         for sel in self._market_selections:
             tracked = self._monitored_ts[duration][sel]
+            deferred = self._deferred_ts[duration][sel]
 
-            if nxt_ts not in tracked:
+            # ── Check timestamps we want to track ──
+            for ts in (cur_ts, nxt_ts):
+                if ts in tracked or ts in deferred:
+                    continue  # already handled
+
+                end_time = ts + interval_seconds
+                time_to_expiry = end_time - now
+                label = "next" if ts == nxt_ts else "current"
+
+                if use_lazy and time_to_expiry > LAZY_SUB_LEAD_S:
+                    # Too far from expiry — defer, don't subscribe yet.
+                    deferred.add(ts)
+                    try:
+                        slug = get_market_slug(sel, duration, ts)
+                        display = format_slug_with_est_time(slug)
+                        logger.info(
+                            "[SUB] Deferring %s %dm market for %s: %s (%.0fm to expiry)",
+                            label, duration, sel, display, time_to_expiry / 60,
+                        )
+                    except ValueError:
+                        pass
+                    continue
+
+                # Subscribe now.
                 try:
-                    slug = get_market_slug(sel, duration, nxt_ts)
+                    slug = get_market_slug(sel, duration, ts)
                     slugs_to_add.append(slug)
-                    tracked.add(nxt_ts)
+                    tracked.add(ts)
+                    deferred.discard(ts)
                     display = format_slug_with_est_time(slug)
-                    logger.info("[SUB] Adding next %dm market for %s: %s", duration, sel, display)
+                    logger.info("[SUB] Adding %s %dm market for %s: %s", label, duration, sel, display)
                 except ValueError as exc:
-                    logger.error("Slug generation failed (%s/%dm next): %s", sel, duration, exc)
+                    logger.error("Slug generation failed (%s/%dm %s): %s", sel, duration, label, exc)
 
-            if cur_ts not in tracked:
-                try:
-                    slug = get_market_slug(sel, duration, cur_ts)
-                    slugs_to_add.append(slug)
-                    tracked.add(cur_ts)
-                    display = format_slug_with_est_time(slug)
-                    logger.info("[SUB] Adding current %dm market for %s: %s", duration, sel, display)
-                except ValueError as exc:
-                    logger.error("Slug generation failed (%s/%dm current): %s", sel, duration, exc)
+            # ── Promote deferred timestamps that are now close enough ──
+            if use_lazy:
+                newly_ready: list[int] = []
+                for ts in deferred:
+                    end_time = ts + interval_seconds
+                    time_to_expiry = end_time - now
+                    if time_to_expiry <= LAZY_SUB_LEAD_S:
+                        try:
+                            slug = get_market_slug(sel, duration, ts)
+                            slugs_to_add.append(slug)
+                            tracked.add(ts)
+                            newly_ready.append(ts)
+                            display = format_slug_with_est_time(slug)
+                            logger.info(
+                                "[SUB] Promoting deferred %dm market for %s: %s (%.0fm to expiry)",
+                                duration, sel, display, time_to_expiry / 60,
+                            )
+                        except ValueError as exc:
+                            logger.error("Slug generation failed on promotion (%s/%dm): %s", sel, duration, exc)
+                            newly_ready.append(ts)
+                for ts in newly_ready:
+                    deferred.discard(ts)
 
+            # ── Prune expired markets ──
             expired: list[int] = []
             for ts in tracked:
                 end_time = ts + interval_seconds
@@ -549,6 +637,11 @@ class Bot:
                         expired.append(ts)
             for ts in expired:
                 tracked.discard(ts)
+
+            # Also clean stale deferred entries.
+            stale_deferred = [ts for ts in deferred if now > ts + interval_seconds]
+            for ts in stale_deferred:
+                deferred.discard(ts)
 
         if slugs_to_add:
             await self.market_ws.add_markets(slugs_to_add)

@@ -36,6 +36,7 @@ class SweepStrategy(Strategy):
         price_threshold: float = DEFAULT_PRICE_THRESHOLD,
         order_price: float = MAX_ORDER_PRICE,
         early_tick_threshold: float = DEFAULT_EARLY_TICK_THRESHOLD,
+        hot_tokens: set[str] | None = None,
     ) -> None:
         self._price_threshold = price_threshold
         self._early_tick_threshold = early_tick_threshold
@@ -45,6 +46,9 @@ class SweepStrategy(Strategy):
         self.last_watching: bool = False
         self._too_early: bool = False
         self._watching: dict[str, dict] = {}
+        # Shared set with MarketWebSocket — tokens in this set get full
+        # BookUpdate events published; all others are filtered early.
+        self._hot_tokens: set[str] = hot_tokens if hot_tokens is not None else set()
 
     def name(self) -> str:
         return "sweep"
@@ -76,7 +80,7 @@ class SweepStrategy(Strategy):
         self.last_best_price = best_price
 
         if best_price < self._price_threshold:
-            self._watching[event.slug] = eval_data
+            self._start_watching(event.slug, eval_data)
             self.last_watching = True
             logger.info(
                 "[SWEEP] %s: price %.3f < threshold %.2f — monitoring until %.2f",
@@ -90,7 +94,7 @@ class SweepStrategy(Strategy):
         result = self._build_order(event.slug, eval_data)
         if result is None and self._too_early:
             eval_data["tte_early"] = True
-            self._watching[event.slug] = eval_data
+            self._start_watching(event.slug, eval_data)
             self.last_watching = True
             logger.info(
                 "[SWEEP] %s: TTE too early, price %.3f >= threshold — watching with stricter threshold %.3f",
@@ -136,7 +140,7 @@ class SweepStrategy(Strategy):
 
         result = self._build_order(event.slug, eval_data)
         if result is not None:
-            del self._watching[event.slug]
+            self._stop_watching(event.slug)
             logger.info(
                 "[SWEEP] %s bid reached %.3f (>= %.3f) — placing order",
                 event.slug, best_price, threshold,
@@ -148,7 +152,28 @@ class SweepStrategy(Strategy):
     async def on_market_resolved(
         self, event: MarketResolved, ctx: StrategyContext
     ) -> None:
-        self._watching.pop(event.slug, None)
+        self._stop_watching(event.slug)
+
+    # ── Hot-token management ───────────────────────────────────────────────
+
+    def _start_watching(self, slug: str, eval_data: dict) -> None:
+        """Add a market to the watch list and register its tokens as hot."""
+        self._watching[slug] = eval_data
+        tids = eval_data.get("token_ids", ())
+        self._hot_tokens.update(tids)
+        logger.debug("[SWEEP] Hot-tokens += %d (total %d)", len(tids), len(self._hot_tokens))
+
+    def _stop_watching(self, slug: str) -> None:
+        """Remove a market from the watch list and unregister its tokens."""
+        eval_data = self._watching.pop(slug, None)
+        if eval_data:
+            tids = set(eval_data.get("token_ids", ()))
+            # Only remove tokens that aren't still watched by another slug
+            still_hot = set()
+            for other_data in self._watching.values():
+                still_hot.update(other_data.get("token_ids", ()))
+            self._hot_tokens -= (tids - still_hot)
+            logger.debug("[SWEEP] Hot-tokens -= %d (total %d)", len(tids - still_hot), len(self._hot_tokens))
 
     # ── Internal helpers ──────────────────────────────────────────────────
 

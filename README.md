@@ -212,56 +212,98 @@ Output columns include `result` (WIN / LOSS / UNRESOLVED), `winning_outcome`, `w
 
 ## Sweep Strategy Architecture
 
-The bot uses an event-driven **Endgame Sweep** strategy that monitors crypto Up/Down markets and places BUY orders at $0.999 to capture the spread to $1.00 at settlement.
+The bot uses a highly optimized, event-driven architecture designed to capture the spread to $1.00 at settlement in crypto Up/Down markets by placing BUY orders at $0.999.
 
-### How It Works
+### High-Level Event Flow
 
-When a market's tick size drops to `0.001` (indicating the market is approaching settlement), the strategy enters one of three paths:
+```mermaid
+flowchart TD
+    subgraph Gateway ["Gateway Layer"]
+        MWS[Market WebSocket]
+        UWS[User WebSocket]
+        REST[Async REST Client]
+    end
 
-1. **Immediate order** — if the best bid is already >= 0.99 and within the TTE window, a BUY at 0.999 is placed right away.
-2. **Price watchlist** — if the best bid is < 0.99, the market is added to an internal watchlist. The strategy monitors every order book update until the bid reaches 0.99.
-3. **TTE watchlist (early tick)** — if the best bid is >= 0.99 but the TTE window hasn't been reached yet (tick change fired too early), the market is added to the watchlist with a **stricter price threshold** (default 0.995). This reduces reversal risk: an early tick change means more time for the market to swing, so a higher price bar is required before committing.
+    subgraph Core ["Core Event Bus"]
+        EB{Event Bus}
+    end
 
-In both watchlist paths, once the price meets the applicable threshold **and** TTE is within the window, the order is placed and the market is removed from the watchlist.
+    subgraph Logic ["Strategy & Execution"]
+        SS[Sweep Strategy]
+        OM[Order Manager]
+        PT[Position Tracker]
+        RM[Risk Manager]
+    end
 
+    %% Market Data Flow
+    MWS -- "TickSizeChange" --> EB
+    MWS -- "BookUpdate (Hot Tokens Only)" --> EB
+    
+    %% Strategy Flow
+    EB -- "TickSize & Book Updates" --> SS
+    SS -- "OrderIntent" --> OM
+    
+    %% Execution Flow
+    OM -- "Validates vs Limits" --> RM
+    RM -- "OK" --> OM
+    OM -- "Place Order" --> REST
+    REST -- "OrderSubmitted/Failed" --> EB
+    
+    %% Order Tracking
+    UWS -- "Fills / Cancels" --> EB
+    EB -- "Update OrderState" --> OM
+    EB -- "Update Positions" --> PT
+    
+    classDef infra fill:#f9f,stroke:#333,stroke-width:2px;
+    class EB infra;
 ```
-TickSizeChange (0.001)
-        │
-   bid >= 0.99? ──Yes──► TTE check ──Pass──► BUY @ 0.999
-        │                    │
-       No               Too early (flag tte_early, use 0.995 threshold)
-        │                    │
-   Add to watchlist ◄────────┘
-        │
-   BookUpdate events ──► bid >= threshold? ──Yes──► TTE check ──Pass──► BUY @ 0.999
-                              │                         │
-                             No                    Too early
-                              │                         │
-                          keep watching ◄────────────────┘
 
-   threshold = 0.995 for early-tick markets, 0.99 for normal watchlist
+#### Performance Optimizations
+
+1.  **Lazy Subscription**: To prevent WebSocket throttling and Event Bus starvation, long-duration markets (e.g., 60-minute) are not subscribed to immediately. The Bot delays subscribing to these markets until they are within 15 minutes of expiry (`LAZY_SUB_LEAD_S`).
+2.  **Early Book Update Filtering**: The `MarketWebSocket` performs lightweight price extraction for all tokens, but only publishes expensive `BookUpdate` events to the Event Bus for "hot tokens" currently being actively watched by strategies.
+3.  **Granular Latency Tracking**: Every `OrderState` tracks precise latency metrics (`handler_start_ns`, `signal_ns`, `rest_response_ns`) to break down the `tick→order` delay into Event Bus queue wait (`bus`), Strategy Evaluation (`eval`), and HTTP Request (`rest`).
+
+### Strategy Decision Flow
+
+When a market's tick size drops to `0.001` (indicating the market is approaching settlement), the Sweep Strategy evaluates the market:
+
+```mermaid
+flowchart TD
+    Start([TickSizeChange to 0.001]) --> CheckTTE{Within TTE Window?}
+    
+    %% TTE Window Pass
+    CheckTTE -- Yes --> CheckPrice{Bid >= 0.99?}
+    CheckPrice -- Yes --> Trade[Submit BUY @ 0.999]
+    CheckPrice -- No --> Watch[Add to Watchlist<br/>Target: 0.99]
+    
+    %% TTE Window Fail (Early Tick)
+    CheckTTE -- No (Early) --> WatchEarly[Add to Watchlist<br/>Target: Early Tick Threshold<br/>Default: 0.995]
+    
+    %% Watchlist Loop
+    Watch --> NewBook[BookUpdate Received]
+    WatchEarly --> NewBook
+    
+    NewBook --> ReCheckTTE{Within TTE Window?}
+    ReCheckTTE -- Yes --> ReCheckPrice{Bid >= Target Threshold?}
+    ReCheckTTE -- No --> KeepWatching[Keep Watching]
+    
+    ReCheckPrice -- Yes --> Trade
+    ReCheckPrice -- No --> KeepWatching
+    
+    KeepWatching -.-> NewBook
+    Trade --> RemoveWatch[Remove from Watchlist]
 ```
-
-### Guard Rails
-
-- **Tick size gate**: only acts when tick size reaches `0.001`
-- **Price threshold**: configurable via `--price-threshold` (default: 0.99)
-- **Early-tick threshold**: when a tick change fires too early (TTE outside window), a stricter threshold (default: 0.995) is applied to reduce reversal risk
-- **TTE gate**: only trades in the last 1/10th of market duration (e.g., last 90s of a 15-min market). If the tick change fires too early, the market is watched and retried on every book update until TTE enters the window.
-- **Post-expiry doubling**: order size is doubled after market expiry (outcome locked, oracle pending)
-- **Dedup**: prevents duplicate orders for the same market
-- **Risk limits**: max position per market, max total exposure, max orders/minute, max daily loss
-- **Watchlist cleanup**: markets are automatically removed from the watchlist on resolution
 
 ### Key Components
 
 | Component | Role |
 |-----------|------|
-| `MarketWebSocket` | Single WS connection publishing `BookUpdate` and `TickSizeChange` events |
-| `EventBus` | Routes events to strategy and execution layers |
-| `SweepStrategy` | Pure logic — receives events, returns `OrderIntent` objects, no I/O |
-| `OrderManager` | Dedup, risk check, REST submission, lifecycle tracking |
-| `PositionTracker` | Tracks fills and P&L |
+| `MarketWebSocket` | Single WS connection publishing `BookUpdate` and `TickSizeChange` events. Filters out noise. |
+| `EventBus` | Routes immutable events (dataclasses) to strategy and execution layers asynchronously. |
+| `SweepStrategy` | Pure logic — receives events, calculates TTE/price thresholds, returns `OrderIntent` objects. |
+| `OrderManager` | Dedup, risk check, async REST submission, and full lifecycle tracking (Live, Partial, Filled, Terminal). |
+| `PositionTracker` | Tracks fills and Calculates Unrealized/Realized P&L without subscribing to raw BookUpdates. |
 
 ### Running the Bot
 

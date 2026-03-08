@@ -20,43 +20,52 @@ from src.logging_config import setup_logging
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    from src.bot import Bot
+    from src.bot import Bot, LAZY_SUB_MIN_DURATION, LAZY_SUB_LEAD_S
     from src.markets.fifteen_min import SUPPORTED_DURATIONS
-    from src.strategy.sweep import SweepStrategy
     from src.utils.slug_helpers import slugs_for_timestamp
     from src.markets.fifteen_min import (
         get_current_interval_utc,
         get_next_interval_utc,
     )
+    import time as _time
 
     setup_logging()
 
     durations = args.durations or sorted(SUPPORTED_DURATIONS)
     markets = args.markets
+    now = int(_time.time())
 
     initial_slugs: list[str] = []
     for dur in durations:
         cur_ts = get_current_interval_utc(dur)
         nxt_ts = get_next_interval_utc(dur)
-        initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
-        initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
+
+        # Apply lazy subscription: skip long-duration markets that are
+        # too far from expiry (they'll be added later by the sub manager).
+        if dur >= LAZY_SUB_MIN_DURATION:
+            interval_s = dur * 60
+            for ts in (cur_ts, nxt_ts):
+                end_time = ts + interval_s
+                if end_time - now <= LAZY_SUB_LEAD_S:
+                    initial_slugs.extend(slugs_for_timestamp(markets, dur, ts))
+        else:
+            initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
+            initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
 
     if not initial_slugs:
         print("ERROR: No initial slugs generated. Check market/duration settings.")
         return 1
 
-    strategy = SweepStrategy(
-        price_threshold=args.price_threshold,
-        early_tick_threshold=args.early_tick_threshold,
-    )
+    # NOTE: Do NOT create SweepStrategy here — Bot creates it internally
+    # so the shared hot_tokens set is wired between MarketWS and strategy.
 
     bot = Bot(
         slugs=initial_slugs,
-        strategies=[strategy],
         dry_run=args.dry_run,
         db_path=args.db_path,
         dashboard_enabled=args.dashboard,
         price_threshold=args.price_threshold,
+        early_tick_threshold=args.early_tick_threshold,
         market_selections=markets,
         durations=durations,
     )

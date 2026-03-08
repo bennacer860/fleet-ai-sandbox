@@ -48,10 +48,18 @@ class MarketWebSocket:
         initial_slugs: list[str] | None = None,
         ws_url: str | None = None,
         check_interval: int = 60,
+        book_event_filter: set[str] | None = None,
     ) -> None:
         self.event_bus = event_bus
         self.ws_url = ws_url or WS_URL
         self.check_interval = check_interval
+
+        # When set, only token IDs present in this set will trigger full
+        # BookUpdate events on the EventBus.  All other tokens still get
+        # their best_prices updated (cheap), but skip the expensive
+        # sort + event-publish path.  When None, all tokens are published
+        # (backwards-compatible default).
+        self.book_event_filter: set[str] | None = book_event_filter
 
         self.token_ids: dict[str, list[str]] = {}
         self.slug_by_token: dict[str, str] = {}
@@ -67,6 +75,7 @@ class MarketWebSocket:
         self._last_message_time: float = 0.0
         self._msg_count = 0
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
+        self._books_filtered = 0  # counter for filtered-out book updates
 
     # ── Public read-only state ────────────────────────────────────────────
 
@@ -217,6 +226,24 @@ class MarketWebSocket:
         if not isinstance(raw_bids, list) or not isinstance(raw_asks, list):
             return
 
+        # ── Lightweight best-price extraction (O(n), no sorting) ──────
+        # Always compute and cache best_bid/best_ask for all tokens so
+        # that StrategyContext.best_prices and PositionTracker stay
+        # current.  This is a cheap dict write.
+        best_bid = max((float(b["price"]) for b in raw_bids), default=0.0)
+        best_ask = min((float(a["price"]) for a in raw_asks), default=0.0)
+        self.best_prices[asset_id] = {"bid": best_bid, "ask": best_ask}
+
+        # ── Early exit for non-hot tokens ─────────────────────────────
+        # If a book_event_filter is configured and this token is NOT in
+        # it, skip the expensive sort + EventBus publish.  This prevents
+        # long-duration market book traffic from flooding the event bus
+        # and starving time-critical short-duration events.
+        if self.book_event_filter is not None and asset_id not in self.book_event_filter:
+            self._books_filtered += 1
+            return
+
+        # ── Full processing for hot tokens ────────────────────────────
         bids = tuple(
             (float(b["price"]), float(b["size"]))
             for b in sorted(raw_bids, key=lambda x: float(x["price"]), reverse=True)[:10]
@@ -225,11 +252,6 @@ class MarketWebSocket:
             (float(a["price"]), float(a["size"]))
             for a in sorted(raw_asks, key=lambda x: float(x["price"]))[:10]
         )
-
-        best_bid = bids[0][0] if bids else 0.0
-        best_ask = asks[0][0] if asks else 0.0
-
-        self.best_prices[asset_id] = {"bid": best_bid, "ask": best_ask}
 
         cond = self.condition_by_token.get(asset_id, "")
         self.event_bus.publish_nowait(BookUpdate(

@@ -20,6 +20,23 @@ class Side(Enum):
     SELL = "SELL"
 
 
+@dataclass(frozen=True, slots=True)
+class ProfileConfig:
+    """Configuration for a specific trading profile (wallet/API keys)."""
+
+    name: str
+    private_key: str
+    funder: str
+    signature_type: int = 1
+    api_key: str | None = None
+    api_secret: str | None = None
+    api_passphrase: str | None = None
+
+    # Profile-specific overrides
+    trade_size_override: float | None = None
+    max_position_override: float | None = None
+
+
 # ── Strategy output ───────────────────────────────────────────────────────────
 
 
@@ -55,6 +72,7 @@ class OrderState:
     resolved_at_ns: int | None = None
     dry_run: bool = False
     tick_event_ns: int | None = None
+    handler_start_ns: int | None = None
     market_end_ts: float | None = None
     market: str = ""
     best_bid: float | None = None
@@ -81,6 +99,20 @@ class OrderState:
     def signal_to_fill_ms(self) -> float | None:
         if self.signal_ns is not None and self.resolved_at_ns is not None:
             return (self.resolved_at_ns - self.signal_ns) / 1_000_000
+        return None
+
+    @property
+    def queue_wait_ms(self) -> float | None:
+        """Time spent in the event bus queue waiting to be processed."""
+        if self.tick_event_ns is not None and self.handler_start_ns is not None:
+            return (self.handler_start_ns - self.tick_event_ns) / 1_000_000
+        return None
+
+    @property
+    def eval_ms(self) -> float | None:
+        """Time spent evaluating the strategy and building the order intent."""
+        if self.handler_start_ns is not None and self.signal_ns is not None:
+            return (self.signal_ns - self.handler_start_ns) / 1_000_000
         return None
 
     @property

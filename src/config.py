@@ -11,6 +11,49 @@ FUNDER = os.getenv("FUNDER", "")
 SIGNATURE_TYPE = int(os.getenv("SIGNATURE_TYPE", "1"))
 CHAIN_ID = 137
 
+from .core.models import ProfileConfig
+
+def _load_profiles() -> list[ProfileConfig]:
+    profiles = []
+    
+    # 1. Try to load prefixed profiles (P1_NAME, P2_NAME, ...)
+    i = 1
+    while True:
+        prefix = f"P{i}_"
+        name = os.getenv(f"{prefix}NAME")
+        if not name:
+            # Check if we should stop or if we skipped a number (stop at first gap)
+            break
+            
+        profiles.append(ProfileConfig(
+            name=name,
+            private_key=os.getenv(f"{prefix}PRIVATE_KEY", ""),
+            funder=os.getenv(f"{prefix}FUNDER", ""),
+            signature_type=int(os.getenv(f"{prefix}SIGNATURE_TYPE", "1")),
+            api_key=os.getenv(f"{prefix}POLY_API_KEY"),
+            api_secret=os.getenv(f"{prefix}POLY_SECRET"),
+            api_passphrase=os.getenv(f"{prefix}POLY_PARAPHRASE"),
+            trade_size_override=float(os.getenv(f"{prefix}TRADE_SIZE", "0")) or None,
+            max_position_override=float(os.getenv(f"{prefix}MAX_POSITION", "0")) or None,
+        ))
+        i += 1
+        
+    # 2. If no prefixed profiles found, fall back to legacy single profile
+    if not profiles and PRIVATE_KEY and FUNDER:
+        profiles.append(ProfileConfig(
+            name="default",
+            private_key=PRIVATE_KEY,
+            funder=FUNDER,
+            signature_type=SIGNATURE_TYPE,
+            api_key=os.getenv("POLY_API_KEY"),
+            api_secret=os.getenv("POLY_SECRET"),
+            api_passphrase=os.getenv("POLY_PARAPHRASE"),
+        ))
+        
+    return profiles
+
+PROFILES = _load_profiles()
+
 # API endpoints
 CLOB_HOST = os.getenv("CLOB_HOST", "https://clob.polymarket.com")
 GAMMA_API = os.getenv("GAMMA_API", "https://gamma-api.polymarket.com").rstrip("/")
