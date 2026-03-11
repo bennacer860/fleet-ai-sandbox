@@ -210,6 +210,114 @@ The script will:
 
 Output columns include `result` (WIN / LOSS / UNRESOLVED), `winning_outcome`, `winning_token`, `duration`, and all position details.
 
+## Sweep Strategy Architecture
+
+The bot uses a highly optimized, event-driven architecture designed to capture the spread to $1.00 at settlement in crypto Up/Down markets by placing BUY orders at $0.999.
+
+### High-Level Event Flow
+
+```mermaid
+flowchart TD
+    subgraph Gateway ["Gateway Layer"]
+        MWS[Market WebSocket]
+        UWS[User WebSocket]
+        REST[Async REST Client]
+    end
+
+    subgraph Core ["Core Event Bus"]
+        EB{Event Bus}
+    end
+
+    subgraph Logic ["Strategy & Execution"]
+        SS[Sweep Strategy]
+        OM[Order Manager]
+        PT[Position Tracker]
+        RM[Risk Manager]
+    end
+
+    %% Market Data Flow
+    MWS -- "TickSizeChange" --> EB
+    MWS -- "BookUpdate (Hot Tokens Only)" --> EB
+    
+    %% Strategy Flow
+    EB -- "TickSize & Book Updates" --> SS
+    SS -- "OrderIntent" --> OM
+    
+    %% Execution Flow
+    OM -- "Validates vs Limits" --> RM
+    RM -- "OK" --> OM
+    OM -- "Place Order" --> REST
+    REST -- "OrderSubmitted/Failed" --> EB
+    
+    %% Order Tracking
+    UWS -- "Fills / Cancels" --> EB
+    EB -- "Update OrderState" --> OM
+    EB -- "Update Positions" --> PT
+    
+    classDef infra fill:#f9f,stroke:#333,stroke-width:2px;
+    class EB infra;
+```
+
+#### Performance Optimizations
+
+1.  **Lazy Subscription**: To prevent WebSocket throttling and Event Bus starvation, long-duration markets (e.g., 60-minute) are not subscribed to immediately. The Bot delays subscribing to these markets until they are within 15 minutes of expiry (`LAZY_SUB_LEAD_S`).
+2.  **Early Book Update Filtering**: The `MarketWebSocket` performs lightweight price extraction for all tokens, but only publishes expensive `BookUpdate` events to the Event Bus for "hot tokens" currently being actively watched by strategies.
+3.  **Granular Latency Tracking**: Every `OrderState` tracks precise latency metrics (`handler_start_ns`, `signal_ns`, `rest_response_ns`) to break down the `tick→order` delay into Event Bus queue wait (`bus`), Strategy Evaluation (`eval`), and HTTP Request (`rest`).
+
+### Strategy Decision Flow
+
+When a market's tick size drops to `0.001` (indicating the market is approaching settlement), the Sweep Strategy evaluates the market:
+
+```mermaid
+flowchart TD
+    Start([TickSizeChange to 0.001]) --> CheckTTE{Within TTE Window?}
+    
+    %% TTE Window Pass
+    CheckTTE -- Yes --> CheckPrice{Bid >= 0.99?}
+    CheckPrice -- Yes --> Trade[Submit BUY @ 0.999]
+    CheckPrice -- No --> Watch[Add to Watchlist<br/>Target: 0.99]
+    
+    %% TTE Window Fail (Early Tick)
+    CheckTTE -- No (Early) --> WatchEarly[Add to Watchlist<br/>Target: Early Tick Threshold<br/>Default: 0.995]
+    
+    %% Watchlist Loop
+    Watch --> NewBook[BookUpdate Received]
+    WatchEarly --> NewBook
+    
+    NewBook --> ReCheckTTE{Within TTE Window?}
+    ReCheckTTE -- Yes --> ReCheckPrice{Bid >= Target Threshold?}
+    ReCheckTTE -- No --> KeepWatching[Keep Watching]
+    
+    ReCheckPrice -- Yes --> Trade
+    ReCheckPrice -- No --> KeepWatching
+    
+    KeepWatching -.-> NewBook
+    Trade --> RemoveWatch[Remove from Watchlist]
+```
+
+### Key Components
+
+| Component | Role |
+|-----------|------|
+| `MarketWebSocket` | Single WS connection publishing `BookUpdate` and `TickSizeChange` events. Filters out noise. |
+| `EventBus` | Routes immutable events (dataclasses) to strategy and execution layers asynchronously. |
+| `SweepStrategy` | Pure logic — receives events, calculates TTE/price thresholds, returns `OrderIntent` objects. |
+| `OrderManager` | Dedup, risk check, async REST submission, and full lifecycle tracking (Live, Partial, Filled, Terminal). |
+| `PositionTracker` | Tracks fills and Calculates Unrealized/Realized P&L without subscribing to raw BookUpdates. |
+
+### Running the Bot
+
+```bash
+# Dry run with dashboard (no real orders)
+python main.py run --dry-run --dashboard
+
+# Live trading
+python main.py run --markets BTC --durations 5 15
+
+# Custom threshold
+python main.py run --markets BTC ETH --price-threshold 0.98
+```
+
 ## Configuration
 
 See `.env.example` for required variables. You need a Polymarket account with funded USDC and the appropriate wallet setup (EOA, email/Magic, or browser proxy).

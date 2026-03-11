@@ -2,21 +2,11 @@
 """
 claim_winnings.py
 ─────────────────
-Polls the Polymarket Data API every 5 minutes for redeemable winning positions
+Polls the Polymarket Data API for redeemable winning positions
 and automatically calls `redeemPositions` on the Conditional Token Framework (CTF)
 contract to convert them back to USDC.
 
-Run in a dedicated terminal:
-    python3 claim_winnings.py
-
-The script reads credentials from your existing .env file (PRIVATE_KEY, FUNDER).
-
-Notes
-─────
-• Redemption is done directly via the CTF smart contract on Polygon.
-• `redeemPositions` burns **all** of your balance for that conditionId — no amount arg.
-• `indexSets` for a binary market are always [1, 2]  (both outcome slots).
-• Already-redeemed conditionIds are tracked in memory to avoid duplicate txns.
+Now supports GASLESS redemptions via the Polymarket Builder Relayer.
 """
 
 import os
@@ -33,32 +23,61 @@ from dotenv import load_dotenv
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from eth_utils import keccak
-import eth_abi  # part of eth-abi, already installed
+import eth_abi
+
+# Polymarket Builder SDKs
+try:
+    from py_builder_signing_sdk.config import BuilderConfig
+    from py_builder_signing_sdk.sdk_types import BuilderApiKeyCreds
+    from py_builder_relayer_client.client import RelayClient
+    from py_builder_relayer_client.models import SafeTransaction, OperationType
+    HAS_RELAYER = True
+except ImportError:
+    HAS_RELAYER = False
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
+# Intercept --profile early to set env overrides before loading config
+for i, arg in enumerate(sys.argv):
+    if arg == "--profile" and i + 1 < len(sys.argv):
+        os.environ["ACTIVE_PROFILE"] = sys.argv[i + 1]
+
 load_dotenv()
 
-PRIVATE_KEY: str = os.getenv("PRIVATE_KEY", "")
-FUNDER: str = os.getenv("FUNDER", "")
+# Profile-aware config loading
+_profile = os.environ.get("ACTIVE_PROFILE", "")
+if _profile:
+    _prefix = f"P{_profile}_"
+    print(f"[PROFILE] Loading config overrides from prefix {_prefix}")
+    PRIVATE_KEY = os.getenv(f"{_prefix}PRIVATE_KEY", os.getenv("PRIVATE_KEY", ""))
+    FUNDER = os.getenv(f"{_prefix}FUNDER", os.getenv("FUNDER", ""))
+    POLY_API_KEY = os.getenv(f"{_prefix}POLY_API_KEY", os.getenv("POLY_API_KEY", ""))
+    POLY_SECRET = os.getenv(f"{_prefix}POLY_SECRET", os.getenv("POLY_SECRET", ""))
+    POLY_PASSPHRASE = os.getenv(f"{_prefix}POLY_PARAPHRASE") or os.getenv(f"{_prefix}POLY_PASSPHRASE") or os.getenv("POLY_PASSPHRASE") or os.getenv("POLY_PARAPHRASE", "")
+else:
+    PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
+    FUNDER = os.getenv("FUNDER", "")
+    POLY_API_KEY = os.getenv("POLY_API_KEY", "")
+    POLY_SECRET = os.getenv("POLY_SECRET", "")
+    POLY_PASSPHRASE = os.getenv("POLY_PASSPHRASE") or os.getenv("POLY_PARAPHRASE", "")
 
-# Ordered list of Polygon RPCs — tried in sequence, first success wins.
-# Must support eth_sendRawTransaction for live redemptions.
-# You can add your own (Alchemy/QuickNode/Infura) via POLYGON_RPC in .env.
+# Ordered list of Polygon RPCs
 POLYGON_RPCS: list[str] = [r for r in [
-    os.getenv("POLYGON_RPC", ""),                                     # user .env override (highest priority)
-    "https://polygon.drpc.org",                                       # ✅ free, no key, sendRawTx OK
-    "https://polygon-mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161",  # ✅ Infura demo key
-    "https://1rpc.io/matic",                                          # read-only fallback
+    os.getenv("POLYGON_RPC", ""),
+    "https://polygon.drpc.org",
+    "https://polygon-mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161",
+    "https://1rpc.io/matic",
 ] if r]
 
-# Contract addresses (from py_clob_client / Polymarket docs)
+# Contract addresses
 CTF_CONTRACT  = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
 USDC_CONTRACT = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
 DATA_API = "https://data-api.polymarket.com"
+RELAYER_HOST = "https://relayer-v2.polymarket.com"
 
 POLL_INTERVAL_SECONDS = 5 * 60  # 5 minutes
+MIN_CLAIM_VALUE_USD = 20.0       # Only claim if win is >= $20
 CHAIN_ID = 137  # Polygon mainnet
 
 # redeemPositions(address,bytes32,bytes32,uint256[])  → 4-byte selector (keccak)
@@ -83,7 +102,7 @@ logger = logging.getLogger("claim_winnings")
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _rpc(method: str, params: list) -> dict:
-    """Make a Polygon JSON-RPC call, trying each endpoint in order."""
+    """Make a Polygon JSON-RPC call."""
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     last_err = None
     for endpoint in POLYGON_RPCS:
@@ -92,46 +111,31 @@ def _rpc(method: str, params: list) -> dict:
             resp.raise_for_status()
             data = resp.json()
             if "error" in data:
-                raise RuntimeError(f"RPC error from {endpoint}: {data['error']}")
+                # Some RPCs return error as a string, some as a dict
+                err_msg = data['error'].get('message', data['error']) if isinstance(data['error'], dict) else data['error']
+                raise RuntimeError(f"RPC error from {endpoint}: {err_msg}")
             return data["result"]
         except Exception as e:
-            logger.debug("RPC endpoint %s failed: %s — trying next...", endpoint, e)
+            logger.debug("RPC endpoint %s failed: %s", endpoint, e)
             last_err = e
-    raise RuntimeError(f"All Polygon RPC endpoints failed. Last error: {last_err}")
+    raise RuntimeError(f"All RPCs failed. Last error: {last_err}")
 
 
-def get_nonce(address: str) -> int:
-    result = _rpc("eth_getTransactionCount", [address, "latest"])
-    return int(result, 16)
+def get_balance(address: str) -> int:
+    return int(_rpc("eth_getBalance", [address, "latest"]), 16)
 
 
 def get_gas_price() -> int:
-    """Returns gas price in wei, with a 20% bump for reliability."""
-    result = _rpc("eth_gasPrice", [])
-    base = int(result, 16)
-    return int(base * 1.20)
-
-
-def estimate_gas(tx: dict) -> int:
     try:
-        result = _rpc("eth_estimateGas", [tx])
-        return int(int(result, 16) * 1.30)  # 30% buffer
+        base = int(_rpc("eth_gasPrice", []), 16)
+        return int(base * 1.20)
     except Exception:
-        return 300_000  # safe default for a redeem call
+        return 50_000_000_000  # 50 gwei
 
 
 def encode_redeem_calldata(condition_id: str) -> bytes:
-    """
-    Encode calldata for:
-        redeemPositions(address collateral, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)
-
-    parentCollectionId is always bytes32(0) on Polymarket.
-    indexSets = [1, 2] redeems both outcome slots (wins everything).
-    """
     cid_bytes    = bytes.fromhex(condition_id.removeprefix("0x"))
     parent_bytes = b"\x00" * 32
-
-    # ABI-encode the 4 arguments
     encoded = eth_abi.encode(
         ["address", "bytes32", "bytes32", "uint256[]"],
         [USDC_CONTRACT, parent_bytes, cid_bytes, [1, 2]],
@@ -139,38 +143,66 @@ def encode_redeem_calldata(condition_id: str) -> bytes:
     return REDEEM_SELECTOR + encoded
 
 
-def send_raw_tx(account: LocalAccount, to: str, data: bytes, dry_run: bool = False) -> Optional[str]:
-    """Sign and broadcast a raw transaction. Returns tx hash or None."""
-    nonce = get_nonce(account.address)
-    gas_price = get_gas_price()
-
-    tx = {
-        "to": to,
-        "data": "0x" + data.hex(),
-        "nonce": nonce,
-        "chainId": CHAIN_ID,
-        "gasPrice": gas_price,
-    }
-    gas = estimate_gas(tx)
-    tx["gas"] = gas
-
-    if dry_run:
-        logger.info(
-            "%s[DRY-RUN] Would send tx: to=%s nonce=%d gas=%d gasPrice=%.2f gwei data=%s...%s",
-            C_YELLOW, to, nonce, gas, gas_price / 1e9, data.hex()[:20], C_RESET
+def claim_position_gasless(relayer: 'RelayClient', condition_id: str, title: str) -> bool:
+    """Redeem a position for free using the sponsored relayer."""
+    try:
+        calldata = "0x" + encode_redeem_calldata(condition_id).hex()
+        
+        # Build the transaction for the Safe (FUNDER)
+        tx = SafeTransaction(
+            to=CTF_CONTRACT,
+            data=calldata,
+            value="0",
+            operation=OperationType.Call
         )
-        return "DRY_RUN"
+        
+        logger.info(f"  [GASLESS] Submitting redemption for {title}...")
+        resp = relayer.execute([tx])
+        
+        if resp and resp.transaction_id:
+            logger.info(f"{C_GREEN}  [GASLESS] Success! Transaction ID: {resp.transaction_id}{C_RESET}")
+            if resp.transaction_hash:
+                logger.info(f"  View on Polygonscan: https://polygonscan.com/tx/{resp.transaction_hash}")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"{C_RED}  [GASLESS] Relayer failed: {e}{C_RESET}")
+        return False
 
-    signed = account.sign_transaction(tx)
-    raw_hex = signed.raw_transaction.hex()
-    tx_hash = _rpc("eth_sendRawTransaction", ["0x" + raw_hex])
-    return tx_hash
 
+def claim_position_standard(account: LocalAccount, condition_id: str, title: str) -> bool:
+    """Redeem a position by paying gas from the EOA (old fallback)."""
+    try:
+        calldata = encode_redeem_calldata(condition_id)
+        nonce = int(_rpc("eth_getTransactionCount", [account.address, "latest"]), 16)
+        gas_price = get_gas_price()
+        
+        tx = {
+            "to": CTF_CONTRACT,
+            "data": "0x" + calldata.hex(),
+            "nonce": nonce,
+            "chainId": CHAIN_ID,
+            "gasPrice": gas_price,
+            "gas": 300_000
+        }
+        
+        # Final balance check
+        bal = get_balance(account.address)
+        if bal < (tx['gas'] * tx['gasPrice']):
+            logger.error(f"{C_RED}  [GAS-FAIL] Insufficient POL. Need ~{300000 * gas_price / 1e18:.4f} POL.{C_RESET}")
+            return False
+
+        signed = account.sign_transaction(tx)
+        tx_hash = _rpc("eth_sendRawTransaction", ["0x" + signed.raw_transaction.hex()])
+        logger.info(f"{C_GREEN}  [GAS-PAID] Transaction sent: {tx_hash}{C_RESET}")
+        return True
+    except Exception as e:
+        logger.error(f"{C_RED}  [GAS-PAID] Failed: {e}{C_RESET}")
+        return False
 
 # ── Core logic ────────────────────────────────────────────────────────────────
 
 def fetch_redeemable_positions(user: str) -> list[dict]:
-    """Query the Polymarket Data API for redeemable positions."""
     url = f"{DATA_API}/positions"
     params = {"user": user, "redeemable": "true"}
     try:
@@ -183,141 +215,92 @@ def fetch_redeemable_positions(user: str) -> list[dict]:
         return []
 
 
-def claim_position(
-    account: LocalAccount,
-    position: dict,
-    already_claimed: set,
-    dry_run: bool = False,
-) -> bool:
-    """
-    Attempt to redeem a single redeemable position.
-    Returns True if a tx was sent (or dry-run triggered).
-    """
-    condition_id: str = position.get("conditionId", "")
-    market_slug: str  = position.get("market", {}).get("slug", "") if isinstance(position.get("market"), dict) else ""
-    title: str        = position.get("title", market_slug or condition_id[:16])
-    size: float       = float(position.get("size", 0))
-    outcome: str      = position.get("outcome", "?")
-    pnl: float        = float(position.get("currentValue", size))
-
-    if not condition_id:
-        logger.warning("Position missing conditionId, skipping: %s", position)
-        return False
-
-    if condition_id in already_claimed:
-        logger.debug("Already claimed conditionId=%s, skipping", condition_id[:10])
-        return False
-
-    logger.info(
-        "%s[CLAIM] Redeeming: %s | outcome=%s | size=%.2f | value≈$%.2f%s",
-        C_GREEN, title, outcome, size, pnl, C_RESET
-    )
-
-    try:
-        calldata = encode_redeem_calldata(condition_id)
-        tx_hash = send_raw_tx(account, CTF_CONTRACT, calldata, dry_run=dry_run)
-        if tx_hash:
-            if dry_run:
-                logger.info("%s[DRY-RUN] Not submitted (dry run mode)%s", C_YELLOW, C_RESET)
-            else:
-                logger.info(
-                    "%s[CLAIM] TX submitted: %s | hash=%s%s",
-                    C_GREEN, title, tx_hash, C_RESET
-                )
-                logger.info("  View on Polygonscan: https://polygonscan.com/tx/%s", tx_hash)
-            already_claimed.add(condition_id)
-            return True
-    except Exception as e:
-        logger.error("%s[CLAIM] Failed to redeem %s: %s%s", C_RED, title[:40], e, C_RESET)
-
-    return False
-
-
-# ── Main loop ─────────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def run(dry_run: bool = False, interval: int = POLL_INTERVAL_SECONDS):
-    if not PRIVATE_KEY:
-        logger.error("PRIVATE_KEY is not set in .env — cannot sign transactions.")
-        sys.exit(1)
-    if not FUNDER:
-        logger.error("FUNDER is not set in .env — cannot determine wallet address.")
+    if not PRIVATE_KEY or not FUNDER:
+        logger.error("PRIVATE_KEY and FUNDER must be set in .env")
         sys.exit(1)
 
     account: LocalAccount = Account.from_key(PRIVATE_KEY)
-    wallet = FUNDER  # Use the funder/proxy address for position lookup
+    
+    # Initialize Relayer if keys are available
+    relayer = None
+    if HAS_RELAYER and POLY_API_KEY and POLY_SECRET and POLY_PASSPHRASE:
+        try:
+            creds = BuilderApiKeyCreds(
+                key=POLY_API_KEY,
+                secret=POLY_SECRET,
+                passphrase=POLY_PASSPHRASE
+            )
+            cfg = BuilderConfig(local_builder_creds=creds)
+            relayer = RelayClient(RELAYER_HOST, CHAIN_ID, PRIVATE_KEY, cfg)
+            
+            # Check if expected safe is deployed, if not, try to deploy it
+            expected_safe = relayer.get_expected_safe()
+            if not relayer.get_deployed(expected_safe):
+                logger.info(f"Safe {expected_safe} not deployed. Attempting deployment...")
+                relayer.deploy()
+                logger.info(f"Safe deployment transaction submitted.")
+            
+            logger.info(f"{C_BLUE}Relayer initialized. Using GASLESS redemptions.{C_RESET}")
+        except Exception as e:
+            logger.warning(f"Failed to init relayer: {e}. Falling back to gas-paying mode.")
+
+    already_claimed = set()
 
     logger.info("=" * 60)
-    logger.info("%s  Polymarket Auto-Claimer  %s", C_BLUE, C_RESET)
-    logger.info("  Wallet (proxy):  %s", wallet)
-    logger.info("  Signer (EOA):    %s", account.address)
-    logger.info("  Poll interval:   %ds (%dm)", interval, interval // 60)
-    logger.info("  Dry-run:         %s", dry_run)
+    logger.info(f"{C_BLUE}  Polymarket Auto-Claimer (Gasless Mode)  {C_RESET}")
+    logger.info(f"  Wallet (proxy):  {FUNDER}")
+    logger.info(f"  Dry-run:         {dry_run}")
     logger.info("=" * 60)
-
-    already_claimed: set[str] = set()
 
     while True:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info("%s[POLL] Checking for redeemable positions at %s...%s", C_BLUE, now, C_RESET)
-
-        positions = fetch_redeemable_positions(wallet)
-
+        positions = fetch_redeemable_positions(FUNDER)
         if not positions:
-            logger.info("  No redeemable positions found.")
+            logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] No winning positions to claim.")
         else:
-            logger.info("  Found %d redeemable position(s).", len(positions))
-            claimed_count = 0
+            logger.info(f"Found {len(positions)} winning position(s).")
             for pos in positions:
-                if claim_position(account, pos, already_claimed, dry_run=dry_run):
-                    claimed_count += 1
-                    time.sleep(2)  # Brief pause between txns to avoid nonce conflicts
-            if claimed_count:
-                logger.info("%s  Claimed %d position(s) this round.%s", C_GREEN, claimed_count, C_RESET)
+                cid = pos.get("conditionId")
+                title = pos.get("title", cid[:16])
+                value = float(pos.get("currentValue", 0))
+                
+                if not cid or cid in already_claimed:
+                    continue
 
-        logger.info("  Next check in %d minutes...\n", interval // 60)
+                if value < MIN_CLAIM_VALUE_USD:
+                    logger.info(f"  Skipping {title} (value ${value:.2f} < ${MIN_CLAIM_VALUE_USD})")
+                    continue
+
+                if dry_run:
+                    logger.info(f"{C_YELLOW}[DRY-RUN] Would redeem: {title}{C_RESET}")
+                    already_claimed.add(cid)
+                    continue
+
+                success = False
+                if relayer:
+                    success = claim_position_gasless(relayer, cid, title)
+                else:
+                    success = claim_position_standard(account, cid, title)
+                
+                if success:
+                    already_claimed.add(cid)
+                    time.sleep(2)
+
+        if os.getenv("RUN_ONCE"): break
         time.sleep(interval)
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Auto-claim Polymarket winning positions every N minutes."
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Simulate redemptions without submitting transactions.",
-    )
-    parser.add_argument(
-        "--interval",
-        type=int,
-        default=POLL_INTERVAL_SECONDS,
-        help=f"Poll interval in seconds (default: {POLL_INTERVAL_SECONDS}).",
-    )
-    parser.add_argument(
-        "--once",
-        action="store_true",
-        help="Run a single check and exit (useful for testing).",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--profile", type=int, default=None, help="Profile number to use")
+    parser.add_argument("--min-value", type=float, default=None, help="Override minimum claim value in USD")
     args = parser.parse_args()
 
-    if args.once:
-        # Single-shot mode
-        account = Account.from_key(PRIVATE_KEY)
-        already_claimed: set = set()
-        positions = fetch_redeemable_positions(FUNDER)
-        if not positions:
-            logger.info("No redeemable positions found.")
-        else:
-            logger.info("Found %d redeemable position(s):", len(positions))
-            for p in positions:
-                logger.info(
-                    "  • %s | outcome=%s | size=%s",
-                    p.get("title", p.get("conditionId", "?")[:16]),
-                    p.get("outcome", "?"),
-                    p.get("size", "?"),
-                )
-                claim_position(account, p, already_claimed, dry_run=args.dry_run)
-    else:
-        run(dry_run=args.dry_run, interval=args.interval)
+    if args.once: os.environ["RUN_ONCE"] = "1"
+    if args.min_value is not None:
+        MIN_CLAIM_VALUE_USD = args.min_value
+    run(dry_run=args.dry_run)

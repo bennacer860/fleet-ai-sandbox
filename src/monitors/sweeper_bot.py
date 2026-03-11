@@ -520,8 +520,12 @@ class SweeperBot:
 
         if resp:
             if resp.get("success"):
-                order_id = resp.get("orderId", "unknown")
-                status = "SUCCESS"
+                order_id = resp.get("orderId")
+                if order_id:
+                    status = "SUCCESS"
+                else:
+                    status = "FAILED: success but missing orderId"
+                    order_id = ""
             else:
                 status = f"REJECTED: {resp.get('errorMsg')}"
         elif self.dry_run:

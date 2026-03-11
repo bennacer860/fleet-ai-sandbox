@@ -4,8 +4,14 @@ import httpx
 from typing import Any, Optional
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType
+from py_clob_client.clob_types import (
+    OrderArgs,
+    OrderType,
+    PartialCreateOrderOptions,
+    TickSize,
+)
 from py_clob_client.order_builder.constants import BUY, SELL
+from py_clob_client.exceptions import PolyApiException
 
 from .config import (
     CHAIN_ID,
@@ -34,8 +40,81 @@ ERROR_REASONS = {
     "MARKET_NOT_READY": "Market not yet accepting orders",
 }
 
+# Map float tick sizes → the TickSize literal strings the library expects
+_TICK_SIZE_MAP: dict[float, TickSize] = {
+    0.1: "0.1",
+    0.01: "0.01",
+    0.001: "0.001",
+    0.0001: "0.0001",
+}
+
 
 _client_cache: Optional[ClobClient] = None
+_http_patched = False
+
+
+def _patch_http_helpers() -> None:
+    """Monkey-patch py_clob_client's HTTP helper to preserve real error details.
+
+    The library's ``request()`` function catches ``httpx.RequestError`` and
+    replaces it with the generic "Request exception!" string, losing the
+    actual network error (e.g. timeout, DNS failure, connection refused).
+
+    We also improve the non-200 path to include the HTTP status code and
+    response body in the exception message.
+    """
+    global _http_patched
+    if _http_patched:
+        return
+
+    import py_clob_client.http_helpers.helpers as http_mod
+
+    _original_request = http_mod.request
+
+    def _patched_request(endpoint: str, method: str, headers=None, data=None):
+        try:
+            headers = http_mod.overloadHeaders(method, headers)
+            if isinstance(data, str):
+                resp = http_mod._http_client.request(
+                    method=method,
+                    url=endpoint,
+                    headers=headers,
+                    content=data.encode("utf-8"),
+                )
+            else:
+                resp = http_mod._http_client.request(
+                    method=method,
+                    url=endpoint,
+                    headers=headers,
+                    json=data,
+                )
+
+            if resp.status_code != 200:
+                # Preserve the full response body instead of just the status
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = resp.text
+                raise PolyApiException(
+                    error_msg=f"HTTP {resp.status_code}: {body}"
+                )
+
+            try:
+                return resp.json()
+            except ValueError:
+                return resp.text
+
+        except PolyApiException:
+            raise  # Don't wrap our own exceptions
+        except Exception as exc:
+            # Preserve the real error details instead of "Request exception!"
+            raise PolyApiException(
+                error_msg=f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+    http_mod.request = _patched_request
+    _http_patched = True
+    logger.debug("[PATCH] py_clob_client HTTP helper patched for detailed errors")
 
 
 def _get_live_tick_size(token_id: str) -> float:
@@ -56,41 +135,14 @@ def _get_live_tick_size(token_id: str) -> float:
         return 0.01
 
 
-def _clamp_price(
-    price: float,
-    token_id: str,
-    known_tick_size: Optional[float] = None,
-) -> float:
-    """Clamp *price* to the valid range ``[tick_size, 1 - tick_size]``.
-
-    If *known_tick_size* is provided (e.g. taken directly from the WebSocket
-    ``tick_size_change`` event), it is used as-is and no HTTP call is made.
-    Otherwise the tick size is fetched live from the CLOB API as a fallback.
-    """
-    tick = known_tick_size if known_tick_size is not None else _get_live_tick_size(token_id)
-    min_price = round(tick, 10)
-    max_price = round(1.0 - tick, 10)
-
-    if price < min_price or price > max_price:
-        clamped = max(min_price, min(price, max_price))
-        logger.warning(
-            "Price %.4f out of valid range [%.4f, %.4f] for tick_size=%.4f "
-            "– clamping to %.4f (token=%s)",
-            price, min_price, max_price, tick, clamped, token_id[:20],
-        )
-        return clamped
-
-    return price
-
-
 def create_clob_client() -> Optional[ClobClient]:
     """Return a cached CLOB client.
 
     The internal tick-size cache is intentionally *not* cleared on each
     call.  Our hot path (``place_limit_order``) already receives the
     authoritative tick size from the WebSocket ``tick_size_change`` event
-    and clamps the price in ``_clamp_price`` before the library ever
-    touches it, so the extra HTTP round-trip was pure waste.
+    and passes it via ``PartialCreateOrderOptions`` so the library never
+    needs its own HTTP round-trip.
     """
     global _client_cache
     if not PRIVATE_KEY or not FUNDER:
@@ -110,9 +162,87 @@ def create_clob_client() -> Optional[ClobClient]:
             _client_cache = client
             logger.info("CLOB client initialized (host=%s)", CLOB_HOST)
 
+            # ── Monkey-patch the library's HTTP helper to preserve real errors ─
+            # The library catches httpx.RequestError and replaces it with
+            # the unhelpful "Request exception!" string, losing the actual
+            # network error.  We wrap the function to keep the detail.
+            _patch_http_helpers()
+
         return _client_cache
     except Exception:
         logger.exception("Failed to create CLOB client")
+        return None
+
+
+def precache_token_data(token_ids: list[str]) -> None:
+    """Pre-fetch and cache neg_risk, fee_rate, AND min_order_size at market-add time.
+
+    This populates the py_clob_client internal caches so that
+    ``create_order()`` never needs to make HTTP calls for these values
+    during the latency-critical order-placement path.
+
+    Also caches ``min_order_size`` from the order book so the strategy
+    can look it up instantly instead of making a blocking CLOB call.
+    """
+    client = create_clob_client()
+    if client is None:
+        return
+
+    for token_id in token_ids:
+        try:
+            # These calls hit the CLOB API and cache the result internally
+            # in client.__neg_risk[token_id] and client.__fee_rates[token_id]
+            neg_risk = client.get_neg_risk(token_id)
+            fee_rate = client.get_fee_rate_bps(token_id)
+
+            # Also fetch order book to cache min_order_size
+            try:
+                book = client.get_order_book(token_id)
+                if book.min_order_size:
+                    mos = float(book.min_order_size)
+                    _min_order_size_cache[token_id] = mos
+            except Exception:
+                logger.debug("[PRECACHE] Order book fetch failed for %s…", token_id[:20])
+
+            logger.debug(
+                "[PRECACHE] token=%s… neg_risk=%s, fee_rate=%s, min_order_size=%s",
+                token_id[:20], neg_risk, fee_rate,
+                _min_order_size_cache.get(token_id, "?"),
+            )
+        except Exception:
+            logger.warning("[PRECACHE] Failed for token %s…", token_id[:20])
+
+
+# ── Min order size cache ──────────────────────────────────────────────────
+
+_min_order_size_cache: dict[str, float] = {}
+
+FALLBACK_MIN_ORDER_SIZE = 5.0
+
+
+def get_cached_min_order_size(token_id: str) -> float:
+    """Return cached min_order_size for a token, or FALLBACK_MIN_ORDER_SIZE.
+
+    This is an instant dict lookup — zero HTTP calls.  The cache is
+    populated by ``precache_token_data()`` at market-init time.
+    """
+    return _min_order_size_cache.get(token_id, FALLBACK_MIN_ORDER_SIZE)
+
+
+def get_order_status(order_id: str) -> Optional[dict[str, Any]]:
+    """Fetch a single order's current state from the CLOB API.
+
+    Returns the raw order dict (with fields like ``status``,
+    ``size_matched``, ``price``, etc.) or ``None`` on failure.
+    """
+    client = create_clob_client()
+    if client is None:
+        return None
+
+    try:
+        return client.get_order(order_id)
+    except Exception:
+        logger.debug("get_order failed for %s", order_id[:16], exc_info=True)
         return None
 
 
@@ -131,8 +261,11 @@ def place_limit_order(
         price: Limit price (0.0 - 1.0)
         size: Order size in shares
         side: 'BUY' or 'SELL'
-        tick_size: Known tick size from WebSocket event. When provided, skips
-                   the HTTP fetch and uses this value directly for price clamping.
+        tick_size: Known tick size from WebSocket event. When provided,
+                   passed as ``PartialCreateOrderOptions(tick_size=...)``
+                   so the library uses it directly instead of its stale
+                   internal cache.  This is critical for 0.999 orders
+                   where the tick size has just changed to 0.001.
 
     Returns:
         API response dict with success, orderId, errorMsg, status; or None on client error.
@@ -143,33 +276,52 @@ def place_limit_order(
 
     side_const = BUY if side.upper() == "BUY" else SELL
 
+    # Build PartialCreateOrderOptions when we have an authoritative tick_size.
+    # This tells the library: "use THIS tick_size for validation and rounding,
+    # don't fetch your own from the API (which may still return the old value)."
+    options: Optional[PartialCreateOrderOptions] = None
+    if tick_size is not None:
+        ts_str = _TICK_SIZE_MAP.get(tick_size)
+        if ts_str is not None:
+            options = PartialCreateOrderOptions(tick_size=ts_str)
+            # Also force-update the library's internal cache so subsequent
+            # calls (e.g. __resolve_tick_size) see the new value.
+            # This uses name-mangling to access the private dict.
+            client._ClobClient__tick_sizes[token_id] = ts_str
+            logger.debug(
+                "[ORDER] Using authoritative tick_size=%s for token %s…",
+                ts_str, token_id[:20],
+            )
+        else:
+            logger.warning(
+                "[ORDER] Unknown tick_size=%.4f — not in known map, "
+                "falling back to library resolution",
+                tick_size,
+            )
+
     logger.info(
-        "Placing order: token_id=%s, price=%.4f, size=%.2f, side=%s",
+        "Placing order: token_id=%s, price=%.4f, size=%.2f, side=%s, tick=%s",
         token_id,
         price,
         size,
         side,
+        tick_size,
     )
 
     try:
-        # Clamp price to valid range. If tick_size was passed in (from the
-        # WebSocket event) we use it directly – zero extra HTTP calls.
-        # Otherwise _clamp_price falls back to a live fetch.
-        price = _clamp_price(price, token_id, known_tick_size=tick_size)
-
         order_args = OrderArgs(
             price=price,
             size=size,
             side=side_const,
             token_id=token_id,
         )
-        signed_order = client.create_order(order_args)
+        signed_order = client.create_order(order_args, options)
         resp = client.post_order(signed_order, OrderType.GTC)
 
         success = resp.get("success", False)
-        error_msg = resp.get("errorMsg", "")
-        order_id = resp.get("orderId", "")
-        status = resp.get("status", "")
+        error_msg = resp.get("errorMsg") or resp.get("error_msg") or ""
+        order_id = resp.get("orderId") or resp.get("orderID") or ""
+        status = resp.get("status") or resp.get("order_status") or ""
 
         if success:
             logger.info(
@@ -190,11 +342,62 @@ def place_limit_order(
         logger.debug("Raw API response: %s", resp)
         return resp
 
-    except Exception:
-        logger.exception(
-            "Order placement failed: token_id=%s, price=%s, size=%s",
+    except PolyApiException as exc:
+        # Robust extraction: PolyApiException usually stores its data in 'error_message'
+        # but the string representation often contains exactly what we need.
+        error_msg = str(exc)
+        
+        # 1. Try to get it from attributes
+        raw_error = getattr(exc, "error_message", None) or getattr(exc, "message", None)
+        
+        # 2. Fallback to regex if we don't have a clean dict yet
+        if not isinstance(raw_error, dict):
+            import re
+            # Look for error_message={'error': '...'} or similar in the string
+            match = re.search(r"error_message=({.*?})", error_msg)
+            if match:
+                try:
+                    import ast
+                    raw_error = ast.literal_eval(match.group(1))
+                except Exception:
+                    pass
+
+        # 3. Extract the final human-readable string
+        if isinstance(raw_error, dict):
+            error_msg = (
+                raw_error.get("error") 
+                or raw_error.get("errorMsg") 
+                or raw_error.get("message") 
+                or str(raw_error)
+            )
+        elif error_msg.startswith("PolyApiException"):
+            # If we still have the class name, try a final cleanup
+            if "error_message=" in error_msg:
+                error_msg = error_msg.split("error_message=")[-1].strip(" ]")
+        
+        logger.warning("[ORDER] API rejection string: %s", error_msg)
+        return {
+            "success": False,
+            "errorMsg": error_msg,
+        }
+
+    except Exception as exc:
+        # Clean up the error message for the dashboard
+        error_msg = str(exc)
+        # Remove common technical prefixes
+        if error_msg.startswith("Exception: "):
+            error_msg = error_msg[11:]
+        elif ": " in error_msg and error_msg.split(": ")[0].endswith("Exception"):
+            error_msg = error_msg.split(": ", 1)[1]
+            
+        logger.warning(
+            "[ORDER] Rejected by validation/exception: %s (token_id=%s, price=%s, size=%s)",
+            error_msg,
             token_id,
             price,
             size,
         )
-        return None
+        return {
+            "success": False,
+            "errorMsg": error_msg,
+        }

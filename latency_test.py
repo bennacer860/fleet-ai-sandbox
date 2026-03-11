@@ -23,7 +23,13 @@ import csv
 import json
 import sys
 import time
+import os
 from datetime import datetime, timezone
+
+# Intercept --profile early to ensure config.py loads it correctly before importing
+for i, arg in enumerate(sys.argv):
+    if arg == "--profile" and i + 1 < len(sys.argv):
+        os.environ["ACTIVE_PROFILE"] = sys.argv[i + 1]
 from typing import Any, Optional
 
 import websockets
@@ -147,9 +153,12 @@ def create_client() -> ClobClient:
 
 async def _drain_ws(ws, timeout: float = 1.0, log_fp=None, channel: str = "ws"):
     """Drain any buffered messages from a WebSocket."""
-    while True:
+    import time
+    end_time = time.time() + timeout
+    while time.time() < end_time:
         try:
-            msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
+            remain = max(0.01, end_time - time.time())
+            msg = await asyncio.wait_for(ws.recv(), timeout=remain)
             if log_fp is not None:
                 _log_ws_message(log_fp, channel, msg)
         except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
@@ -512,6 +521,7 @@ def main():
     parser.add_argument("--tests", type=int, default=10, help="Number of tests")
     parser.add_argument("--no-user-ws", action="store_true", help="Skip user WS")
     parser.add_argument("--no-cancel", action="store_true", help="Skip cancel")
+    parser.add_argument("--profile", type=int, default=None, help="Profile number to use")
     args = parser.parse_args()
 
     setup_logging()
