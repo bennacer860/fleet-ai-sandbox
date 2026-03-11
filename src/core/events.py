@@ -49,6 +49,7 @@ class TickSizeChange:
     token_id: str
     old_tick_size: str
     new_tick_size: str
+    latency_ms: float | None = field(default=None)
     timestamp_ns: int = field(default_factory=_now_ns)
 
 

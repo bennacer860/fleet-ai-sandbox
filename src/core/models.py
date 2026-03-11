@@ -20,24 +20,8 @@ class Side(Enum):
     SELL = "SELL"
 
 
-@dataclass(frozen=True, slots=True)
-class ProfileConfig:
-    """Configuration for a specific trading profile (wallet/API keys)."""
-
-    name: str
-    private_key: str
-    funder: str
-    signature_type: int = 1
-    api_key: str | None = None
-    api_secret: str | None = None
-    api_passphrase: str | None = None
-
-    # Profile-specific overrides
-    trade_size_override: float | None = None
-    max_position_override: float | None = None
-
-
 # ── Strategy output ───────────────────────────────────────────────────────────
+
 
 
 @dataclass(frozen=True, slots=True)

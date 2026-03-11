@@ -24,6 +24,7 @@ from ..utils.timestamps import format_slug_with_est_time
 from .metrics import Metrics
 
 if TYPE_CHECKING:
+    from ..execution.auto_claimer import AutoClaimer
     from ..execution.order_manager import OrderManager
     from ..execution.position_tracker import PositionTracker
     from ..execution.risk_manager import RiskManager
@@ -47,6 +48,10 @@ class Dashboard:
         position_tracker: PositionTracker | None = None,
         risk_manager: RiskManager | None = None,
         dry_run: bool = False,
+        profile: int | None = None,
+        funder: str = "",
+        claim_min_value: float | None = None,
+        auto_claimer: AutoClaimer | None = None,
     ) -> None:
         self._market_ws = market_ws
         self._user_ws = user_ws
@@ -54,7 +59,14 @@ class Dashboard:
         self._pos_tracker = position_tracker
         self._risk_mgr = risk_manager
         self._dry_run = dry_run
+        self._profile = profile
+        self._funder = funder
+        self._claim_min_value = claim_min_value
+        self._auto_claimer = auto_claimer
         self._recent_events: deque[str] = deque(maxlen=MAX_EVENTS)
+        self._exchange_latencies: deque[float] = deque(maxlen=100)
+        self._tick_latencies: deque[float] = deque(maxlen=100)
+        self._expiry_times: deque[float] = deque(maxlen=100)
         self._running = False
         self._slug_display_cache: dict[str, str] = {}
 
@@ -63,6 +75,15 @@ class Dashboard:
         if slug not in self._slug_display_cache:
             self._slug_display_cache[slug] = format_slug_with_est_time(slug)
         return self._slug_display_cache[slug]
+
+    def push_latency(self, latency_ms: float) -> None:
+        self._exchange_latencies.append(latency_ms)
+        
+    def push_order_metrics(self, tick_ms: float | None, expiry_s: float | None) -> None:
+        if tick_ms is not None:
+            self._tick_latencies.append(tick_ms)
+        if expiry_s is not None:
+            self._expiry_times.append(expiry_s)
 
     def push_event(self, text: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
@@ -75,8 +96,9 @@ class Dashboard:
         uptime = int(metrics.uptime_s)
         h, m = divmod(uptime // 60, 60)
         tag = "  [DRY-RUN]" if self._dry_run else ""
+        profile_tag = f"  Profile {self._profile}" if self._profile else ""
         return Text(
-            f"  POLYMARKET HFT BOT v1          Uptime: {h}h {m:02d}m{tag}",
+            f"  POLYMARKET HFT BOT v1{profile_tag}          Uptime: {h}h {m:02d}m{tag}",
             style="bold white on blue",
         )
 
@@ -118,21 +140,24 @@ class Dashboard:
             lines.append(f"Fill Rate: {rate:.1f}%")
             lines.append(f"Dedup Skips: {s.get('dedup_skips', 0)}")
 
-            tick_ms_vals: list[float] = []
-            expiry_vals: list[float] = []
-            for st in self._order_mgr.active_orders.values():
-                if st.tick_to_order_ms is not None:
-                    tick_ms_vals.append(st.tick_to_order_ms)
-                if st.time_to_expiry_s is not None:
-                    expiry_vals.append(st.time_to_expiry_s)
-            if tick_ms_vals:
-                avg_tick = sum(tick_ms_vals) / len(tick_ms_vals)
-                last_tick = tick_ms_vals[-1]
+            if self._tick_latencies:
+                t_lats = list(self._tick_latencies)
+                avg_tick = sum(t_lats) / len(t_lats)
+                last_tick = t_lats[-1]
                 lines.append(f"Tick→Order: {last_tick:.0f}ms (avg {avg_tick:.0f}ms)")
-            if expiry_vals:
-                avg_exp = sum(expiry_vals) / len(expiry_vals)
-                last_exp = expiry_vals[-1]
+            
+            if self._expiry_times:
+                e_vals = list(self._expiry_times)
+                avg_exp = sum(e_vals) / len(e_vals)
+                last_exp = e_vals[-1]
                 lines.append(f"To Expiry:  {last_exp:.0f}s  (avg {avg_exp:.0f}s)")
+
+            if self._exchange_latencies:
+                lats = list(self._exchange_latencies)
+                avg_lat = sum(lats) / len(lats)
+                min_lat = min(lats)
+                max_lat = max(lats)
+                lines.append(f"Exch Latency: avg {avg_lat:.1f}ms | min {min_lat:.1f}ms | max {max_lat:.1f}ms")
         else:
             lines.append("No data")
         return Panel("\n".join(lines), title="ORDERS", border_style="yellow")
@@ -166,6 +191,27 @@ class Dashboard:
     def _system_panel(self) -> Panel:
         metrics = Metrics.get()
         lines: list[str] = []
+
+        # Account info
+        if self._profile or self._funder:
+            profile_str = f"Profile {self._profile}" if self._profile else "Default"
+            funder_short = f"{self._funder[:6]}...{self._funder[-4:]}" if len(self._funder) > 12 else (self._funder or "N/A")
+            lines.append(f"Account:   {profile_str}  Funder: {funder_short}")
+
+        # AutoClaim status
+        ac = self._auto_claimer
+        if ac and self._claim_min_value is not None:
+            interval_m = int(ac.interval / 60)
+            last_check = ""
+            if ac.last_check_time:
+                age = int(time.time() - ac.last_check_time)
+                last_check = f"  Last check: {age}s ago"
+            claimed_str = f"  Claimed: {ac.total_claimed}" if ac.total_claimed else ""
+            lines.append(
+                f"AutoClaim: [green]ON[/green] (>= ${self._claim_min_value:.2f} every {interval_m}m){last_check}{claimed_str}"
+            )
+        else:
+            lines.append("AutoClaim: [dim]OFF[/dim]")
 
         ws_market = "Connected" if (self._market_ws and self._market_ws.connected) else "Disconnected"
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
@@ -246,8 +292,8 @@ class Dashboard:
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=1),
-            Layout(name="top", size=9),
-            Layout(name="middle", size=8),
+            Layout(name="top", size=12),
+            Layout(name="middle", size=5),
             Layout(name="positions", size=8),
             Layout(name="bottom"),
         )
@@ -262,7 +308,7 @@ class Dashboard:
         )
         layout["positions"].update(self._positions_panel())
         layout["bottom"].split_column(
-            Layout(self._system_panel(), name="system", size=7),
+            Layout(self._system_panel(), name="system", size=9),
             Layout(self._events_panel(), name="events"),
         )
         return layout

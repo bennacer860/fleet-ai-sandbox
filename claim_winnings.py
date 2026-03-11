@@ -37,15 +37,29 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
+# Intercept --profile early to set env overrides before loading config
+for i, arg in enumerate(sys.argv):
+    if arg == "--profile" and i + 1 < len(sys.argv):
+        os.environ["ACTIVE_PROFILE"] = sys.argv[i + 1]
+
 load_dotenv()
 
-PRIVATE_KEY: str = os.getenv("PRIVATE_KEY", "")
-FUNDER: str = os.getenv("FUNDER", "")
-
-# Builder API keys for gasless redemptions
-POLY_API_KEY = os.getenv("POLY_API_KEY", "")
-POLY_SECRET = os.getenv("POLY_SECRET", "")
-POLY_PASSPHRASE = os.getenv("POLY_PASSPHRASE") or os.getenv("POLY_PARAPHRASE", "")
+# Profile-aware config loading
+_profile = os.environ.get("ACTIVE_PROFILE", "")
+if _profile:
+    _prefix = f"P{_profile}_"
+    print(f"[PROFILE] Loading config overrides from prefix {_prefix}")
+    PRIVATE_KEY = os.getenv(f"{_prefix}PRIVATE_KEY", os.getenv("PRIVATE_KEY", ""))
+    FUNDER = os.getenv(f"{_prefix}FUNDER", os.getenv("FUNDER", ""))
+    POLY_API_KEY = os.getenv(f"{_prefix}POLY_API_KEY", os.getenv("POLY_API_KEY", ""))
+    POLY_SECRET = os.getenv(f"{_prefix}POLY_SECRET", os.getenv("POLY_SECRET", ""))
+    POLY_PASSPHRASE = os.getenv(f"{_prefix}POLY_PARAPHRASE") or os.getenv(f"{_prefix}POLY_PASSPHRASE") or os.getenv("POLY_PASSPHRASE") or os.getenv("POLY_PARAPHRASE", "")
+else:
+    PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
+    FUNDER = os.getenv("FUNDER", "")
+    POLY_API_KEY = os.getenv("POLY_API_KEY", "")
+    POLY_SECRET = os.getenv("POLY_SECRET", "")
+    POLY_PASSPHRASE = os.getenv("POLY_PASSPHRASE") or os.getenv("POLY_PARAPHRASE", "")
 
 # Ordered list of Polygon RPCs
 POLYGON_RPCS: list[str] = [r for r in [
@@ -282,7 +296,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--profile", type=int, default=None, help="Profile number to use")
+    parser.add_argument("--min-value", type=float, default=None, help="Override minimum claim value in USD")
     args = parser.parse_args()
 
     if args.once: os.environ["RUN_ONCE"] = "1"
+    if args.min_value is not None:
+        MIN_CLAIM_VALUE_USD = args.min_value
     run(dry_run=args.dry_run)

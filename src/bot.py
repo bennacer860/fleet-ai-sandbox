@@ -7,6 +7,7 @@ Components communicate exclusively through the ``EventBus``.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Any
 
@@ -37,6 +38,7 @@ from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
 from .utils.market_data import get_market_evaluation
 from .clob_client import precache_token_data, get_cached_min_order_size
+from .execution.auto_claimer import AutoClaimer
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
@@ -53,11 +55,13 @@ from .utils.telegram_notifier import TelegramNotifier
 from .config import (
     DB_PATH,
     DRY_RUN,
+    FUNDER,
     HEALTH_FILE_PATH,
     MAX_DAILY_LOSS,
     MAX_ORDERS_PER_MINUTE,
     MAX_POSITION_PER_MARKET,
     MAX_TOTAL_EXPOSURE,
+    PRIVATE_KEY,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
     TELEGRAM_NOTIFICATIONS_ENABLED,
@@ -90,6 +94,8 @@ class Bot:
         early_tick_threshold: float = 0.995,
         market_selections: list[MarketSelection] | None = None,
         durations: list[int] | None = None,
+        claim_min_value: float | None = None,
+        claim_interval: float = 60.0,
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self.db_path = db_path or DB_PATH
@@ -175,6 +181,10 @@ class Bot:
                 position_tracker=self.position_tracker,
                 risk_manager=self.risk_manager,
                 dry_run=self.dry_run,
+                profile=int(os.environ.get("ACTIVE_PROFILE", 0)) or None,
+                funder=FUNDER,
+                claim_min_value=claim_min_value,
+                auto_claimer=None,  # set after auto_claimer is created below
             )
 
         self.telegram = TelegramNotifier(
@@ -185,6 +195,25 @@ class Bot:
 
         self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
         self._eval_cache: dict[str, dict[str, Any]] = {}
+
+        # Auto-claimer (None = disabled)
+        self.auto_claimer: AutoClaimer | None = None
+        if claim_min_value is not None:
+            self.auto_claimer = AutoClaimer(
+                min_value=claim_min_value,
+                interval=claim_interval,
+                funder=FUNDER,
+                private_key=PRIVATE_KEY,
+            )
+            if self.dashboard:
+                self.dashboard._auto_claimer = self.auto_claimer
+                # Push claim events to dashboard feed
+                dashboard_ref = self.dashboard
+                def _on_claim(title: str, tx_hash: str) -> None:
+                    dashboard_ref.push_event(
+                        f"[bold green]CLAIMED[/bold green]  {title}  tx={tx_hash[:10]}…"
+                    )
+                self.auto_claimer.on_claim = _on_claim
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
 
@@ -386,6 +415,8 @@ class Bot:
             if state and self.dashboard:
                 tick_ms = state.tick_to_order_ms
                 expiry_s = state.time_to_expiry_s
+                self.dashboard.push_order_metrics(tick_ms, expiry_s)
+                
                 timing = ""
                 if tick_ms is not None:
                     timing += f"  tick→order={tick_ms:.0f}ms"
@@ -499,13 +530,16 @@ class Bot:
     async def _metrics_tick_size(self, event: TickSizeChange) -> None:
         self._metrics.inc("tick_size_changes")
         if self.dashboard:
+            if event.latency_ms is not None:
+                self.dashboard.push_latency(event.latency_ms)
             display_slug = format_slug_with_est_time(event.slug)
             bp = self._strategy_ctx.best_prices.get(event.token_id, {})
             bid = bp.get("bid")
             price_tag = f"  bid={bid:.3f}" if bid is not None else ""
+            lat_tag = f"  (lat: {event.latency_ms:.1f}ms)" if event.latency_ms is not None else ""
             self.dashboard.push_event(
                 f"TICK_SIZE  {display_slug}  "
-                f"{event.old_tick_size} → {event.new_tick_size}{price_tag}"
+                f"{event.old_tick_size} → {event.new_tick_size}{price_tag}{lat_tag}"
             )
 
     async def _metrics_book_update(self, event: BookUpdate) -> None:
@@ -731,6 +765,11 @@ class Bot:
         if self.dashboard:
             self._tasks.append(
                 asyncio.create_task(self._supervised_task("dashboard", self.dashboard.run))
+            )
+
+        if self.auto_claimer:
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("auto_claimer", self.auto_claimer.run))
             )
 
         try:

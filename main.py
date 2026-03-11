@@ -15,6 +15,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import os
+
+# Intercept --profile early to ensure config.py loads it correctly
+for i, arg in enumerate(sys.argv):
+    if arg == "--profile" and i + 1 < len(sys.argv):
+        os.environ["ACTIVE_PROFILE"] = sys.argv[i + 1]
 
 from src.logging_config import setup_logging
 
@@ -68,6 +74,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         early_tick_threshold=args.early_tick_threshold,
         market_selections=markets,
         durations=durations,
+        claim_min_value=args.claim,
+        claim_interval=args.claim_interval,
     )
 
     bot.run_sync()
@@ -203,10 +211,18 @@ def main() -> int:
         description="Polymarket HFT Bot v1",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument(
+        "--profile", type=int, default=None,
+        help="Profile number to use (overrides .env defaults with P1_, P2_ etc.)",
+    )
     sub = parser.add_subparsers(dest="command", help="Available commands")
 
     # ── run ────────────────────────────────────────────────────────────────
     run_parser = sub.add_parser("run", help="Start the trading bot")
+    run_parser.add_argument(
+        "--profile", type=int, default=None,
+        help="Profile number to use (overrides .env defaults with P1_, P2_ etc.)",
+    )
     run_parser.add_argument(
         "--markets", nargs="+", default=["BTC"],
         help="Crypto markets to monitor (default: BTC)",
@@ -234,6 +250,14 @@ def main() -> int:
     run_parser.add_argument(
         "--db-path", default=None,
         help="SQLite database path (default: data/bot.db)",
+    )
+    run_parser.add_argument(
+        "--claim", type=float, default=None, metavar="AMOUNT",
+        help="Enable auto-claiming winnings >= AMOUNT USD (disabled if omitted)",
+    )
+    run_parser.add_argument(
+        "--claim-interval", type=float, default=60.0,
+        help="How often to check for redeemable positions in seconds (default: 60)",
     )
 
     # ── health ─────────────────────────────────────────────────────────────

@@ -276,6 +276,14 @@ class MarketWebSocket:
         new_ts = str(data.get("new_tick_size", ""))
         cond = self.condition_by_token.get(asset_id, "")
 
+        latency_ms: float | None = None
+        try:
+            exchange_ts = int(data.get("timestamp", 0))
+            if exchange_ts > 0:
+                latency_ms = (time.time() * 1000) - exchange_ts
+        except (ValueError, TypeError):
+            pass
+
         # ── Dedup: only publish ONE tick_size_change per slug transition ──
         # Each market has 2 tokens and the WS often sends duplicate messages,
         # yielding up to 4 identical events.  We gate on (slug, new_tick_size)
@@ -288,7 +296,10 @@ class MarketWebSocket:
             return
         self._last_tick_size[slug] = dedup_key
 
-        logger.info("[TICK_SIZE] %s: %s -> %s (token=%s…)", slug, old_ts, new_ts, asset_id[:20])
+        if latency_ms is not None:
+            logger.info("[TICK_SIZE] %s: %s -> %s (token=%s…) [lat: %.1fms]", slug, old_ts, new_ts, asset_id[:20], latency_ms)
+        else:
+            logger.info("[TICK_SIZE] %s: %s -> %s (token=%s…)", slug, old_ts, new_ts, asset_id[:20])
 
         self.event_bus.publish_nowait(TickSizeChange(
             condition_id=cond,
@@ -296,6 +307,7 @@ class MarketWebSocket:
             token_id=asset_id,
             old_tick_size=old_ts,
             new_tick_size=new_ts,
+            latency_ms=latency_ms,
         ))
 
     def _process_last_trade(self, data: dict[str, Any]) -> None:
