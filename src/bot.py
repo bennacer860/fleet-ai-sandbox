@@ -26,6 +26,7 @@ from .core.models import OrderIntent
 from .execution.order_manager import OrderManager
 from .execution.position_tracker import PositionTracker
 from .execution.risk_manager import RiskConfig, RiskManager
+from .gateway.crypto_ws import CryptoWebSocket
 from .gateway.market_ws import MarketWebSocket
 from .gateway.rest_client import AsyncRestClient
 from .gateway.user_ws import UserWebSocket
@@ -48,6 +49,7 @@ from .markets.fifteen_min import (
     get_market_slug,
     get_next_interval_utc,
 )
+from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
 from .utils.slug_helpers import slugs_for_timestamp
@@ -159,6 +161,9 @@ class Bot:
             book_event_filter=self._hot_tokens,
         )
         self.user_ws = UserWebSocket(event_bus=self.event_bus)
+
+        crypto_assets = list(set(self._market_selections)) or None
+        self.crypto_ws = CryptoWebSocket(assets=crypto_assets)
 
         self.strategies: list[Strategy] = strategies or [
             SweepStrategy(
@@ -349,7 +354,7 @@ class Bot:
             try:
                 intents = await strategy.on_tick_size_change(event, self._strategy_ctx)
                 if intents:
-                    await self._submit_intents(intents, event, handler_start_ns)
+                    await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
                 elif self.dashboard:
                     display_slug = format_slug_with_est_time(event.slug)
                     reason = getattr(strategy, "last_skip_reason", None) or "no signal"
@@ -374,7 +379,7 @@ class Bot:
             try:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
-                    await self._submit_intents(intents, event, handler_start_ns)
+                    await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
             except Exception:
                 logger.exception("Strategy %s error on book_update", strategy.name())
 
@@ -404,7 +409,13 @@ class Bot:
             f"ℹ️ Unsubscribed from market."
         )
 
-    async def _submit_intents(self, intents: list[OrderIntent], event: Any, handler_start_ns: int | None = None) -> None:
+    async def _submit_intents(
+        self,
+        intents: list[OrderIntent],
+        event: Any,
+        handler_start_ns: int | None = None,
+        strategy: Strategy | None = None,
+    ) -> None:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
             display_slug = format_slug_with_est_time(intent.slug)
@@ -418,6 +429,13 @@ class Bot:
                 bp = self._strategy_ctx.best_prices.get(intent.token_id, {})
                 state.best_bid = bp.get("bid")
                 state.best_ask = bp.get("ask")
+
+                if strategy is not None:
+                    state.spot_price = getattr(strategy, "last_spot_price", None)
+                    state.strike_price = getattr(strategy, "last_price_to_beat", None)
+                    state.proximity = getattr(strategy, "last_proximity", None)
+                    state.spot_price_age_ms = getattr(strategy, "last_price_age_ms", None)
+
                 self.order_manager.re_persist(state)
 
             if state is None and self.dashboard:
@@ -457,10 +475,26 @@ class Bot:
                 else:
                     bid_str = f"{state.best_bid:.3f}" if state.best_bid is not None else "--"
                     ask_str = f"{state.best_ask:.3f}" if state.best_ask is not None else "--"
+
+                    prox_parts: list[str] = []
+                    if state.spot_price is not None:
+                        prox_parts.append(f"spot=${state.spot_price:.4f}")
+                    else:
+                        prox_parts.append("spot=STALE")
+                    if state.strike_price is not None:
+                        prox_parts.append(f"strike=${state.strike_price:.4f}")
+                    else:
+                        prox_parts.append("strike=--")
+                    if state.proximity is not None:
+                        prox_parts.append(f"prox={state.proximity:.3%}")
+                    if state.spot_price_age_ms is not None:
+                        prox_parts.append(f"age={state.spot_price_age_ms:.0f}ms")
+                    prox_str = "  " + " ".join(prox_parts)
+
                     self.dashboard.push_event(
                         f"📤 [green]SUBMITTED[/green]  {display_slug}  "
                         f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}  "
-                        f"(bid={bid_str} ask={ask_str}){timing}"
+                        f"(bid={bid_str} ask={ask_str}){timing}{prox_str}"
                     )
             
             # Telegram notification for submission (only if not dry-run for cleaner feed)
@@ -490,6 +524,7 @@ class Bot:
                     side=intent.side.value,
                     price=intent.price,
                     size=intent.size,
+                    spot_price=state.spot_price,
                 )
 
     # ── Dashboard order lifecycle events ────────────────────────────────────
@@ -555,6 +590,8 @@ class Bot:
                 "condition_id": cond,
             }
         self._strategy_ctx.market_meta = meta
+        self._strategy_ctx.crypto_prices = dict(self.crypto_ws.latest_prices)
+        self._strategy_ctx.crypto_price_ts = dict(self.crypto_ws.last_update_ts)
 
     # ── Metrics collectors ────────────────────────────────────────────────
 
@@ -580,6 +617,7 @@ class Bot:
         """Periodic gauge updates for dashboard/health."""
         while True:
             await asyncio.sleep(2)
+            set_ws_prices(self.crypto_ws.latest_prices, self.crypto_ws.last_update_ts)
             active = sum(1 for v in self.market_ws.market_active.values() if v)
             self._metrics.set("active_markets", active)
             self._metrics.set("ws_market_connected", 1.0 if self.market_ws.connected else 0.0)
@@ -728,6 +766,7 @@ class Bot:
             "dry_run": self.dry_run,
             "ws_market_connected": self.market_ws.connected,
             "ws_user_connected": self.user_ws.connected,
+            "ws_crypto_connected": self.crypto_ws.connected,
             "active_markets": sum(1 for v in self.market_ws.market_active.values() if v),
             "pending_orders": self.order_manager.pending_count,
             "order_stats": self.order_manager.stats,
@@ -779,6 +818,7 @@ class Bot:
             asyncio.create_task(self._supervised_task("event_bus", self.event_bus.run)),
             asyncio.create_task(self._supervised_task("persistence", self.persistence.drain_loop)),
             asyncio.create_task(self._supervised_task("market_ws", self.market_ws.run)),
+            asyncio.create_task(self._supervised_task("crypto_ws", self.crypto_ws.run)),
             asyncio.create_task(self._supervised_task("health", self.health_monitor.run)),
             asyncio.create_task(self._supervised_task("alerts", self.alert_manager.run)),
             asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),

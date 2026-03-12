@@ -61,6 +61,10 @@ class OrderState:
     market: str = ""
     best_bid: float | None = None
     best_ask: float | None = None
+    spot_price: float | None = None
+    strike_price: float | None = None
+    proximity: float | None = None
+    spot_price_age_ms: float | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -127,6 +131,7 @@ class Position:
     quantity: float = 0.0
     avg_entry_price: float = 0.0
     realized_pnl: float = 0.0
+    spot_price: float | None = None
 
     @property
     def cost_basis(self) -> float:

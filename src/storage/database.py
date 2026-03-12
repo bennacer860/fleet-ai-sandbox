@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS orders (
     market          TEXT DEFAULT '',
     best_bid        REAL,
     best_ask        REAL,
+    spot_price       REAL,
+    strike_price     REAL,
+    proximity        REAL,
+    spot_price_age_ms REAL,
     dry_run         INTEGER NOT NULL DEFAULT 0
 );
 
@@ -93,6 +97,7 @@ CREATE TABLE IF NOT EXISTS trades (
     hold_duration_s REAL DEFAULT 0,
     timestamp_entry REAL NOT NULL,
     timestamp_exit  REAL,
+    spot_price       REAL,
     dry_run         INTEGER NOT NULL DEFAULT 0
 );
 
@@ -126,6 +131,13 @@ _MIGRATIONS = [
     ("orders", "best_ask", "ALTER TABLE orders ADD COLUMN best_ask REAL"),
     ("fills", "cumulative_filled", "ALTER TABLE fills ADD COLUMN cumulative_filled REAL NOT NULL DEFAULT 0"),
     ("fills", "source", "ALTER TABLE fills ADD COLUMN source TEXT NOT NULL DEFAULT 'ws'"),
+    ("orders", "underlying_price", "ALTER TABLE orders ADD COLUMN underlying_price REAL"),
+    ("trades", "underlying_price", "ALTER TABLE trades ADD COLUMN underlying_price REAL"),
+    ("orders", "spot_price", "ALTER TABLE orders ADD COLUMN spot_price REAL"),
+    ("orders", "strike_price", "ALTER TABLE orders ADD COLUMN strike_price REAL"),
+    ("orders", "proximity", "ALTER TABLE orders ADD COLUMN proximity REAL"),
+    ("orders", "spot_price_age_ms", "ALTER TABLE orders ADD COLUMN spot_price_age_ms REAL"),
+    ("trades", "spot_price", "ALTER TABLE trades ADD COLUMN spot_price REAL"),
 ]
 
 

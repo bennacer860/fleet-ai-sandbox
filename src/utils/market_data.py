@@ -60,7 +60,15 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
 
     best_outcome = outcomes[best_idx] if best_idx < len(outcomes) else "?"
     best_token_id = token_ids[best_idx]
-    
+
+    metadata = market.get("eventMetadata") or {}
+    price_to_beat = metadata.get("priceToBeat")
+    if price_to_beat is not None:
+        try:
+            price_to_beat = float(price_to_beat)
+        except (ValueError, TypeError):
+            price_to_beat = None
+
     return {
         "token_ids": token_ids,
         "prices": prices,
@@ -69,6 +77,7 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
         "best_price": best_price,
         "best_outcome": best_outcome,
         "best_token_id": best_token_id,
+        "price_to_beat": price_to_beat,
         "raw_prices_compact": "|".join([f"{o}:{p:.3f}" for o, p in zip(outcomes, prices)])
     }
 

@@ -99,6 +99,7 @@ class PositionTracker:
         side: str,
         price: float,
         size: float,
+        spot_price: float | None = None,
     ) -> None:
         """Register an order for later fill tracking."""
         self._order_meta[order_id] = {
@@ -109,6 +110,7 @@ class PositionTracker:
             "price": price,
             "size": size,
             "placed_at": time.time(),
+            "spot_price": spot_price,
         }
 
     # ── Event handlers ────────────────────────────────────────────────────
@@ -132,6 +134,7 @@ class PositionTracker:
                 token_id=token_id,
                 slug=slug,
                 strategy=strategy,
+                spot_price=meta.get("spot_price"),
             )
             self._positions[token_id] = pos
 
@@ -169,12 +172,12 @@ class PositionTracker:
 
             if self._persistence:
                 self._persistence.enqueue(
-                    "INSERT INTO trades (trade_id, strategy, slug, token_id, side, entry_price, exit_price, size, gross_pnl, net_pnl, timestamp_entry, timestamp_exit, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO trades (trade_id, strategy, slug, token_id, side, entry_price, exit_price, size, gross_pnl, net_pnl, timestamp_entry, timestamp_exit, spot_price, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         f"{tid}_{int(time.time())}",
                         pos.strategy, pos.slug, tid, "BUY",
                         pos.avg_entry_price, exit_price, pos.quantity,
-                        pnl, pnl, 0.0, time.time(), 0,
+                        pnl, pnl, 0.0, time.time(), pos.spot_price, 0,
                     ),
                 )
 

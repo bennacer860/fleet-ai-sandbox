@@ -24,6 +24,8 @@ class StrategyContext:
     eval_cache: dict[str, dict[str, Any]] = field(default_factory=dict)
     market_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
     dry_run: bool = False
+    crypto_prices: dict[str, float] = field(default_factory=dict)
+    crypto_price_ts: dict[str, float] = field(default_factory=dict)
 
 
 class Strategy(ABC):
