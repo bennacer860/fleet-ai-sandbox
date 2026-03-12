@@ -276,7 +276,16 @@ class Bot:
         return r
 
     @staticmethod
+    def _fmt_price(price: float) -> str:
+        if price >= 100:
+            return f"${price:,.2f}"
+        elif price >= 1:
+            return f"${price:.4f}"
+        return f"${price:.6f}"
+
+    @classmethod
     def _format_proximity(
+        cls,
         spot: float | None,
         strike: float | None,
         proximity: float | None = None,
@@ -284,11 +293,11 @@ class Bot:
     ) -> str:
         parts: list[str] = []
         if spot is not None:
-            parts.append(f"spot=${spot:.4f}")
+            parts.append(f"spot={cls._fmt_price(spot)}")
         else:
             parts.append("spot=STALE")
         if strike is not None:
-            parts.append(f"strike=${strike:.4f}")
+            parts.append(f"strike={cls._fmt_price(strike)}")
         else:
             parts.append("strike=--")
         if proximity is not None:

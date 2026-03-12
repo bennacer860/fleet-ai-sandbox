@@ -247,8 +247,15 @@ class Dashboard:
                 crypto_age = self._crypto_ws.last_message_age_s
                 age_str = f"{crypto_age:.0f}s ago" if crypto_age >= 0 else "N/A"
                 n_prices = len(self._crypto_ws.latest_prices)
+                def _fmt(p: float) -> str:
+                    if p >= 100:
+                        return f"${p:,.2f}"
+                    elif p >= 1:
+                        return f"${p:.4f}"
+                    return f"${p:.6f}"
+
                 prices_str = "  ".join(
-                    f"{asset}=${price:,.2f}"
+                    f"{asset}={_fmt(price)}"
                     for asset, price in sorted(self._crypto_ws.latest_prices.items())
                 )
                 ws_crypto = f"[green]Connected[/green]  ({n_prices} assets)  Last msg: {age_str}"
