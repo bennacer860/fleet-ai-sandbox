@@ -193,6 +193,7 @@ class Bot:
             self.dashboard = Dashboard(
                 market_ws=self.market_ws,
                 user_ws=self.user_ws,
+                crypto_ws=self.crypto_ws,
                 order_manager=self.order_manager,
                 position_tracker=self.position_tracker,
                 risk_manager=self.risk_manager,

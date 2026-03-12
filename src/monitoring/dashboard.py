@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from ..execution.order_manager import OrderManager
     from ..execution.position_tracker import PositionTracker
     from ..execution.risk_manager import RiskManager
+    from ..gateway.crypto_ws import CryptoWebSocket
     from ..gateway.market_ws import MarketWebSocket
     from ..gateway.user_ws import UserWebSocket
 
@@ -46,6 +47,7 @@ class Dashboard:
         self,
         market_ws: MarketWebSocket | None = None,
         user_ws: UserWebSocket | None = None,
+        crypto_ws: CryptoWebSocket | None = None,
         order_manager: OrderManager | None = None,
         position_tracker: PositionTracker | None = None,
         risk_manager: RiskManager | None = None,
@@ -57,6 +59,7 @@ class Dashboard:
     ) -> None:
         self._market_ws = market_ws
         self._user_ws = user_ws
+        self._crypto_ws = crypto_ws
         self._order_mgr = order_manager
         self._pos_tracker = position_tracker
         self._risk_mgr = risk_manager
@@ -239,8 +242,20 @@ class Dashboard:
         else:
             ws_user = "[dim]N/A[/dim]"
 
+        if self._crypto_ws:
+            if self._crypto_ws.connected:
+                crypto_age = self._crypto_ws.last_message_age_s
+                age_str = f"{crypto_age:.0f}s ago" if crypto_age >= 0 else "N/A"
+                n_prices = len(self._crypto_ws.latest_prices)
+                ws_crypto = f"[green]Connected[/green]  ({n_prices} assets)  Last msg: {age_str}"
+            else:
+                ws_crypto = "[red]Disconnected[/red]"
+        else:
+            ws_crypto = "[dim]N/A[/dim]"
+
         lines.append(f"WS Market: {ws_market} ({token_count} tokens)   Last msg: {msg_age}")
         lines.append(f"WS User:   {ws_user}")
+        lines.append(f"WS Crypto: {ws_crypto}")
         lines.append(f"Event Loop Lag: {metrics.get_gauge('event_loop_lag_ms'):.1f}ms")
         lines.append(f"SQLite Queue: {metrics.get_gauge('persistence_pending'):.0f} pending")
 
@@ -320,7 +335,7 @@ class Dashboard:
         )
         layout["positions"].update(self._positions_panel())
         layout["bottom"].split_column(
-            Layout(self._system_panel(), name="system", size=9),
+            Layout(self._system_panel(), name="system", size=10),
             Layout(self._events_panel(), name="events"),
         )
         return layout
