@@ -65,6 +65,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     # NOTE: Do NOT create SweepStrategy here — Bot creates it internally
     # so the shared hot_tokens set is wired between MarketWS and strategy.
 
+    persist = args.persist.lower() in ("true", "1", "yes")
+
     bot = Bot(
         slugs=initial_slugs,
         dry_run=args.dry_run,
@@ -76,6 +78,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         durations=durations,
         claim_min_value=args.claim,
         claim_interval=args.claim_interval,
+        persist=persist,
     )
 
     bot.run_sync()
@@ -250,6 +253,10 @@ def main() -> int:
     run_parser.add_argument(
         "--db-path", default=None,
         help="SQLite database path (default: data/bot.db)",
+    )
+    run_parser.add_argument(
+        "--persist", type=str, default="true",
+        help="Enable database persistence (default: true). Use 'false' to run fully in-memory.",
     )
     run_parser.add_argument(
         "--claim", type=float, default=None, metavar="AMOUNT",

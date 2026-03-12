@@ -68,6 +68,7 @@ from .config import (
     TELEGRAM_CHAT_ID,
     TELEGRAM_NOTIFICATIONS_ENABLED,
     TELEGRAM_ENABLED,
+
 )
 
 logger = get_logger(__name__)
@@ -99,10 +100,12 @@ class Bot:
         durations: list[int] | None = None,
         claim_min_value: float | None = None,
         claim_interval: float = 60.0,
+        persist: bool = True,
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self.db_path = db_path or DB_PATH
         self.dashboard_enabled = dashboard_enabled
+        self._persist = persist
         self.loop: asyncio.AbstractEventLoop | None = None
         self._slugs = slugs
         self._market_selections = market_selections or []
@@ -113,8 +116,6 @@ class Bot:
             for dur in self._durations
         }
 
-        # Timestamps that we know about but haven't subscribed yet
-        # because the market is too far from expiry (lazy subscription).
         self._deferred_ts: dict[int, dict[str, set[int]]] = {
             dur: {sel: set() for sel in self._market_selections}
             for dur in self._durations
@@ -122,9 +123,13 @@ class Bot:
 
         self.event_bus = EventBus()
 
-        conn = init_db(self.db_path)
-
-        self.persistence = AsyncPersistence(conn)
+        if self._persist:
+            conn = init_db(self.db_path)
+            self.persistence: AsyncPersistence | None = AsyncPersistence(conn)
+        else:
+            conn = None
+            self.persistence = None
+            logger.info("[BOT] Persistence disabled — running fully in-memory")
 
         risk_config = RiskConfig(
             max_position_per_market=MAX_POSITION_PER_MARKET,
@@ -143,10 +148,14 @@ class Bot:
             persistence=self.persistence,
             dry_run=self.dry_run,
         )
-        self.order_manager.load_dedup_from_db(conn)
+        if conn is not None:
+            self.order_manager.load_dedup_from_db(conn)
 
-        self.position_tracker = PositionTracker(persistence=self.persistence)
-        self.position_tracker.load_positions_from_db(conn)
+        self.position_tracker = PositionTracker(
+            persistence=self.persistence,
+        )
+        if conn is not None:
+            self.position_tracker.load_positions_from_db(conn)
 
         # Shared set: token IDs here get full BookUpdate events published
         # on the event bus.  Tokens NOT in this set still get best_prices
@@ -622,7 +631,7 @@ class Bot:
             self._metrics.set("active_markets", active)
             self._metrics.set("ws_market_connected", 1.0 if self.market_ws.connected else 0.0)
             self._metrics.set("ws_market_msg_age_s", self.market_ws.last_message_age_s)
-            self._metrics.set("persistence_pending", float(self.persistence.pending))
+            self._metrics.set("persistence_pending", float(self.persistence.pending) if self.persistence else 0.0)
             self._metrics.set("orders_pending", float(self.order_manager.pending_count))
             self._metrics.set("books_filtered", float(self.market_ws._books_filtered))
 
@@ -804,7 +813,9 @@ class Bot:
         logger.info("  Strategies: %s", ", ".join(s.name() for s in self.strategies))
         logger.info("  Dry-run  : %s", self.dry_run)
         logger.info("  Dashboard: %s", self.dashboard_enabled)
-        logger.info("  DB path  : %s", self.db_path)
+        logger.info("  Persist  : %s", self._persist)
+        if self._persist:
+            logger.info("  DB path  : %s", self.db_path)
         logger.info("=" * 60)
 
         self._wire_subscriptions()
@@ -816,7 +827,10 @@ class Bot:
 
         self._tasks = [
             asyncio.create_task(self._supervised_task("event_bus", self.event_bus.run)),
-            asyncio.create_task(self._supervised_task("persistence", self.persistence.drain_loop)),
+            *(
+                [asyncio.create_task(self._supervised_task("persistence", self.persistence.drain_loop))]
+                if self.persistence else []
+            ),
             asyncio.create_task(self._supervised_task("market_ws", self.market_ws.run)),
             asyncio.create_task(self._supervised_task("crypto_ws", self.crypto_ws.run)),
             asyncio.create_task(self._supervised_task("health", self.health_monitor.run)),
@@ -864,7 +878,8 @@ class Bot:
         await self.user_ws.stop()
         await self.event_bus.stop()
         await self.telegram.stop()
-        await self.persistence.stop()
+        if self.persistence:
+            await self.persistence.stop()
         await self.health_monitor.stop()
         await self.alert_manager.stop()
 
