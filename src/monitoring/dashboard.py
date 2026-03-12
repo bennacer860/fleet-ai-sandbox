@@ -247,15 +247,24 @@ class Dashboard:
                 crypto_age = self._crypto_ws.last_message_age_s
                 age_str = f"{crypto_age:.0f}s ago" if crypto_age >= 0 else "N/A"
                 n_prices = len(self._crypto_ws.latest_prices)
+                prices_str = "  ".join(
+                    f"{asset}=${price:,.2f}"
+                    for asset, price in sorted(self._crypto_ws.latest_prices.items())
+                )
                 ws_crypto = f"[green]Connected[/green]  ({n_prices} assets)  Last msg: {age_str}"
+                ws_crypto_prices = prices_str
             else:
                 ws_crypto = "[red]Disconnected[/red]"
+                ws_crypto_prices = ""
         else:
             ws_crypto = "[dim]N/A[/dim]"
+            ws_crypto_prices = ""
 
         lines.append(f"WS Market: {ws_market} ({token_count} tokens)   Last msg: {msg_age}")
         lines.append(f"WS User:   {ws_user}")
         lines.append(f"WS Crypto: {ws_crypto}")
+        if ws_crypto_prices:
+            lines.append(f"  Spot:    {ws_crypto_prices}")
         lines.append(f"Event Loop Lag: {metrics.get_gauge('event_loop_lag_ms'):.1f}ms")
         lines.append(f"SQLite Queue: {metrics.get_gauge('persistence_pending'):.0f} pending")
 
@@ -335,7 +344,7 @@ class Dashboard:
         )
         layout["positions"].update(self._positions_panel())
         layout["bottom"].split_column(
-            Layout(self._system_panel(), name="system", size=10),
+            Layout(self._system_panel(), name="system", size=11),
             Layout(self._events_panel(), name="events"),
         )
         return layout

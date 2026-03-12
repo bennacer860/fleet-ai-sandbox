@@ -275,6 +275,41 @@ class Bot:
                     pass
         return r
 
+    @staticmethod
+    def _format_proximity(
+        spot: float | None,
+        strike: float | None,
+        proximity: float | None = None,
+        age_ms: float | None = None,
+    ) -> str:
+        parts: list[str] = []
+        if spot is not None:
+            parts.append(f"spot=${spot:.4f}")
+        else:
+            parts.append("spot=STALE")
+        if strike is not None:
+            parts.append(f"strike=${strike:.4f}")
+        else:
+            parts.append("strike=--")
+        if proximity is not None:
+            parts.append(f"prox={proximity:.3%}")
+        if age_ms is not None:
+            parts.append(f"age={age_ms:.0f}ms")
+        return "  " + " ".join(parts)
+
+    def _proximity_for_slug(self, slug: str) -> str:
+        """Build a proximity display string from the current context for *slug*."""
+        asset = extract_market_from_slug(slug)
+        if not asset:
+            return ""
+        spot = self._strategy_ctx.crypto_prices.get(asset)
+        if spot is None:
+            return ""
+        eval_data = self._eval_cache.get(slug) or {}
+        strike = eval_data.get("price_to_beat")
+        prox = abs(spot - strike) / strike if strike and strike > 0 else None
+        return self._format_proximity(spot, strike, prox)
+
     # ── Eval pre-fetch (min_order_size) ───────────────────────────────────
 
     @staticmethod
@@ -485,22 +520,10 @@ class Bot:
                 else:
                     bid_str = f"{state.best_bid:.3f}" if state.best_bid is not None else "--"
                     ask_str = f"{state.best_ask:.3f}" if state.best_ask is not None else "--"
-
-                    prox_parts: list[str] = []
-                    if state.spot_price is not None:
-                        prox_parts.append(f"spot=${state.spot_price:.4f}")
-                    else:
-                        prox_parts.append("spot=STALE")
-                    if state.strike_price is not None:
-                        prox_parts.append(f"strike=${state.strike_price:.4f}")
-                    else:
-                        prox_parts.append("strike=--")
-                    if state.proximity is not None:
-                        prox_parts.append(f"prox={state.proximity:.3%}")
-                    if state.spot_price_age_ms is not None:
-                        prox_parts.append(f"age={state.spot_price_age_ms:.0f}ms")
-                    prox_str = "  " + " ".join(prox_parts)
-
+                    prox_str = self._format_proximity(
+                        state.spot_price, state.strike_price,
+                        state.proximity, state.spot_price_age_ms,
+                    )
                     self.dashboard.push_event(
                         f"📤 [green]SUBMITTED[/green]  {display_slug}  "
                         f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}  "
@@ -615,9 +638,10 @@ class Bot:
             bid = bp.get("bid")
             price_tag = f"  bid={bid:.3f}" if bid is not None else ""
             lat_tag = f"  (lat: {event.latency_ms:.1f}ms)" if event.latency_ms is not None else ""
+            prox_tag = self._proximity_for_slug(event.slug)
             self.dashboard.push_event(
                 f"📊 TICK_SIZE  {display_slug}  "
-                f"{event.old_tick_size} → {event.new_tick_size}{price_tag}{lat_tag}"
+                f"{event.old_tick_size} → {event.new_tick_size}{price_tag}{lat_tag}{prox_tag}"
             )
 
     async def _metrics_book_update(self, event: BookUpdate) -> None:
