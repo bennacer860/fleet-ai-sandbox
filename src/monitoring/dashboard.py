@@ -22,6 +22,8 @@ from rich.text import Text
 from ..logging_config import get_logger
 from ..utils.timestamps import format_slug_with_est_time
 from .metrics import Metrics
+from ..utils.telegram_notifier import TelegramNotifier
+from ..config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ENABLED
 
 if TYPE_CHECKING:
     from ..execution.auto_claimer import AutoClaimer
@@ -69,6 +71,13 @@ class Dashboard:
         self._expiry_times: deque[float] = deque(maxlen=100)
         self._running = False
         self._slug_display_cache: dict[str, str] = {}
+        
+        # Telegram integration
+        self._telegram = TelegramNotifier(
+            token=TELEGRAM_BOT_TOKEN,
+            chat_id=TELEGRAM_CHAT_ID,
+            enabled=TELEGRAM_ENABLED
+        )
 
     def _format_slug(self, slug: str) -> str:
         """Convert a raw slug to a human-readable form with EST time, cached."""
@@ -88,6 +97,9 @@ class Dashboard:
     def push_event(self, text: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
         self._recent_events.append(f"  {ts}  {text}")
+        
+        # Note: We don't push general events to Telegram from here to avoid noise. 
+        # Important trading events are handled with specialized formatting in bot.py.
 
     # ── Panel builders ────────────────────────────────────────────────────
 

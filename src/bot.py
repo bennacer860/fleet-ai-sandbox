@@ -65,6 +65,7 @@ from .config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
     TELEGRAM_NOTIFICATIONS_ENABLED,
+    TELEGRAM_ENABLED,
 )
 
 logger = get_logger(__name__)
@@ -100,6 +101,7 @@ class Bot:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self.db_path = db_path or DB_PATH
         self.dashboard_enabled = dashboard_enabled
+        self.loop: asyncio.AbstractEventLoop | None = None
         self._slugs = slugs
         self._market_selections = market_selections or []
         self._durations = durations or sorted(SUPPORTED_DURATIONS)
@@ -190,7 +192,7 @@ class Bot:
         self.telegram = TelegramNotifier(
             token=TELEGRAM_BOT_TOKEN,
             chat_id=TELEGRAM_CHAT_ID,
-            enabled=TELEGRAM_NOTIFICATIONS_ENABLED,
+            enabled=TELEGRAM_ENABLED,
         )
 
         self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
@@ -209,10 +211,27 @@ class Bot:
                 self.dashboard._auto_claimer = self.auto_claimer
                 # Push claim events to dashboard feed
                 dashboard_ref = self.dashboard
-                def _on_claim(title: str, tx_hash: str) -> None:
+                def _on_claim(title: str, balance: float | None, tx_hash: str) -> None:
+                    logger.info("[BOT] _on_claim callback triggered for %s (bal=%s)", title, balance)
+                    # Dashboard push (thread-safe for display)
+                    bal_str = f"  [dim]bal=${balance:.2f}[/dim]" if balance is not None else ""
                     dashboard_ref.push_event(
-                        f"[bold green]CLAIMED[/bold green]  {title}  tx={tx_hash[:10]}…"
+                        f"💎 [bold green]CLAIMED[/bold green]  {title}{bal_str}  tx={tx_hash[:10]}…"
                     )
+                    
+                    # Telegram notification (must be thread-safe for asyncio)
+                    if self.telegram.enabled:
+                        bal_tele = f"\n💰 <b>Balance: ${balance:.2f}</b>" if balance is not None else ""
+                        msg = (
+                            f"💎 <b>WINNINGS COLLECTED</b>\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"📦 <b>Market:</b> <code>{title}</code>\n"
+                            f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>{bal_tele}"
+                        )
+                        logger.debug("[BOT] Sending claim notification to Telegram")
+                        asyncio.run_coroutine_threadsafe(self.telegram.push_message(msg), self.loop)
+                    else:
+                        logger.debug("[BOT] Telegram disabled, skipping claim notification")
                 self.auto_claimer.on_claim = _on_claim
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
@@ -339,11 +358,11 @@ class Bot:
                     watching = getattr(strategy, "last_watching", False)
                     if watching:
                         self.dashboard.push_event(
-                            f"[yellow]WATCHING[/yellow]  {display_slug}{price_str}  waiting for bid >= threshold"
+                            f"👀 [yellow]WATCHING[/yellow]  {display_slug}{price_str}  waiting for bid >= threshold"
                         )
                     else:
                         self.dashboard.push_event(
-                            f"[dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason}"
+                            f"⏭️ [dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason}"
                         )
             except Exception:
                 logger.exception("Strategy %s error on tick_size_change", strategy.name())
@@ -373,14 +392,16 @@ class Bot:
         if self.dashboard:
             display_slug = format_slug_with_est_time(event.slug)
             self.dashboard.push_event(
-                f"[blue]RESOLVED[/blue]  {display_slug}  unsubscribed"
+                f"🏁 [blue]RESOLVED[/blue]  {display_slug}  unsubscribed"
             )
 
         # Telegram notification
         display_slug = format_slug_with_est_time(event.slug)
         await self.telegram.push_message(
-            f"<b>RESOLVED</b> {display_slug}\n"
-            f"Unsubscribed from market."
+            f"🏁 <b>MARKET RESOLVED</b>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
+            f"ℹ️ Unsubscribed from market."
         )
 
     async def _submit_intents(self, intents: list[OrderIntent], event: Any, handler_start_ns: int | None = None) -> None:
@@ -403,12 +424,12 @@ class Bot:
                 stats = self.order_manager.stats
                 if stats.get("dedup_skips", 0) > 0:
                     self.dashboard.push_event(
-                        f"[yellow]SKIP[/yellow]  {display_slug}  DEDUP: already ordered this session"
+                        f"🛡️ [yellow]SKIP[/yellow]  {display_slug}  DEDUP: already ordered this session"
                     )
                 elif stats.get("risk_blocks", 0) > 0:
                     risk_reason = self.order_manager._last_risk_reason or "limit exceeded"
                     self.dashboard.push_event(
-                        f"[yellow]SKIP[/yellow]  {display_slug}  RISK: {risk_reason}"
+                        f"⚠️ [yellow]SKIP[/yellow]  {display_slug}  RISK: {risk_reason}"
                     )
                 continue
 
@@ -431,13 +452,13 @@ class Bot:
                 if state.is_terminal:
                     reason = self._clean_reason(state.rejection_reason or state.status.value)
                     self.dashboard.push_event(
-                        f"[red]{state.status.value}[/red]  {display_slug}  {reason}{timing}"
+                        f"🛑 [red]{state.status.value}[/red]  {display_slug}  {reason}{timing}"
                     )
                 else:
                     bid_str = f"{state.best_bid:.3f}" if state.best_bid is not None else "--"
                     ask_str = f"{state.best_ask:.3f}" if state.best_ask is not None else "--"
                     self.dashboard.push_event(
-                        f"[green]SUBMITTED[/green]  {display_slug}  "
+                        f"📤 [green]SUBMITTED[/green]  {display_slug}  "
                         f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}  "
                         f"(bid={bid_str} ask={ask_str}){timing}"
                     )
@@ -447,13 +468,17 @@ class Bot:
                 if state.is_terminal:
                     reason = self._clean_reason(state.rejection_reason or state.status.value)
                     await self.telegram.push_message(
-                        f"❌ <b>{state.status.value}</b> {display_slug}\n"
-                        f"Reason: {reason}"
+                        f"🛑 <b>ORDER {state.status.value}</b>\n"
+                        f"━━━━━━━━━━━━━━━\n"
+                        f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
+                        f"❌ <b>Reason:</b> <code>{reason}</code>"
                     )
                 else:
                     await self.telegram.push_message(
-                        f"📝 <b>SUBMITTED</b> {display_slug}\n"
-                        f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}"
+                        f"📤 <b>ORDER SUBMITTED</b>\n"
+                        f"━━━━━━━━━━━━━━━\n"
+                        f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
+                        f"🔄 <b>{intent.side.value}</b>: ${intent.price:.4f} × {intent.size:.2f} shares"
                     )
 
             if state and not state.is_terminal:
@@ -477,16 +502,20 @@ class Bot:
         display = format_slug_with_est_time(slug) if slug != "?" else "?"
         label = "FILLED" if state and state.status == OrderStatus.FILLED else "PARTIAL"
         color = "green" if label == "FILLED" else "cyan"
+        emoji = "🎯" if label == "FILLED" else "🌓"
         self.dashboard.push_event(
-            f"[{color}]{label}[/{color}]  {display}  "
+            f"{emoji} [{color}]{label}[/{color}]  {display}  "
             f"@ {event.fill_price:.4f} x {event.fill_size:.2f}"
         )
 
         # Telegram notification
-        emoji = "💰" if label == "FILLED" else "🌓"
+        emoji = "🎯" if label == "FILLED" else "🌓"
         await self.telegram.push_message(
-            f"{emoji} <b>{label}</b> {display}\n"
-            f"Price: {event.fill_price:.4f} | Size: {event.fill_size:.2f}"
+            f"{emoji} <b>ORDER {label}</b>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📍 <b>Market:</b> <code>{display}</code>\n"
+            f"💵 <b>Price:</b> ${event.fill_price:.4f}\n"
+            f"📦 <b>Size:</b> {event.fill_size:.2f} shares"
         )
 
     async def _dashboard_on_terminal(self, event: OrderTerminal) -> None:
@@ -502,8 +531,10 @@ class Bot:
 
         # Telegram notification
         await self.telegram.push_message(
-            f"🚫 <b>{event.status.value}</b> {display}\n"
-            f"Reason: {reason}"
+            f"🛑 <b>ORDER {event.status.value}</b>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📍 <b>Market:</b> <code>{display}</code>\n"
+            f"❌ <b>Reason:</b> <code>{reason}</code>"
         )
 
     # ── Context maintenance ───────────────────────────────────────────────
@@ -538,7 +569,7 @@ class Bot:
             price_tag = f"  bid={bid:.3f}" if bid is not None else ""
             lat_tag = f"  (lat: {event.latency_ms:.1f}ms)" if event.latency_ms is not None else ""
             self.dashboard.push_event(
-                f"TICK_SIZE  {display_slug}  "
+                f"📊 TICK_SIZE  {display_slug}  "
                 f"{event.old_tick_size} → {event.new_tick_size}{price_tag}{lat_tag}"
             )
 
@@ -683,7 +714,7 @@ class Bot:
             if self.dashboard:
                 for slug in slugs_to_add:
                     display = format_slug_with_est_time(slug)
-                    self.dashboard.push_event(f"MARKET_ADD  {display}")
+                    self.dashboard.push_event(f"📍 MARKET_ADD  {display}")
 
         if slugs_to_remove:
             await self.market_ws.remove_markets(slugs_to_remove)
@@ -727,6 +758,7 @@ class Bot:
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
     async def run(self) -> None:
+        self.loop = asyncio.get_running_loop()
         logger.info("=" * 60)
         logger.info("POLYMARKET HFT BOT v1 starting")
         logger.info("  Slugs    : %d", len(self._slugs))

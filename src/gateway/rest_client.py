@@ -11,7 +11,7 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order
+from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order, get_usdc_balance
 from ..core.events import OrderStatus, OrderSubmitted, OrderTerminal
 from ..core.models import OrderIntent, Side
 from ..gamma_client import fetch_event_by_slug
@@ -137,3 +137,8 @@ class AsyncRestClient:
     async def fetch_event(self, slug: str) -> dict[str, Any] | None:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, fetch_event_by_slug, slug)
+
+    async def fetch_balance(self) -> float:
+        """Fetch the current USDC balance for the funder."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, get_usdc_balance)

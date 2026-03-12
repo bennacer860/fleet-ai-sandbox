@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
+from ..clob_client import get_usdc_balance
 
 import eth_abi
 import requests
@@ -61,7 +62,8 @@ class AutoClaimer:
         self.last_check_time: float | None = None
         self.total_claimed: int = 0
         self.last_claim_time: float | None = None
-        self.on_claim: callable | None = None  # callback(title, value, tx_hash)
+        self.last_balance: float | None = None
+        self.on_claim: callable | None = None  # callback(title, balance, tx_hash)
 
     def _init_relayer(self) -> bool:
         """Lazy-init the Builder Relayer client."""
@@ -153,7 +155,7 @@ class AutoClaimer:
                 if self.on_claim:
                     # Notify for each one so they appear in dashboard/telegram
                     for c in claims:
-                        self.on_claim(c.get("title", c["conditionId"][:16]), tx_hash)
+                        self.on_claim(c.get("title", c["conditionId"][:16]), self.last_balance, tx_hash)
                 return True
             return False
         except Exception as e:
@@ -224,9 +226,17 @@ class AutoClaimer:
                 self.last_check_time = _time.time()
                 n = await self._tick()
                 if n:
+                    # Update balance after successful claim
+                    try:
+                        self.last_balance = await asyncio.get_event_loop().run_in_executor(
+                            None, get_usdc_balance
+                        )
+                    except Exception:
+                        pass
+                    
                     self.total_claimed += n
                     self.last_claim_time = _time.time()
-                    logger.info("[AutoClaimer] Claimed %d position(s) this cycle.", n)
+                    logger.info("[AutoClaimer] Claimed %d position(s) this cycle. New balance: $%.2f", n, self.last_balance or 0)
             except Exception as e:
                 logger.error("[AutoClaimer] Error in claim cycle: %s", e)
             await asyncio.sleep(self.interval)

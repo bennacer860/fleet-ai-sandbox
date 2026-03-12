@@ -9,6 +9,7 @@ from py_clob_client.clob_types import (
     OrderType,
     PartialCreateOrderOptions,
     TickSize,
+    BalanceAllowanceParams,
 )
 from py_clob_client.order_builder.constants import BUY, SELL
 from py_clob_client.exceptions import PolyApiException
@@ -244,6 +245,29 @@ def get_order_status(order_id: str) -> Optional[dict[str, Any]]:
     except Exception:
         logger.debug("get_order failed for %s", order_id[:16], exc_info=True)
         return None
+
+
+def get_usdc_balance() -> float:
+    """Fetch the USDC balance (collateral) for the current funder.
+    
+    Returns balance as a float (e.g. 10.50).
+    """
+    client = create_clob_client()
+    if client is None:
+        return 0.0
+
+    try:
+        params = BalanceAllowanceParams(
+            asset_type="COLLATERAL",
+            signature_type=SIGNATURE_TYPE
+        )
+        resp = client.get_balance_allowance(params)
+        raw_balance = int(resp.get("balance", "0"))
+        # USDC has 6 decimals on Polygon
+        return raw_balance / 1_000_000.0
+    except Exception:
+        logger.exception("Failed to fetch account balance")
+        return 0.0
 
 
 def place_limit_order(
