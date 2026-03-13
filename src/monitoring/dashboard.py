@@ -23,7 +23,10 @@ from ..logging_config import get_logger
 from ..utils.timestamps import format_slug_with_est_time
 from .metrics import Metrics
 from ..utils.telegram_notifier import TelegramNotifier
-from ..config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ENABLED
+from ..config import (
+    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ENABLED,
+    PROXIMITY_FILTER_ENABLED, PROXIMITY_MIN_DISTANCE,
+)
 
 if TYPE_CHECKING:
     from ..execution.auto_claimer import AutoClaimer
@@ -272,6 +275,10 @@ class Dashboard:
         lines.append(f"WS Crypto: {ws_crypto}")
         if ws_crypto_prices:
             lines.append(f"  Spot:    {ws_crypto_prices}")
+        if PROXIMITY_FILTER_ENABLED:
+            lines.append(f"Proximity:  [green]ON[/green]  (threshold: {PROXIMITY_MIN_DISTANCE:.4%})")
+        else:
+            lines.append("Proximity:  [yellow]OFF[/yellow]")
         lines.append(f"Event Loop Lag: {metrics.get_gauge('event_loop_lag_ms'):.1f}ms")
         lines.append(f"SQLite Queue: {metrics.get_gauge('persistence_pending'):.0f} pending")
 
@@ -351,7 +358,7 @@ class Dashboard:
         )
         layout["positions"].update(self._positions_panel())
         layout["bottom"].split_column(
-            Layout(self._system_panel(), name="system", size=11),
+            Layout(self._system_panel(), name="system", size=12),
             Layout(self._events_panel(), name="events"),
         )
         return layout
