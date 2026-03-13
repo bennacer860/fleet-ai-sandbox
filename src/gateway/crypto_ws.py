@@ -1,4 +1,9 @@
-"""Binance miniTicker WebSocket — streams real-time crypto spot prices.
+"""Binance crypto WebSocket — streams real-time spot prices via @trade
+and @miniTicker combined streams.
+
+@trade delivers every individual fill (sub-second freshness).
+@miniTicker acts as a periodic heartbeat (~1-3s) so prices stay fresh
+even during quiet periods with no trades.
 
 Maintains a ``latest_prices`` dict that callers can read at any time
 (no EventBus needed).  Tracks per-asset update timestamps so consumers
@@ -34,15 +39,20 @@ _ASSET_TO_SYMBOL: dict[str, str] = {v: k for k, v in _SYMBOL_TO_ASSET.items()}
 
 
 class CryptoWebSocket:
-    """Streams Binance miniTicker prices for a set of crypto assets."""
+    """Streams Binance trade + miniTicker prices for a set of crypto assets."""
 
     def __init__(self, assets: list[str] | None = None) -> None:
         self._assets = [a.upper() for a in (assets or list(_ASSET_TO_SYMBOL))]
-        self._streams = [
-            f"{_ASSET_TO_SYMBOL[a].lower()}@miniTicker"
-            for a in self._assets
-            if a in _ASSET_TO_SYMBOL
-        ]
+
+        self._streams: list[str] = []
+        for a in self._assets:
+            sym = _ASSET_TO_SYMBOL.get(a)
+            if not sym:
+                continue
+            lower = sym.lower()
+            self._streams.append(f"{lower}@trade")
+            self._streams.append(f"{lower}@miniTicker")
+
         self._ws_url = f"{_BINANCE_WS}?streams={'/'.join(self._streams)}"
 
         self.latest_prices: dict[str, float] = {}
@@ -52,6 +62,8 @@ class CryptoWebSocket:
         self._running = False
         self._last_message_time: float = 0.0
         self._msg_count = 0
+        self._trade_count = 0
+        self._ticker_count = 0
 
     # ── Public read-only state ────────────────────────────────────────────
 
@@ -62,6 +74,10 @@ class CryptoWebSocket:
     @property
     def message_count(self) -> int:
         return self._msg_count
+
+    @property
+    def trade_count(self) -> int:
+        return self._trade_count
 
     @property
     def last_message_age_s(self) -> float:
@@ -95,7 +111,7 @@ class CryptoWebSocket:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
                         logger.info(
-                            "[WS_CRYPTO] Connected to Binance (%d streams: %s)",
+                            "[WS_CRYPTO] Connected to Binance (%d streams: %s) [trade+miniTicker]",
                             len(self._streams),
                             ", ".join(self._assets),
                         )
@@ -153,7 +169,7 @@ class CryptoWebSocket:
         except Exception:
             return
 
-        # Binance combined stream wraps payload in {"stream": ..., "data": {...}}
+        stream = data.get("stream", "")
         payload = data.get("data", data)
         if not isinstance(payload, dict):
             return
@@ -163,8 +179,17 @@ class CryptoWebSocket:
         if not asset:
             return
 
+        # @trade: price is in "p" field
+        # @miniTicker: price is in "c" (close) field
+        if "@trade" in stream:
+            price_key = "p"
+            self._trade_count += 1
+        else:
+            price_key = "c"
+            self._ticker_count += 1
+
         try:
-            price = float(payload["c"])
+            price = float(payload[price_key])
         except (KeyError, ValueError, TypeError):
             return
 
