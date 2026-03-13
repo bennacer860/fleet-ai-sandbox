@@ -251,8 +251,11 @@ class SweepStrategy(Strategy):
         if spot is not None and price_to_beat is not None and price_to_beat > 0:
             self.last_proximity = abs(spot - price_to_beat) / price_to_beat
 
+        post_expiry = tte is not None and tte < 0
+
         if (
             PROXIMITY_FILTER_ENABLED
+            and not post_expiry
             and self.last_proximity is not None
             and self.last_proximity < PROXIMITY_MIN_DISTANCE
         ):
@@ -266,7 +269,7 @@ class SweepStrategy(Strategy):
             )
             return None
 
-        if tte is not None and tte < 0:
+        if post_expiry:
             order_size *= POST_EXPIRY_MULTIPLIER
             logger.info(
                 "[SWEEP] Post-expiry signal for %s (%.1fs late) — multiplying size (x%.1f) to %.2f",
