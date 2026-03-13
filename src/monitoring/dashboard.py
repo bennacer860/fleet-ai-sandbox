@@ -231,8 +231,14 @@ class Dashboard:
         else:
             lines.append("AutoClaim: [dim]OFF[/dim]")
 
-        ws_market = "Connected" if (self._market_ws and self._market_ws.connected) else "Disconnected"
+        if self._market_ws and self._market_ws.connected:
+            ws_market = "[green]Connected[/green]"
+        elif self._market_ws:
+            ws_market = "[red]Disconnected[/red]"
+        else:
+            ws_market = "Disconnected"
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
+        market_reconnects = self._market_ws.reconnect_count if self._market_ws else 0
         msg_age = f"{self._market_ws.last_message_age_s:.0f}s ago" if self._market_ws and self._market_ws.last_message_age_s >= 0 else "N/A"
 
         if self._user_ws:
@@ -270,7 +276,7 @@ class Dashboard:
             ws_crypto = "[dim]N/A[/dim]"
             ws_crypto_prices = ""
 
-        lines.append(f"WS Market: {ws_market} ({token_count} tokens)   Last msg: {msg_age}")
+        lines.append(f"WS Market: {ws_market} ({token_count} tokens)  (reconnects: {market_reconnects})   Last msg: {msg_age}")
         lines.append(f"WS User:   {ws_user}")
         lines.append(f"WS Crypto: {ws_crypto}")
         if ws_crypto_prices:
