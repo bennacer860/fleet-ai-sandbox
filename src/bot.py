@@ -843,6 +843,9 @@ class Bot:
         self.loop = asyncio.get_running_loop()
         logger.info("=" * 60)
         logger.info("POLYMARKET HFT BOT v1 starting")
+        _profile = os.getenv("ACTIVE_PROFILE")
+        if _profile:
+            logger.info("  Profile  : %s", _profile)
         logger.info("  Slugs    : %d", len(self._slugs))
         logger.info("  Strategies: %s", ", ".join(s.name() for s in self.strategies))
         logger.info("  Dry-run  : %s", self.dry_run)

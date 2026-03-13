@@ -85,12 +85,22 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _profile_path(base: str, ext: str, profile: int | None) -> str:
+    if profile is not None:
+        return base.replace(ext, f"_p{profile}{ext}")
+    return base
+
+
 def cmd_health(args: argparse.Namespace) -> int:
     from src.monitoring.health import HealthMonitor
 
-    hb = HealthMonitor.read_heartbeat(args.heartbeat_path)
+    path = args.heartbeat_path
+    if path == "/tmp/polymarket_bot_heartbeat.json" and args.profile is not None:
+        path = _profile_path(path, ".json", args.profile)
+
+    hb = HealthMonitor.read_heartbeat(path)
     if hb is None:
-        print("No heartbeat file found. Is the bot running?")
+        print(f"No heartbeat file found at {path}. Is the bot running?")
         return 1
     print(json.dumps(hb, indent=2, default=str))
     return 0
@@ -99,8 +109,12 @@ def cmd_health(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     from src.storage.database import get_readonly_connection
 
+    db = args.db_path
+    if db == "data/bot.db" and args.profile is not None:
+        db = _profile_path(db, ".db", args.profile)
+
     try:
-        conn = get_readonly_connection(args.db_path)
+        conn = get_readonly_connection(db)
     except Exception as e:
         print(f"Cannot open database: {e}")
         return 1
@@ -270,6 +284,10 @@ def main() -> int:
     # ── health ─────────────────────────────────────────────────────────────
     health_parser = sub.add_parser("health", help="Print current health status")
     health_parser.add_argument(
+        "--profile", type=int, default=None,
+        help="Profile number (uses profile-namespaced heartbeat path)",
+    )
+    health_parser.add_argument(
         "--heartbeat-path",
         default="/tmp/polymarket_bot_heartbeat.json",
         help="Path to heartbeat file",
@@ -277,6 +295,10 @@ def main() -> int:
 
     # ── stats ──────────────────────────────────────────────────────────────
     stats_parser = sub.add_parser("stats", help="Show strategy stats from SQLite")
+    stats_parser.add_argument(
+        "--profile", type=int, default=None,
+        help="Profile number (uses profile-namespaced DB path)",
+    )
     stats_parser.add_argument(
         "--db-path", default="data/bot.db",
         help="SQLite database path (default: data/bot.db)",

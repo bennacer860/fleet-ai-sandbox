@@ -15,6 +15,18 @@ if active_profile:
             base_key = key[len(prefix):]
             os.environ[base_key] = value
 
+    # Auto-namespace file paths so parallel profiles never collide.
+    # Skipped if the user already set an explicit P{N}_ override for that path.
+    _ptag = f"_p{active_profile}"
+    for _key, _default, _ext in [
+        ("DB_PATH", "data/bot.db", ".db"),
+        ("LOG_FILE", "data/bot.log", ".log"),
+        ("HEALTH_FILE_PATH", "/tmp/polymarket_bot_heartbeat.json", ".json"),
+    ]:
+        if f"{prefix}{_key}" not in os.environ:
+            _val = os.environ.get(_key, _default)
+            os.environ[_key] = _val.replace(_ext, f"{_ptag}{_ext}")
+
 # Wallet / CLOB
 PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
 FUNDER = os.getenv("FUNDER", "")
