@@ -7,6 +7,8 @@ back-tests, and ad-hoc scripts.
 
 from typing import Any, Optional
 
+import requests
+
 from ..clob_client import create_clob_client
 from ..gamma_client import (
     fetch_event_by_slug,
@@ -15,11 +17,70 @@ from ..gamma_client import (
     get_outcome_prices,
 )
 from ..logging_config import get_logger
+from ..markets.fifteen_min import extract_market_from_slug
 
 logger = get_logger(__name__)
 
 # Fallback when the order book is unavailable
 FALLBACK_MIN_ORDER_SIZE: float = 5.0
+
+_BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+
+_ASSET_TO_SYMBOL: dict[str, str] = {
+    "BTC": "BTCUSDT",
+    "ETH": "ETHUSDT",
+    "SOL": "SOLUSDT",
+    "XRP": "XRPUSDT",
+}
+
+
+def fetch_strike_price(slug: str, timeout: float = 5.0) -> float | None:
+    """Fetch the crypto spot price at the market's start time from Binance klines.
+
+    The slug encodes the start timestamp (e.g. ``xrp-updown-15m-1773304200``).
+    We fetch the 1-minute candle that contains that timestamp and return
+    the open price, which is the effective strike price for the market.
+    """
+    asset = extract_market_from_slug(slug)
+    if not asset:
+        return None
+
+    symbol = _ASSET_TO_SYMBOL.get(asset)
+    if not symbol:
+        return None
+
+    # Extract start timestamp from slug
+    parts = slug.rsplit("-", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        start_ts = int(parts[1])
+    except ValueError:
+        return None
+
+    start_ms = start_ts * 1000
+
+    try:
+        resp = requests.get(
+            _BINANCE_KLINES,
+            params={
+                "symbol": symbol,
+                "interval": "1m",
+                "startTime": start_ms,
+                "limit": 1,
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        klines = resp.json()
+        if klines and len(klines) > 0:
+            open_price = float(klines[0][1])
+            logger.debug("[STRIKE] %s start=%d → %s open=$%.6f", slug, start_ts, symbol, open_price)
+            return open_price
+    except Exception:
+        logger.debug("[STRIKE] Failed to fetch kline for %s", slug, exc_info=True)
+
+    return None
 
 
 # ── Market evaluation ────────────────────────────────────────────────────────
@@ -68,6 +129,9 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
             price_to_beat = float(price_to_beat)
         except (ValueError, TypeError):
             price_to_beat = None
+
+    if price_to_beat is None:
+        price_to_beat = fetch_strike_price(slug)
 
     return {
         "token_ids": token_ids,
