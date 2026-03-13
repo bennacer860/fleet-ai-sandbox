@@ -122,15 +122,22 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
     best_outcome = outcomes[best_idx] if best_idx < len(outcomes) else "?"
     best_token_id = token_ids[best_idx]
 
-    metadata = market.get("eventMetadata") or {}
-    price_to_beat = metadata.get("priceToBeat")
-    if price_to_beat is not None:
-        try:
-            price_to_beat = float(price_to_beat)
-        except (ValueError, TypeError):
-            price_to_beat = None
+    # priceToBeat lives in eventMetadata — check both the market object
+    # and the top-level event, since the Gamma API nests it differently
+    # depending on the endpoint (/events/slug/ vs /markets/).
+    price_to_beat = None
+    for obj in (market, event):
+        metadata = obj.get("eventMetadata") or {}
+        raw = metadata.get("priceToBeat")
+        if raw is not None:
+            try:
+                price_to_beat = float(raw)
+                break
+            except (ValueError, TypeError):
+                pass
 
     if price_to_beat is None:
+        logger.warning("[STRIKE] priceToBeat not in Gamma response for %s, falling back to Binance kline", slug)
         price_to_beat = fetch_strike_price(slug)
 
     return {
