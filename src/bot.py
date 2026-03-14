@@ -43,6 +43,7 @@ from .execution.auto_claimer import AutoClaimer
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
+    detect_duration_from_slug,
     extract_market_end_ts,
     extract_market_from_slug,
     get_current_interval_utc,
@@ -362,11 +363,7 @@ class Bot:
                     slug, eval_data.get("min_order_size", -1),
                 )
                 if eval_data.get("price_to_beat") is None:
-                    logger.info(
-                        "[CACHE] price_to_beat missing for %s — scheduling strike retry",
-                        slug,
-                    )
-                    asyncio.create_task(self._retry_strike_price(slug))
+                    asyncio.create_task(self._deferred_strike_fetch(slug))
             else:
                 logger.warning("[CACHE] Pre-fetch returned no data for %s", slug)
         except Exception:
@@ -383,39 +380,47 @@ class Bot:
             except Exception:
                 logger.warning("[CACHE] precache_token_data failed for %s", slug)
 
-    _STRIKE_RETRY_DELAYS = (10, 30, 90)
+    _STRIKE_SETTLE_BUFFER_S = 5
 
-    async def _retry_strike_price(self, slug: str) -> None:
-        """Retry fetching the strike price for a slug whose kline wasn't available yet.
+    async def _deferred_strike_fetch(self, slug: str) -> None:
+        """Wait until the market's start time has passed, then fetch the strike price.
 
-        Markets are often pre-fetched before their start time, so the
-        Binance kline doesn't exist yet.  This retries at increasing
-        intervals until the kline becomes available.
+        The Binance kline for the start candle doesn't exist until the
+        market actually begins.  Instead of blind retries, we parse the
+        start timestamp from the slug and sleep until that moment (plus
+        a small buffer for the candle to appear on Binance).
         """
-        for delay in self._STRIKE_RETRY_DELAYS:
-            await asyncio.sleep(delay)
-            if slug not in self._eval_cache:
-                return
-            if self._eval_cache[slug].get("price_to_beat") is not None:
-                return
-            try:
-                price = await asyncio.get_event_loop().run_in_executor(
-                    None, fetch_strike_price, slug
-                )
-                if price is not None:
-                    self._eval_cache[slug]["price_to_beat"] = price
-                    logger.info(
-                        "[STRIKE] Retry succeeded for %s after %ds: $%.6f",
-                        slug, delay, price,
-                    )
-                    return
-                logger.debug("[STRIKE] Retry at %ds still empty for %s", delay, slug)
-            except Exception:
-                logger.debug("[STRIKE] Retry at %ds failed for %s", delay, slug, exc_info=True)
-        logger.warning(
-            "[STRIKE] All retries exhausted for %s — strike_price will remain None until order-time fallback",
-            slug,
-        )
+        end_ts = extract_market_end_ts(slug)
+        duration = detect_duration_from_slug(slug)
+        if end_ts is None or duration is None:
+            logger.warning("[STRIKE] Cannot parse start time from slug %s — skipping deferred fetch", slug)
+            return
+
+        start_ts = end_ts - duration * 60
+        wait_s = start_ts - time.time() + self._STRIKE_SETTLE_BUFFER_S
+        if wait_s > 0:
+            logger.info(
+                "[STRIKE] Deferring strike fetch for %s — market starts in %.1fs",
+                slug, wait_s - self._STRIKE_SETTLE_BUFFER_S,
+            )
+            await asyncio.sleep(wait_s)
+
+        if slug not in self._eval_cache:
+            return
+        if self._eval_cache[slug].get("price_to_beat") is not None:
+            return
+
+        try:
+            price = await asyncio.get_event_loop().run_in_executor(
+                None, fetch_strike_price, slug
+            )
+            if price is not None:
+                self._eval_cache[slug]["price_to_beat"] = price
+                logger.info("[STRIKE] Deferred fetch succeeded for %s: $%.6f", slug, price)
+            else:
+                logger.warning("[STRIKE] Deferred fetch returned None for %s", slug)
+        except Exception:
+            logger.warning("[STRIKE] Deferred fetch failed for %s", slug, exc_info=True)
 
     def _launch_prefetch(self, slugs: list[str]) -> None:
         """Fire-and-forget background prefetch for a batch of slugs."""
