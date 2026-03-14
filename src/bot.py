@@ -188,6 +188,9 @@ class Bot:
         )
         self.alert_manager = AlertManager()
 
+        self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
+        self._eval_cache: dict[str, dict[str, Any]] = {}
+
         self.dashboard: Dashboard | None = None
         if dashboard_enabled:
             self.dashboard = Dashboard(
@@ -211,9 +214,6 @@ class Bot:
             enabled=TELEGRAM_ENABLED,
         )
         self._profile = os.environ.get("ACTIVE_PROFILE") or "0"
-
-        self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
-        self._eval_cache: dict[str, dict[str, Any]] = {}
 
         # Auto-claimer (None = disabled)
         self.auto_claimer: AutoClaimer | None = None

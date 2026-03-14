@@ -72,7 +72,7 @@ class Dashboard:
         self._funder = funder
         self._claim_min_value = claim_min_value
         self._auto_claimer = auto_claimer
-        self._eval_cache = eval_cache or {}
+        self._eval_cache = eval_cache if eval_cache is not None else {}
         self._recent_events: deque[str] = deque(maxlen=MAX_EVENTS)
         self._exchange_latencies: deque[float] = deque(maxlen=100)
         self._tick_latencies: deque[float] = deque(maxlen=100)
