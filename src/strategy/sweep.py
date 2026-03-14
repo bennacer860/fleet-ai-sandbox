@@ -20,6 +20,7 @@ from ..markets.fifteen_min import (
     extract_market_end_ts,
     extract_market_from_slug,
 )
+from ..utils.market_data import fetch_strike_price
 from ..config import (
     DEFAULT_TRADE_SIZE,
     POST_EXPIRY_MULTIPLIER,
@@ -226,6 +227,13 @@ class SweepStrategy(Strategy):
         # ── Proximity calculation (always runs) ──────────────────────────
         asset = extract_market_from_slug(slug)
         price_to_beat = eval_data.get("price_to_beat")
+        if price_to_beat is None:
+            price_to_beat = fetch_strike_price(slug)
+            if price_to_beat is not None:
+                eval_data["price_to_beat"] = price_to_beat
+                logger.info("[SWEEP] Lazy strike fetch succeeded for %s: $%.6f", slug, price_to_beat)
+            else:
+                logger.warning("[SWEEP] Strike price unavailable for %s — proximity filter will be skipped", slug)
         if price_to_beat is not None:
             self.last_price_to_beat = price_to_beat
 

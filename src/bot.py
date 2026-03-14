@@ -37,7 +37,7 @@ from .monitoring.health import HealthMonitor
 from .monitoring.metrics import Metrics
 from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
-from .utils.market_data import get_market_evaluation
+from .utils.market_data import fetch_strike_price, get_market_evaluation
 from .clob_client import precache_token_data, get_cached_min_order_size
 from .execution.auto_claimer import AutoClaimer
 from .markets.fifteen_min import (
@@ -360,6 +360,12 @@ class Bot:
                     "[CACHE] Pre-fetched eval for %s (min_size=%.2f)",
                     slug, eval_data.get("min_order_size", -1),
                 )
+                if eval_data.get("price_to_beat") is None:
+                    logger.info(
+                        "[CACHE] price_to_beat missing for %s — scheduling strike retry",
+                        slug,
+                    )
+                    asyncio.create_task(self._retry_strike_price(slug))
             else:
                 logger.warning("[CACHE] Pre-fetch returned no data for %s", slug)
         except Exception:
@@ -375,6 +381,40 @@ class Bot:
                 )
             except Exception:
                 logger.warning("[CACHE] precache_token_data failed for %s", slug)
+
+    _STRIKE_RETRY_DELAYS = (10, 30, 90)
+
+    async def _retry_strike_price(self, slug: str) -> None:
+        """Retry fetching the strike price for a slug whose kline wasn't available yet.
+
+        Markets are often pre-fetched before their start time, so the
+        Binance kline doesn't exist yet.  This retries at increasing
+        intervals until the kline becomes available.
+        """
+        for delay in self._STRIKE_RETRY_DELAYS:
+            await asyncio.sleep(delay)
+            if slug not in self._eval_cache:
+                return
+            if self._eval_cache[slug].get("price_to_beat") is not None:
+                return
+            try:
+                price = await asyncio.get_event_loop().run_in_executor(
+                    None, fetch_strike_price, slug
+                )
+                if price is not None:
+                    self._eval_cache[slug]["price_to_beat"] = price
+                    logger.info(
+                        "[STRIKE] Retry succeeded for %s after %ds: $%.6f",
+                        slug, delay, price,
+                    )
+                    return
+                logger.debug("[STRIKE] Retry at %ds still empty for %s", delay, slug)
+            except Exception:
+                logger.debug("[STRIKE] Retry at %ds failed for %s", delay, slug, exc_info=True)
+        logger.warning(
+            "[STRIKE] All retries exhausted for %s — strike_price will remain None until order-time fallback",
+            slug,
+        )
 
     def _launch_prefetch(self, slugs: list[str]) -> None:
         """Fire-and-forget background prefetch for a batch of slugs."""
