@@ -20,6 +20,9 @@ logger = get_logger(__name__)
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
+# miniTicker fires ~every 1s per symbol; with 4 assets, 30s of silence is
+# clearly abnormal and means the connection is stale or half-open.
+_HEARTBEAT_TIMEOUT_S = 30
 
 _BINANCE_WS = "wss://stream.binance.com:9443/stream"
 
@@ -52,6 +55,7 @@ class CryptoWebSocket:
         self._running = False
         self._last_message_time: float = 0.0
         self._msg_count = 0
+        self._reconnect_count = 0
 
     # ── Public read-only state ────────────────────────────────────────────
 
@@ -62,6 +66,10 @@ class CryptoWebSocket:
     @property
     def message_count(self) -> int:
         return self._msg_count
+
+    @property
+    def reconnect_count(self) -> int:
+        return self._reconnect_count
 
     @property
     def last_message_age_s(self) -> float:
@@ -76,7 +84,28 @@ class CryptoWebSocket:
             return None
         return (time.monotonic() - ts) * 1000
 
+    # ── Heartbeat watchdog ─────────────────────────────────────────────────
+    # Binance miniTicker is high-frequency; prolonged silence suggests a
+    # half-open or stale connection. Forcing close triggers reconnect.
+
+    async def _heartbeat_watchdog(self) -> None:
+        while self._running:
+            await asyncio.sleep(_HEARTBEAT_TIMEOUT_S / 2)
+            if self._last_message_time == 0:
+                continue
+            silence = time.monotonic() - self._last_message_time
+            if silence > _HEARTBEAT_TIMEOUT_S and self._websocket:
+                logger.warning(
+                    "[WS_CRYPTO] No message for %.0fs — forcing reconnect", silence
+                )
+                try:
+                    await self._websocket.close()
+                except Exception:
+                    pass
+
     # ── Main run loop ─────────────────────────────────────────────────────
+    # ping_interval=20 sends a ping every 20s.  ping_timeout=20 closes the
+    # socket if pong isn't received within 20s (was 60 — far too generous).
 
     async def run(self) -> None:
         if not self._streams:
@@ -85,15 +114,18 @@ class CryptoWebSocket:
 
         self._running = True
         backoff = _BASE_BACKOFF
+        watchdog_task: asyncio.Task | None = None
 
         try:
             while self._running:
                 try:
                     async with websockets.connect(
-                        self._ws_url, ping_interval=20, ping_timeout=60
+                        self._ws_url, ping_interval=20, ping_timeout=20
                     ) as ws:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
+                        if watchdog_task is None:
+                            watchdog_task = asyncio.create_task(self._heartbeat_watchdog())
                         logger.info(
                             "[WS_CRYPTO] Connected to Binance (%d streams: %s)",
                             len(self._streams),
@@ -106,6 +138,8 @@ class CryptoWebSocket:
                                     break
                                 self._last_message_time = time.monotonic()
                                 self._msg_count += 1
+                                if raw == "INVALID OPERATION":
+                                    continue
                                 self._process_message(raw)
                         finally:
                             self._websocket = None
@@ -114,18 +148,20 @@ class CryptoWebSocket:
                     websockets.exceptions.ConnectionClosed,
                     websockets.exceptions.WebSocketException,
                 ) as e:
+                    self._reconnect_count += 1
                     logger.warning(
-                        "[WS_CRYPTO] Disconnected: %s — reconnecting in %ds",
-                        e, backoff,
+                        "[WS_CRYPTO] Disconnected: %s — reconnect #%d in %ds",
+                        e, self._reconnect_count, backoff,
                     )
                     if self._running:
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except Exception as e:
+                    self._reconnect_count += 1
                     logger.error(
-                        "[WS_CRYPTO] Unexpected error: %s — reconnecting in %ds",
-                        e, backoff,
+                        "[WS_CRYPTO] Unexpected error: %s — reconnect #%d in %ds",
+                        e, self._reconnect_count, backoff,
                     )
                     if self._running:
                         await asyncio.sleep(backoff)
@@ -135,6 +171,12 @@ class CryptoWebSocket:
             pass
         finally:
             self._running = False
+            if watchdog_task is not None:
+                watchdog_task.cancel()
+                try:
+                    await watchdog_task
+                except asyncio.CancelledError:
+                    pass
             logger.info("[WS_CRYPTO] Stopped")
 
     async def stop(self) -> None:

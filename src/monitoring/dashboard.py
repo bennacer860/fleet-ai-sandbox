@@ -267,10 +267,12 @@ class Dashboard:
                     f"{asset}={_fmt(price)}"
                     for asset, price in sorted(self._crypto_ws.latest_prices.items())
                 )
-                ws_crypto = f"[green]Connected[/green]  ({n_prices} assets)  Last msg: {age_str}"
+                crypto_reconnects = self._crypto_ws.reconnect_count if self._crypto_ws else 0
+                ws_crypto = f"[green]Connected[/green]  ({n_prices} assets)  (reconnects: {crypto_reconnects})   Last msg: {age_str}"
                 ws_crypto_prices = prices_str
             else:
-                ws_crypto = "[red]Disconnected[/red]"
+                crypto_reconnects = self._crypto_ws.reconnect_count if self._crypto_ws else 0
+                ws_crypto = f"[red]Disconnected[/red]  (reconnects: {crypto_reconnects})"
                 ws_crypto_prices = ""
         else:
             ws_crypto = "[dim]N/A[/dim]"

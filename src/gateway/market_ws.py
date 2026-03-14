@@ -36,7 +36,7 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
-HEARTBEAT_TIMEOUT_S = 90
+HEARTBEAT_TIMEOUT_S = 60
 
 
 class MarketWebSocket:
@@ -412,7 +412,7 @@ class MarketWebSocket:
 
                 try:
                     async with websockets.connect(
-                        self.ws_url, ping_interval=None, ping_timeout=60
+                        self.ws_url, ping_interval=20, ping_timeout=20
                     ) as ws:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
@@ -488,4 +488,7 @@ class MarketWebSocket:
     async def stop(self) -> None:
         self._running = False
         if self._websocket:
-            await self._websocket.close()
+            try:
+                await self._websocket.close()
+            except Exception:
+                pass
