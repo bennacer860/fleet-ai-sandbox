@@ -242,12 +242,15 @@ class Dashboard:
         msg_age = f"{self._market_ws.last_message_age_s:.0f}s ago" if self._market_ws and self._market_ws.last_message_age_s >= 0 else "N/A"
 
         if self._user_ws:
+            user_reconnects = self._user_ws.reconnect_count
+            user_age = self._user_ws.last_message_age_s
+            user_age_str = f"Last msg: {user_age:.0f}s ago" if user_age >= 0 else "Last msg: N/A"
             if self._dry_run:
                 ws_user = "[yellow]Skipped (dry-run)[/yellow]"
             elif self._user_ws.connected:
-                ws_user = f"[green]Connected[/green]  (reconnects: {self._user_ws.reconnect_count})"
+                ws_user = f"[green]Connected[/green]  (reconnects: {user_reconnects})   {user_age_str}"
             else:
-                ws_user = f"[red]Disconnected[/red]  (reconnects: {self._user_ws.reconnect_count})"
+                ws_user = f"[red]Disconnected[/red]  (reconnects: {user_reconnects})   {user_age_str}"
         else:
             ws_user = "[dim]N/A[/dim]"
 
