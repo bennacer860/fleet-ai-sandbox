@@ -59,6 +59,7 @@ class Dashboard:
         funder: str = "",
         claim_min_value: float | None = None,
         auto_claimer: AutoClaimer | None = None,
+        eval_cache: dict[str, dict] | None = None,
     ) -> None:
         self._market_ws = market_ws
         self._user_ws = user_ws
@@ -71,6 +72,7 @@ class Dashboard:
         self._funder = funder
         self._claim_min_value = claim_min_value
         self._auto_claimer = auto_claimer
+        self._eval_cache = eval_cache or {}
         self._recent_events: deque[str] = deque(maxlen=MAX_EVENTS)
         self._exchange_latencies: deque[float] = deque(maxlen=100)
         self._tick_latencies: deque[float] = deque(maxlen=100)
@@ -120,10 +122,19 @@ class Dashboard:
             style="bold white on blue",
         )
 
+    @staticmethod
+    def _fmt_strike(price: float) -> str:
+        if price >= 100:
+            return f"${price:,.2f}"
+        elif price >= 1:
+            return f"${price:.4f}"
+        return f"${price:.6f}"
+
     def _markets_panel(self) -> Panel:
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Market", min_width=12)
         table.add_column("Prices", min_width=20)
+        table.add_column("Strike", width=12, justify="right")
         table.add_column("", width=3)
 
         if self._market_ws:
@@ -138,7 +149,12 @@ class Dashboard:
                     parts.append(f"{outcome}:{price:.2f}")
                 price_str = "  ".join(parts)
                 display = self._format_slug(slug)
-                table.add_row(display, price_str, "[green]OK[/green]")
+
+                eval_data = self._eval_cache.get(slug, {})
+                ptb = eval_data.get("price_to_beat")
+                strike_str = self._fmt_strike(ptb) if ptb is not None else "[dim]--[/dim]"
+
+                table.add_row(display, price_str, strike_str, "[green]OK[/green]")
             count = len(active)
         else:
             count = 0

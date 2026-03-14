@@ -202,6 +202,7 @@ class Bot:
                 funder=FUNDER,
                 claim_min_value=claim_min_value,
                 auto_claimer=None,  # set after auto_claimer is created below
+                eval_cache=self._eval_cache,
             )
 
         self.telegram = TelegramNotifier(
