@@ -209,6 +209,7 @@ class Bot:
             chat_id=TELEGRAM_CHAT_ID,
             enabled=TELEGRAM_ENABLED,
         )
+        self._profile = os.environ.get("ACTIVE_PROFILE") or "0"
 
         self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
         self._eval_cache: dict[str, dict[str, Any]] = {}
@@ -237,12 +238,11 @@ class Bot:
                     # Telegram notification (must be thread-safe for asyncio)
                     if self.telegram.enabled:
                         bal_tele = f"\n💰 <b>Balance: ${balance:.2f}</b>" if balance is not None else ""
-                        msg = (
-                            f"💎 <b>WINNINGS COLLECTED</b>\n"
-                            f"━━━━━━━━━━━━━━━\n"
+                        body = (
                             f"📦 <b>Market:</b> <code>{title}</code>\n"
                             f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>{bal_tele}"
                         )
+                        msg = self._telegram_msg("🟢", "WINNINGS COLLECTED", body)
                         logger.debug("[BOT] Sending claim notification to Telegram")
                         asyncio.run_coroutine_threadsafe(self.telegram.push_message(msg), self.loop)
                     else:
@@ -250,6 +250,15 @@ class Bot:
                 self.auto_claimer.on_claim = _on_claim
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
+
+    def _telegram_msg(self, color_emoji: str, title: str, body: str) -> str:
+        """Build a Telegram message with profile and color indicator."""
+        return (
+            f"{color_emoji} <b>{title}</b>\n"
+            f"👤 <b>Profile:</b> <code>{self._profile}</code>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"{body}"
+        )
 
     @staticmethod
     def _clean_reason(reason: str) -> str:
@@ -312,11 +321,9 @@ class Bot:
         if not asset:
             return ""
         spot = self._strategy_ctx.crypto_prices.get(asset)
-        if spot is None:
-            return ""
         eval_data = self._eval_cache.get(slug) or {}
         strike = eval_data.get("price_to_beat")
-        prox = abs(spot - strike) / strike if strike and strike > 0 else None
+        prox = abs(spot - strike) / strike if spot and strike and strike > 0 else None
         return self._format_proximity(spot, strike, prox)
 
     # ── Eval pre-fetch (min_order_size) ───────────────────────────────────
@@ -454,14 +461,7 @@ class Bot:
                 f"🏁 [blue]RESOLVED[/blue]  {display_slug}  unsubscribed"
             )
 
-        # Telegram notification
-        display_slug = format_slug_with_est_time(event.slug)
-        await self.telegram.push_message(
-            f"🏁 <b>MARKET RESOLVED</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
-            f"ℹ️ Unsubscribed from market."
-        )
+        # No Telegram for market resolved (noise)
 
     async def _submit_intents(
         self,
@@ -543,19 +543,17 @@ class Bot:
             if state and not self.dry_run:
                 if state.is_terminal:
                     reason = self._clean_reason(state.rejection_reason or state.status.value)
-                    await self.telegram.push_message(
-                        f"🛑 <b>ORDER {state.status.value}</b>\n"
-                        f"━━━━━━━━━━━━━━━\n"
+                    body = (
                         f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
                         f"❌ <b>Reason:</b> <code>{reason}</code>"
                     )
+                    await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {state.status.value}", body))
                 else:
-                    await self.telegram.push_message(
-                        f"📤 <b>ORDER SUBMITTED</b>\n"
-                        f"━━━━━━━━━━━━━━━\n"
+                    body = (
                         f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
                         f"🔄 <b>{intent.side.value}</b>: ${intent.price:.4f} × {intent.size:.2f} shares"
                     )
+                    await self.telegram.push_message(self._telegram_msg("🟡", "ORDER SUBMITTED", body))
 
             if state and not state.is_terminal:
                 self.position_tracker.register_order(
@@ -586,14 +584,13 @@ class Bot:
         )
 
         # Telegram notification
-        emoji = "🎯" if label == "FILLED" else "🌓"
-        await self.telegram.push_message(
-            f"{emoji} <b>ORDER {label}</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
+        body = (
             f"📍 <b>Market:</b> <code>{display}</code>\n"
             f"💵 <b>Price:</b> ${event.fill_price:.4f}\n"
             f"📦 <b>Size:</b> {event.fill_size:.2f} shares"
         )
+        color = "🟢" if label == "FILLED" else "🔵"
+        await self.telegram.push_message(self._telegram_msg(color, f"ORDER {label}", body))
 
     async def _dashboard_on_terminal(self, event: OrderTerminal) -> None:
         if not self.dashboard:
@@ -607,12 +604,11 @@ class Bot:
         )
 
         # Telegram notification
-        await self.telegram.push_message(
-            f"🛑 <b>ORDER {event.status.value}</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
+        body = (
             f"📍 <b>Market:</b> <code>{display}</code>\n"
             f"❌ <b>Reason:</b> <code>{reason}</code>"
         )
+        await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {event.status.value}", body))
 
     # ── Context maintenance ───────────────────────────────────────────────
 

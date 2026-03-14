@@ -231,6 +231,7 @@ class SweepStrategy(Strategy):
 
         spot = None
         price_age_ms = None
+        stale = False
         if ctx and asset:
             spot = ctx.crypto_prices.get(asset)
             ts = ctx.crypto_price_ts.get(asset)
@@ -238,11 +239,10 @@ class SweepStrategy(Strategy):
                 price_age_ms = (time.monotonic() - ts) * 1000
                 if price_age_ms > self._STALE_THRESHOLD_MS:
                     logger.debug(
-                        "[SWEEP] %s spot price stale (%.0fms) — treating as unavailable",
+                        "[SWEEP] %s spot price stale (%.0fms)",
                         asset, price_age_ms,
                     )
-                    spot = None
-                    price_age_ms = None
+                    stale = True
 
         if spot is not None:
             self.last_spot_price = spot
@@ -256,6 +256,7 @@ class SweepStrategy(Strategy):
         if (
             PROXIMITY_FILTER_ENABLED
             and not post_expiry
+            and not stale
             and self.last_proximity is not None
             and self.last_proximity < PROXIMITY_MIN_DISTANCE
         ):
