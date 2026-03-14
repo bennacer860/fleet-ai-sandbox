@@ -43,19 +43,22 @@ def fetch_strike_price(slug: str, timeout: float = 5.0) -> float | None:
     """
     asset = extract_market_from_slug(slug)
     if not asset:
+        logger.warning("[STRIKE] Could not extract asset from slug: %s", slug)
         return None
 
     symbol = _ASSET_TO_SYMBOL.get(asset)
     if not symbol:
+        logger.warning("[STRIKE] No Binance symbol mapping for asset %r (slug: %s)", asset, slug)
         return None
 
-    # Extract start timestamp from slug
     parts = slug.rsplit("-", 1)
     if len(parts) != 2:
+        logger.warning("[STRIKE] Cannot parse timestamp from slug (no '-' split): %s", slug)
         return None
     try:
         start_ts = int(parts[1])
     except ValueError:
+        logger.warning("[STRIKE] Non-integer timestamp in slug: %s (got %r)", slug, parts[1])
         return None
 
     start_ms = start_ts * 1000
@@ -77,8 +80,20 @@ def fetch_strike_price(slug: str, timeout: float = 5.0) -> float | None:
             open_price = float(klines[0][1])
             logger.debug("[STRIKE] %s start=%d → %s open=$%.6f", slug, start_ts, symbol, open_price)
             return open_price
+        logger.warning(
+            "[STRIKE] Binance returned empty klines for %s (symbol=%s, startTime=%d)",
+            slug, symbol, start_ms,
+        )
+    except requests.exceptions.Timeout:
+        logger.warning("[STRIKE] Binance kline request timed out after %.1fs for %s (symbol=%s)", timeout, slug, symbol)
+    except requests.exceptions.HTTPError as exc:
+        logger.warning(
+            "[STRIKE] Binance kline HTTP %s for %s (symbol=%s, startTime=%d): %s",
+            exc.response.status_code if exc.response is not None else "?",
+            slug, symbol, start_ms, exc,
+        )
     except Exception:
-        logger.debug("[STRIKE] Failed to fetch kline for %s", slug, exc_info=True)
+        logger.warning("[STRIKE] Unexpected error fetching kline for %s (symbol=%s)", slug, symbol, exc_info=True)
 
     return None
 
@@ -139,6 +154,10 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
     if price_to_beat is None:
         logger.warning("[STRIKE] priceToBeat not in Gamma response for %s, falling back to Binance kline", slug)
         price_to_beat = fetch_strike_price(slug)
+        if price_to_beat is None:
+            logger.warning("[STRIKE] Both Gamma priceToBeat and Binance kline failed for %s — strike_price will be None", slug)
+        else:
+            logger.info("[STRIKE] Binance kline fallback succeeded for %s: $%.6f", slug, price_to_beat)
 
     return {
         "token_ids": token_ids,
