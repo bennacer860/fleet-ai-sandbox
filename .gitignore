@@ -12,3 +12,4 @@ market_events.csv
 # SQLite transient files
 *.db-wal
 *.db-shm
+data/*.log*
