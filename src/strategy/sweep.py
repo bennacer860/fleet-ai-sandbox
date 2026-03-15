@@ -261,22 +261,25 @@ class SweepStrategy(Strategy):
 
         post_expiry = tte is not None and tte < 0
 
-        if (
-            PROXIMITY_FILTER_ENABLED
-            and not post_expiry
-            and not stale
-            and self.last_proximity is not None
-            and self.last_proximity < PROXIMITY_MIN_DISTANCE
-        ):
-            self.last_skip_reason = (
-                f"proximity {self.last_proximity:.4%} < {PROXIMITY_MIN_DISTANCE:.4%}"
-            )
-            logger.info(
-                "[SWEEP] %s: SKIP — %s (spot=$%.4f strike=$%.4f)",
-                slug, self.last_skip_reason,
-                self.last_spot_price, self.last_price_to_beat,
-            )
-            return None
+        if PROXIMITY_FILTER_ENABLED and not post_expiry:
+            if stale:
+                self.last_skip_reason = f"spot price stale ({self.last_price_age_ms:.0f}ms old > {self._STALE_THRESHOLD_MS}ms)"
+                logger.info(
+                    "[SWEEP] %s: SKIP — %s",
+                    slug, self.last_skip_reason,
+                )
+                return None
+                
+            if self.last_proximity is not None and self.last_proximity < PROXIMITY_MIN_DISTANCE:
+                self.last_skip_reason = (
+                    f"proximity {self.last_proximity:.4%} < {PROXIMITY_MIN_DISTANCE:.4%}"
+                )
+                logger.info(
+                    "[SWEEP] %s: SKIP — %s (spot=$%.4f strike=$%.4f)",
+                    slug, self.last_skip_reason,
+                    self.last_spot_price, self.last_price_to_beat,
+                )
+                return None
 
         if post_expiry:
             order_size *= POST_EXPIRY_MULTIPLIER

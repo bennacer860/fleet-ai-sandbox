@@ -462,20 +462,42 @@ class Bot:
                 intents = await strategy.on_tick_size_change(event, self._strategy_ctx)
                 if intents:
                     await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
-                elif self.dashboard:
-                    display_slug = format_slug_with_est_time(event.slug)
+                else:
                     reason = getattr(strategy, "last_skip_reason", None) or "no signal"
-                    price = getattr(strategy, "last_best_price", None)
-                    price_str = f"  price={price:.3f}" if price is not None else ""
-                    watching = getattr(strategy, "last_watching", False)
-                    if watching:
-                        self.dashboard.push_event(
-                            f"👀 [yellow]WATCHING[/yellow]  {display_slug}{price_str}  waiting for bid >= threshold"
+                    
+                    if self.persistence and getattr(strategy, "last_skip_reason", None):
+                        self.persistence.enqueue(
+                            "INSERT INTO decisions (timestamp, strategy, slug, trigger, decision, reason, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                time.time(),
+                                strategy.name(),
+                                event.slug,
+                                "tick_size_change",
+                                "SKIP",
+                                reason,
+                                1 if self.dry_run else 0,
+                            ),
                         )
-                    else:
-                        self.dashboard.push_event(
-                            f"⏭️ [dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason}"
-                        )
+                        
+                    if self.dashboard:
+                        display_slug = format_slug_with_est_time(event.slug)
+                        price = getattr(strategy, "last_best_price", None)
+                        price_str = f"  price={price:.3f}" if price is not None else ""
+                        watching = getattr(strategy, "last_watching", False)
+                        if watching:
+                            self.dashboard.push_event(
+                                f"👀 [yellow]WATCHING[/yellow]  {display_slug}{price_str}  waiting for bid >= threshold"
+                            )
+                        else:
+                            if "stale" in reason.lower():
+                                reason_fmt = f"[bold red]BLOCKED: {reason}[/bold red]"
+                            elif "proximity" in reason.lower():
+                                reason_fmt = f"[bold magenta]BLOCKED: {reason}[/bold magenta]"
+                            else:
+                                reason_fmt = reason
+                            self.dashboard.push_event(
+                                f"⏭️ [dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason_fmt}"
+                            )
             except Exception:
                 logger.exception("Strategy %s error on tick_size_change", strategy.name())
 
