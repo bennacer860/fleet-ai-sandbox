@@ -120,8 +120,10 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print(f"Cannot open database: {e}")
         return 1
 
+    profile_str = f" (Profile {args.profile})" if args.profile is not None else " (Default Profile)"
     print("=" * 50)
-    print("  STRATEGY STATS SUMMARY")
+    print(f"  STRATEGY STATS SUMMARY{profile_str}")
+    print(f"  Database: {db}")
     print("=" * 50)
 
     # Get list of strategies
