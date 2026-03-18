@@ -69,6 +69,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     bot = Bot(
         slugs=initial_slugs,
+        strategy_name=args.strategy,
         dry_run=args.dry_run,
         db_path=args.db_path,
         dashboard_enabled=args.dashboard,
@@ -123,85 +124,93 @@ def cmd_stats(args: argparse.Namespace) -> int:
     print("  STRATEGY STATS SUMMARY")
     print("=" * 50)
 
-    row = conn.execute("SELECT COUNT(*) FROM orders").fetchone()
-    total_orders = row[0] if row else 0
+    # Get list of strategies
+    strategy_rows = conn.execute("SELECT DISTINCT strategy FROM orders UNION SELECT DISTINCT strategy FROM trades").fetchall()
+    strategies = [r[0] for r in strategy_rows if r[0]]
+    if not strategies:
+        strategies = ["sweep"] # fallback if empty
 
-    row = conn.execute(
-        "SELECT COUNT(*) FROM orders WHERE final_status = 'FILLED'"
-    ).fetchone()
-    filled = row[0] if row else 0
+    for strategy in strategies:
+        print(f"\n  === Strategy: {strategy.upper()} ===")
+        row = conn.execute("SELECT COUNT(*) FROM orders WHERE strategy = ?", (strategy,)).fetchone()
+        total_orders = row[0] if row else 0
 
-    row = conn.execute(
-        "SELECT COUNT(*) FROM orders WHERE final_status IN ('REJECTED', 'FAILED')"
-    ).fetchone()
-    rejected = row[0] if row else 0
+        row = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE final_status = 'FILLED' AND strategy = ?", (strategy,)
+        ).fetchone()
+        filled = row[0] if row else 0
 
-    print(f"  Total orders : {total_orders}")
-    print(f"  Filled       : {filled}")
-    print(f"  Rejected     : {rejected}")
-    print(f"  Fill rate    : {filled / total_orders * 100:.1f}%" if total_orders > 0 else "  Fill rate    : N/A")
+        row = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE final_status IN ('REJECTED', 'FAILED') AND strategy = ?", (strategy,)
+        ).fetchone()
+        rejected = row[0] if row else 0
 
-    row = conn.execute(
-        "SELECT COALESCE(SUM(net_pnl), 0) FROM trades"
-    ).fetchone()
-    pnl = row[0] if row else 0
-    print(f"  Total P&L    : ${pnl:.4f}")
+        print(f"  Total orders : {total_orders}")
+        print(f"  Filled       : {filled}")
+        print(f"  Rejected     : {rejected}")
+        print(f"  Fill rate    : {filled / total_orders * 100:.1f}%" if total_orders > 0 else "  Fill rate    : N/A")
 
-    row = conn.execute(
-        "SELECT COUNT(*) FROM trades WHERE net_pnl >= 0"
-    ).fetchone()
-    wins = row[0] if row else 0
-    row = conn.execute("SELECT COUNT(*) FROM trades").fetchone()
-    total_trades = row[0] if row else 0
-    print(f"  Trades       : {total_trades}")
-    print(f"  Win rate     : {wins / total_trades * 100:.1f}%" if total_trades > 0 else "  Win rate     : N/A")
+        row = conn.execute(
+            "SELECT COALESCE(SUM(net_pnl), 0) FROM trades WHERE strategy = ?", (strategy,)
+        ).fetchone()
+        pnl = row[0] if row else 0
+        print(f"  Total P&L    : ${pnl:.4f}")
 
-    # 1. Rejection Breakdown
-    if rejected > 0:
-        print("\n  REJECTION BREAKDOWN")
-        print("  " + "-" * 20)
-        rejection_rows = conn.execute(
-            "SELECT rejection_reason, COUNT(*) as count FROM orders WHERE final_status IN ('REJECTED', 'FAILED') GROUP BY rejection_reason ORDER BY count DESC"
+        row = conn.execute(
+            "SELECT COUNT(*) FROM trades WHERE net_pnl >= 0 AND strategy = ?", (strategy,)
+        ).fetchone()
+        wins = row[0] if row else 0
+        row = conn.execute("SELECT COUNT(*) FROM trades WHERE strategy = ?", (strategy,)).fetchone()
+        total_trades = row[0] if row else 0
+        print(f"  Trades       : {total_trades}")
+        print(f"  Win rate     : {wins / total_trades * 100:.1f}%" if total_trades > 0 else "  Win rate     : N/A")
+
+        # 1. Rejection Breakdown
+        if rejected > 0:
+            print("\n  REJECTION BREAKDOWN")
+            print("  " + "-" * 20)
+            rejection_rows = conn.execute(
+                "SELECT rejection_reason, COUNT(*) as count FROM orders WHERE final_status IN ('REJECTED', 'FAILED') AND strategy = ? GROUP BY rejection_reason ORDER BY count DESC", (strategy,)
+            ).fetchall()
+            for r in rejection_rows:
+                reason = r[0] if r[0] else "Unknown/None"
+                # Truncate and clean up HTML blobs
+                if "<html>" in reason.lower() or "<!doctype" in reason.lower():
+                    reason = "HTML Error Page (e.g. 502 Bad Gateway)"
+                elif len(reason) > 100:
+                    reason = reason[:97] + "..."
+                print(f"    {r[1]:3d}x  {reason}")
+
+        # 2. Timing Analysis (for FILLED orders)
+        timing_row = conn.execute(
+            "SELECT AVG(time_to_expiry_s), MIN(time_to_expiry_s), MAX(time_to_expiry_s), "
+            "AVG(signal_to_rest_ms), AVG(signal_to_fill_ms) "
+            "FROM orders WHERE final_status = 'FILLED' AND strategy = ?", (strategy,)
+        ).fetchone()
+        if timing_row and timing_row[0] is not None:
+            print("\n  TIMING ANALYSIS (Filled Orders)")
+            print("  " + "-" * 32)
+            print(f"    Avg Time to Expiry : {timing_row[0]:.2f}s")
+            print(f"    Min Time to Expiry : {timing_row[1]:.2f}s")
+            print(f"    Max Time to Expiry : {timing_row[2]:.2f}s")
+            if timing_row[3] is not None:
+                print(f"    Avg Placement Lat. : {timing_row[3]:.0f}ms")
+            if timing_row[4] is not None:
+                print(f"    Avg Fill Latency   : {timing_row[4]:.0f}ms")
+
+        # 3. Late Trades (after expiration)
+        late_rows = conn.execute(
+            "SELECT slug, side, price, size, time_to_expiry_s, order_id FROM orders WHERE time_to_expiry_s < 0 AND final_status = 'FILLED' AND strategy = ? ORDER BY time_to_expiry_s ASC", (strategy,)
         ).fetchall()
-        for r in rejection_rows:
-            reason = r[0] if r[0] else "Unknown/None"
-            # Truncate and clean up HTML blobs
-            if "<html>" in reason.lower() or "<!doctype" in reason.lower():
-                reason = "HTML Error Page (e.g. 502 Bad Gateway)"
-            elif len(reason) > 100:
-                reason = reason[:97] + "..."
-            print(f"    {r[1]:3d}x  {reason}")
-
-    # 2. Timing Analysis (for FILLED orders)
-    timing_row = conn.execute(
-        "SELECT AVG(time_to_expiry_s), MIN(time_to_expiry_s), MAX(time_to_expiry_s), "
-        "AVG(signal_to_rest_ms), AVG(signal_to_fill_ms) "
-        "FROM orders WHERE final_status = 'FILLED'"
-    ).fetchone()
-    if timing_row and timing_row[0] is not None:
-        print("\n  TIMING ANALYSIS (Filled Orders)")
-        print("  " + "-" * 32)
-        print(f"    Avg Time to Expiry : {timing_row[0]:.2f}s")
-        print(f"    Min Time to Expiry : {timing_row[1]:.2f}s")
-        print(f"    Max Time to Expiry : {timing_row[2]:.2f}s")
-        if timing_row[3] is not None:
-            print(f"    Avg Placement Lat. : {timing_row[3]:.0f}ms")
-        if timing_row[4] is not None:
-            print(f"    Avg Fill Latency   : {timing_row[4]:.0f}ms")
-
-    # 3. Late Trades (after expiration)
-    late_rows = conn.execute(
-        "SELECT slug, side, price, size, time_to_expiry_s, order_id FROM orders WHERE time_to_expiry_s < 0 AND final_status = 'FILLED' ORDER BY time_to_expiry_s ASC"
-    ).fetchall()
-    if late_rows:
-        from src.utils.timestamps import format_slug_with_est_time
-        print(f"\n  LATE TRADES ({len(late_rows)} filled after Expiry)")
-        print("  " + "-" * 60)
-        for r in late_rows:
-            raw_slug = r[0]
-            display_slug = format_slug_with_est_time(raw_slug)
-            seconds_late = abs(r[4])
-            print(f"    {display_slug:<45s}  {r[1]} {r[2]:.4f} x {r[3]:<6.1f}  {seconds_late:.1f}s LATE")
+        if late_rows:
+            from src.utils.timestamps import format_slug_with_est_time
+            print(f"\n  LATE TRADES ({len(late_rows)} filled after Expiry)")
+            print("  " + "-" * 60)
+            for r in late_rows:
+                raw_slug = r[0]
+                display_slug = format_slug_with_est_time(raw_slug)
+                seconds_late = abs(r[4])
+                print(f"    {display_slug:<45s}  {r[1]} {r[2]:.4f} x {r[3]:<6.1f}  {seconds_late:.1f}s LATE")
 
     print("\n  Recent decisions (last 10):")
     rows = conn.execute(
@@ -236,6 +245,10 @@ def main() -> int:
 
     # ── run ────────────────────────────────────────────────────────────────
     run_parser = sub.add_parser("run", help="Start the trading bot")
+    run_parser.add_argument(
+        "--strategy", type=str, default="sweep", choices=["sweep", "post_expiry"],
+        help="Trading strategy to use (default: sweep)",
+    )
     run_parser.add_argument(
         "--profile", type=int, default=None,
         help="Profile number to use (overrides .env defaults with P1_, P2_ etc.)",

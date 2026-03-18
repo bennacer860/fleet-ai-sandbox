@@ -53,6 +53,7 @@ from .markets.fifteen_min import (
 from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
+from .strategy.post_expiry import PostExpirySweepStrategy
 from .utils.slug_helpers import slugs_for_timestamp
 from .utils.telegram_notifier import TelegramNotifier
 from .config import (
@@ -92,6 +93,7 @@ class Bot:
         self,
         slugs: list[str],
         strategies: list[Strategy] | None = None,
+        strategy_name: str = "sweep",
         dry_run: bool | None = None,
         db_path: str | None = None,
         dashboard_enabled: bool = False,
@@ -175,13 +177,23 @@ class Bot:
         crypto_assets = list(set(self._market_selections)) or None
         self.crypto_ws = CryptoWebSocket(assets=crypto_assets)
 
-        self.strategies: list[Strategy] = strategies or [
-            SweepStrategy(
-                price_threshold=price_threshold,
-                early_tick_threshold=early_tick_threshold,
-                hot_tokens=self._hot_tokens,
-            )
-        ]
+        if strategies:
+            self.strategies = strategies
+        else:
+            if strategy_name == "post_expiry":
+                self.strategies = [
+                    PostExpirySweepStrategy(
+                        hot_tokens=self._hot_tokens,
+                    )
+                ]
+            else:
+                self.strategies = [
+                    SweepStrategy(
+                        price_threshold=price_threshold,
+                        early_tick_threshold=early_tick_threshold,
+                        hot_tokens=self._hot_tokens,
+                    )
+                ]
 
         self.health_monitor = HealthMonitor(
             heartbeat_path=HEALTH_FILE_PATH,
