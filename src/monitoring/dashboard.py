@@ -60,6 +60,7 @@ class Dashboard:
         claim_min_value: float | None = None,
         auto_claimer: AutoClaimer | None = None,
         eval_cache: dict[str, dict] | None = None,
+        strategy_name: str = "sweep",
     ) -> None:
         self._market_ws = market_ws
         self._user_ws = user_ws
@@ -73,6 +74,7 @@ class Dashboard:
         self._claim_min_value = claim_min_value
         self._auto_claimer = auto_claimer
         self._eval_cache = eval_cache if eval_cache is not None else {}
+        self._strategy_name = strategy_name
         self._recent_events: deque[str] = deque(maxlen=MAX_EVENTS)
         self._exchange_latencies: deque[float] = deque(maxlen=100)
         self._tick_latencies: deque[float] = deque(maxlen=100)
@@ -117,8 +119,9 @@ class Dashboard:
         h, m = divmod(uptime // 60, 60)
         tag = "  [DRY-RUN]" if self._dry_run else ""
         profile_tag = f"  Profile {self._profile}" if self._profile else ""
+        strategy_tag = f"  Strategy: {self._strategy_name.upper()}"
         return Text(
-            f"  POLYMARKET HFT BOT v1{profile_tag}          Uptime: {h}h {m:02d}m{tag}",
+            f"  POLYMARKET HFT BOT v1{profile_tag}{strategy_tag}          Uptime: {h}h {m:02d}m{tag}",
             style="bold white on blue",
         )
 

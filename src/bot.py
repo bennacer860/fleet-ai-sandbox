@@ -219,6 +219,7 @@ class Bot:
                 claim_min_value=claim_min_value,
                 auto_claimer=None,  # set after auto_claimer is created below
                 eval_cache=self._eval_cache,
+                strategy_name=strategy_name,
             )
 
         self.telegram = TelegramNotifier(
