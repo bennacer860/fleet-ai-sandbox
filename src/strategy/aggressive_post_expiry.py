@@ -25,7 +25,6 @@ from ..config import (
     AGGRESSIVE_MAX_RETRIES,
     AGGRESSIVE_PHASE1_PRICE,
     AGGRESSIVE_PHASE2_PRICE,
-    AGGRESSIVE_MIN_BEST_PRICE,
     AGGRESSIVE_POLL_INTERVAL_S,
     DEFAULT_TRADE_SIZE,
     POST_EXPIRY_MULTIPLIER,
@@ -184,12 +183,6 @@ class AggressivePostExpirySweepStrategy(Strategy):
         best_token = eval_data.get("best_token_id")
         best_outcome = eval_data.get("best_outcome", "?")
         self.last_best_price = best_price
-
-        if best_price < AGGRESSIVE_MIN_BEST_PRICE:
-            self.last_skip_reason = (
-                f"best price {best_price:.3f} < {AGGRESSIVE_MIN_BEST_PRICE:.2f} (no clear winner)"
-            )
-            return None
 
         if not best_token:
             self.last_skip_reason = "no best token identified"

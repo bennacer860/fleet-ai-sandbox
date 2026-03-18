@@ -106,13 +106,14 @@ class SweepStrategy(Strategy):
             return None
 
         result = self._build_order(event.slug, eval_data, ctx)
-        if result is None and self._too_early:
-            eval_data["tte_early"] = True
+        if result is None:
+            if self._too_early:
+                eval_data["tte_early"] = True
             self._start_watching(event.slug, eval_data)
             self.last_watching = True
             logger.info(
-                "[SWEEP] %s: TTE too early, price %.3f >= threshold — watching with stricter threshold %.3f",
-                event.slug, best_price, self._early_tick_threshold,
+                "[SWEEP] %s: order blocked (%s), price %.3f — watching for retry",
+                event.slug, self.last_skip_reason, best_price,
             )
             return None
         return result

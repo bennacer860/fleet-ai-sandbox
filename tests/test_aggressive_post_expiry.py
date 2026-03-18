@@ -230,10 +230,10 @@ def test_market_resolved_cleanup(ctx, strategy):
     assert slug not in strategy._markets
 
 
-# ── Low best price skips ─────────────────────────────────────────────
+# ── Low best price still places order (no proximity/distance filter) ──
 
 
-def test_low_best_price_skips(ctx, strategy):
+def test_low_best_price_still_orders(ctx, strategy):
     slug = "btc-updown-15m-1773541800"
     ctx.eval_cache[slug]["best_price"] = 0.5
     ctx.eval_cache[slug]["prices"] = [0.5, 0.5]
@@ -248,8 +248,10 @@ def test_low_best_price_skips(ctx, strategy):
         )
         intents = asyncio.run(strategy.on_tick_size_change(event, ctx))
 
-    assert intents is None
-    assert "no clear winner" in (strategy.last_skip_reason or "")
+    assert intents is not None
+    assert len(intents) == 1
+    assert intents[0].side == Side.BUY
+    assert intents[0].skip_dedup is True
 
 
 # ── Book update after expiry triggers order ──────────────────────────
