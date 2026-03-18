@@ -63,6 +63,14 @@ class Strategy(ABC):
     ) -> None:
         """Called when a market resolves.  Default is a no-op."""
 
+    async def poll(self, ctx: StrategyContext) -> list[OrderIntent] | None:
+        """Called periodically by the bot's poll loop.
+
+        Strategies that need to act on a timer (not just react to events)
+        should override this.  Default is a no-op.
+        """
+        return None
+
     async def startup(self) -> None:
         """Called once during bot startup.  Override for initialisation."""
 

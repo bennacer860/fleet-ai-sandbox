@@ -87,3 +87,10 @@ TELEGRAM_ENABLED = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID and TELEGRAM_NOT
 # Proximity filter (Binance WS spot price vs. Polymarket strike price)
 PROXIMITY_FILTER_ENABLED = os.getenv("PROXIMITY_FILTER_ENABLED", "false").lower() in ("true", "1", "yes")
 PROXIMITY_MIN_DISTANCE = float(os.getenv("PROXIMITY_MIN_DISTANCE", "0.0005"))
+
+# Aggressive post-expiry strategy
+AGGRESSIVE_POLL_INTERVAL_S = float(os.getenv("AGGRESSIVE_POLL_INTERVAL_S", "0.3"))
+AGGRESSIVE_MAX_RETRIES = int(os.getenv("AGGRESSIVE_MAX_RETRIES", "10"))
+AGGRESSIVE_PHASE1_PRICE = float(os.getenv("AGGRESSIVE_PHASE1_PRICE", "0.99"))
+AGGRESSIVE_PHASE2_PRICE = float(os.getenv("AGGRESSIVE_PHASE2_PRICE", "0.999"))
+AGGRESSIVE_MIN_BEST_PRICE = float(os.getenv("AGGRESSIVE_MIN_BEST_PRICE", "0.85"))

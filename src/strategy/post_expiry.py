@@ -119,9 +119,11 @@ class PostExpirySweepStrategy(Strategy):
             self.last_skip_reason = "cannot determine expiration time"
             return None
 
+        # Add a small buffer (e.g., 0.5 seconds) to ensure we are truly past expiry
+        # before the exchange considers the market closed/resolved.
         tte = end_ts - time.time()
-        if tte >= 0:
-            self.last_skip_reason = f"waiting for expiration (TTE: {tte:.1f}s)"
+        if tte >= -0.5:
+            self.last_skip_reason = f"waiting for expiration + buffer (TTE: {tte:.1f}s)"
             return None
 
         # Expiration passed! Buy the most expensive token.
@@ -130,8 +132,15 @@ class PostExpirySweepStrategy(Strategy):
         best_outcome = eval_data["best_outcome"]
         self.last_best_price = best_price
 
+        # Check if the price is above a certain threshold to ensure it's a clear winner
+        if best_price < 0.90:
+            self.last_skip_reason = f"best price {best_price:.3f} < 0.90 (no clear winner)"
+            return None
+
+        # Increase order size to maximize fill probability and profit post-expiry
+        from ..config import POST_EXPIRY_MULTIPLIER
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
-        order_size = max(DEFAULT_TRADE_SIZE, min_size)
+        order_size = max(DEFAULT_TRADE_SIZE, min_size) * POST_EXPIRY_MULTIPLIER
 
         logger.info(
             "[POST_EXPIRY] Expiration passed for %s. Winning outcome: %s @ %.3f → BUY %.4f x %.2f",

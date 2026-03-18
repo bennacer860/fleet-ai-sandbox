@@ -248,7 +248,7 @@ def main() -> int:
     # ── run ────────────────────────────────────────────────────────────────
     run_parser = sub.add_parser("run", help="Start the trading bot")
     run_parser.add_argument(
-        "--strategy", type=str, default="sweep", choices=["sweep", "post_expiry"],
+        "--strategy", type=str, default="sweep", choices=["sweep", "post_expiry", "aggressive_post_expiry"],
         help="Trading strategy to use (default: sweep)",
     )
     run_parser.add_argument(

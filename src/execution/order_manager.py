@@ -86,7 +86,7 @@ class OrderManager:
         """Full pipeline: dedup -> risk -> submit -> track."""
         signal_ns = time.time_ns()
 
-        if self._is_duplicate(intent):
+        if not intent.skip_dedup and self._is_duplicate(intent):
             self._stats["dedup_skips"] += 1
             logger.info("[ORDER] Dedup skip: %s/%s", intent.slug, intent.token_id[:16])
             self._log_decision(intent, "SKIP", "DEDUP: already ordered")

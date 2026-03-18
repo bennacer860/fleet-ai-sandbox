@@ -54,6 +54,7 @@ from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
 from .strategy.post_expiry import PostExpirySweepStrategy
+from .strategy.aggressive_post_expiry import AggressivePostExpirySweepStrategy
 from .utils.slug_helpers import slugs_for_timestamp
 from .utils.telegram_notifier import TelegramNotifier
 from .config import (
@@ -183,6 +184,12 @@ class Bot:
             if strategy_name == "post_expiry":
                 self.strategies = [
                     PostExpirySweepStrategy(
+                        hot_tokens=self._hot_tokens,
+                    )
+                ]
+            elif strategy_name == "aggressive_post_expiry":
+                self.strategies = [
+                    AggressivePostExpirySweepStrategy(
                         hot_tokens=self._hot_tokens,
                     )
                 ]
@@ -456,6 +463,8 @@ class Bot:
         bus.subscribe(OrderTerminal, self._dashboard_on_terminal)
 
         bus.subscribe(OrderFill, self.position_tracker.on_fill)
+        bus.subscribe(OrderFill, self._on_order_fill_notify_strategy)
+        bus.subscribe(OrderTerminal, self._on_order_terminal_notify_strategy)
         # NOTE: PositionTracker no longer subscribes to BookUpdate events.
         # best_prices are synced periodically from market_ws.best_prices
         # in _metrics_loop, avoiding the event bus overhead for every
@@ -648,7 +657,55 @@ class Bot:
                     spot_price=state.spot_price,
                 )
 
+            # Notify aggressive strategy of order result so it can retry
+            if strategy is not None and hasattr(strategy, "notify_order_result"):
+                if state is None or state.is_terminal:
+                    strategy.notify_order_result(intent.slug, filled=False)
+                elif state.status == OrderStatus.FILLED:
+                    strategy.notify_order_result(intent.slug, filled=True)
+                else:
+                    # Submitted/live — keep has_live_order=True until terminal
+                    pass
+
+    # ── Strategy poll loop ────────────────────────────────────────────────
+
+    async def _strategy_poll_loop(self) -> None:
+        """Periodically call poll() on all strategies for timer-driven logic."""
+        from .config import AGGRESSIVE_POLL_INTERVAL_S
+        while True:
+            await asyncio.sleep(AGGRESSIVE_POLL_INTERVAL_S)
+            self._update_context()
+            for strategy in self.strategies:
+                try:
+                    intents = await strategy.poll(self._strategy_ctx)
+                    if intents:
+                        await self._submit_intents(intents, None, strategy=strategy)
+                except Exception:
+                    logger.exception("Strategy %s error on poll", strategy.name())
+
     # ── Dashboard order lifecycle events ────────────────────────────────────
+
+    async def _on_order_fill_notify_strategy(self, event: OrderFill) -> None:
+        """Notify strategies when an order fills so they can stop retrying."""
+        state = self.order_manager.active_orders.get(event.order_id)
+        if not state:
+            return
+        slug = state.intent.slug
+        is_filled = state.status == OrderStatus.FILLED
+        for strategy in self.strategies:
+            if hasattr(strategy, "notify_order_result"):
+                strategy.notify_order_result(slug, filled=is_filled)
+
+    async def _on_order_terminal_notify_strategy(self, event: OrderTerminal) -> None:
+        """Notify strategies when an order terminates so they can retry."""
+        state = self.order_manager.active_orders.get(event.order_id)
+        if not state:
+            return
+        slug = state.intent.slug
+        is_filled = state.status == OrderStatus.FILLED
+        for strategy in self.strategies:
+            if hasattr(strategy, "notify_order_result"):
+                strategy.notify_order_result(slug, filled=is_filled)
 
     async def _dashboard_on_fill(self, event: OrderFill) -> None:
         if not self.dashboard:
@@ -952,6 +1009,7 @@ class Bot:
             asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),
             asyncio.create_task(self._supervised_task("stale_reaper", self.order_manager.reap_stale_orders)),
             asyncio.create_task(self._supervised_task("sub_manager", self._manage_subscriptions)),
+            asyncio.create_task(self._supervised_task("strategy_poll", self._strategy_poll_loop)),
         ]
 
         if not self.dry_run:

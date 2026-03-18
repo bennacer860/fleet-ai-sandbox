@@ -54,7 +54,7 @@ def test_tick_size_change_before_expiry(base_ctx, post_expiry_strategy):
 def test_tick_size_change_after_expiry(base_ctx, post_expiry_strategy):
     slug = "btc-updown-15m-1773541800"
     
-    # Expiry is in the past
+    # Expiry is in the past (more than 0.5s buffer)
     with patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10):
         event = TickSizeChange(
             condition_id="cond1",
@@ -93,7 +93,7 @@ def test_book_update_after_expiry(base_ctx, post_expiry_strategy):
         asyncio.run(post_expiry_strategy.on_tick_size_change(tick_event, base_ctx))
         assert slug in post_expiry_strategy._watching
 
-    # Now simulate a book update after expiry
+    # Now simulate a book update after expiry (more than 0.5s buffer)
     with patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10):
         book_event = BookUpdate(
             token_id="token_no",

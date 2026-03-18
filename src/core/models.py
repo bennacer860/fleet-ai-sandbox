@@ -35,6 +35,7 @@ class OrderIntent:
     strategy: str
     slug: str
     tick_size: float | None = None
+    skip_dedup: bool = False
 
 
 # ── Order lifecycle state ─────────────────────────────────────────────────────
