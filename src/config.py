@@ -15,6 +15,18 @@ if active_profile:
             base_key = key[len(prefix):]
             os.environ[base_key] = value
 
+    # Auto-namespace file paths so parallel profiles never collide.
+    # Skipped if the user already set an explicit P{N}_ override for that path.
+    _ptag = f"_p{active_profile}"
+    for _key, _default, _ext in [
+        ("DB_PATH", "data/bot.db", ".db"),
+        ("LOG_FILE", "data/bot.log", ".log"),
+        ("HEALTH_FILE_PATH", "/tmp/polymarket_bot_heartbeat.json", ".json"),
+    ]:
+        if f"{prefix}{_key}" not in os.environ:
+            _val = os.environ.get(_key, _default)
+            os.environ[_key] = _val.replace(_ext, f"{_ptag}{_ext}")
+
 # Wallet / CLOB
 PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
 FUNDER = os.getenv("FUNDER", "")
@@ -71,3 +83,14 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_NOTIFICATIONS_ENABLED = os.getenv("TELEGRAM_NOTIFICATIONS_ENABLED", "true").lower() in ("true", "1", "yes")
 TELEGRAM_ENABLED = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID and TELEGRAM_NOTIFICATIONS_ENABLED)
+
+# Proximity filter (Binance WS spot price vs. Polymarket strike price)
+PROXIMITY_FILTER_ENABLED = os.getenv("PROXIMITY_FILTER_ENABLED", "false").lower() in ("true", "1", "yes")
+PROXIMITY_MIN_DISTANCE = float(os.getenv("PROXIMITY_MIN_DISTANCE", "0.0005"))
+
+# Aggressive post-expiry strategy
+AGGRESSIVE_POLL_INTERVAL_S = float(os.getenv("AGGRESSIVE_POLL_INTERVAL_S", "0.3"))
+AGGRESSIVE_MAX_RETRIES = int(os.getenv("AGGRESSIVE_MAX_RETRIES", "10"))
+AGGRESSIVE_PHASE1_PRICE = float(os.getenv("AGGRESSIVE_PHASE1_PRICE", "0.99"))
+AGGRESSIVE_PHASE2_PRICE = float(os.getenv("AGGRESSIVE_PHASE2_PRICE", "0.999"))
+AGGRESSIVE_MIN_BEST_PRICE = float(os.getenv("AGGRESSIVE_MIN_BEST_PRICE", "0.85"))

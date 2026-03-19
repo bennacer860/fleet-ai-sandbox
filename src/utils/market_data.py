@@ -7,6 +7,8 @@ back-tests, and ad-hoc scripts.
 
 from typing import Any, Optional
 
+import requests
+
 from ..clob_client import create_clob_client
 from ..gamma_client import (
     fetch_event_by_slug,
@@ -15,11 +17,85 @@ from ..gamma_client import (
     get_outcome_prices,
 )
 from ..logging_config import get_logger
+from ..markets.fifteen_min import extract_market_from_slug
 
 logger = get_logger(__name__)
 
 # Fallback when the order book is unavailable
 FALLBACK_MIN_ORDER_SIZE: float = 5.0
+
+_BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+
+_ASSET_TO_SYMBOL: dict[str, str] = {
+    "BTC": "BTCUSDT",
+    "ETH": "ETHUSDT",
+    "SOL": "SOLUSDT",
+    "XRP": "XRPUSDT",
+}
+
+
+def fetch_strike_price(slug: str, timeout: float = 5.0) -> float | None:
+    """Fetch the crypto spot price at the market's start time from Binance klines.
+
+    The slug encodes the start timestamp (e.g. ``xrp-updown-15m-1773304200``).
+    We fetch the 1-minute candle that contains that timestamp and return
+    the open price, which is the effective strike price for the market.
+    """
+    asset = extract_market_from_slug(slug)
+    if not asset:
+        logger.warning("[STRIKE] Could not extract asset from slug: %s", slug)
+        return None
+
+    symbol = _ASSET_TO_SYMBOL.get(asset)
+    if not symbol:
+        logger.warning("[STRIKE] No Binance symbol mapping for asset %r (slug: %s)", asset, slug)
+        return None
+
+    parts = slug.rsplit("-", 1)
+    if len(parts) != 2:
+        logger.warning("[STRIKE] Cannot parse timestamp from slug (no '-' split): %s", slug)
+        return None
+    try:
+        start_ts = int(parts[1])
+    except ValueError:
+        logger.warning("[STRIKE] Non-integer timestamp in slug: %s (got %r)", slug, parts[1])
+        return None
+
+    start_ms = start_ts * 1000
+
+    try:
+        resp = requests.get(
+            _BINANCE_KLINES,
+            params={
+                "symbol": symbol,
+                "interval": "1m",
+                "startTime": start_ms,
+                "limit": 1,
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        klines = resp.json()
+        if klines and len(klines) > 0:
+            open_price = float(klines[0][1])
+            logger.debug("[STRIKE] %s start=%d → %s open=$%.6f", slug, start_ts, symbol, open_price)
+            return open_price
+        logger.warning(
+            "[STRIKE] Binance returned empty klines for %s (symbol=%s, startTime=%d)",
+            slug, symbol, start_ms,
+        )
+    except requests.exceptions.Timeout:
+        logger.warning("[STRIKE] Binance kline request timed out after %.1fs for %s (symbol=%s)", timeout, slug, symbol)
+    except requests.exceptions.HTTPError as exc:
+        logger.warning(
+            "[STRIKE] Binance kline HTTP %s for %s (symbol=%s, startTime=%d): %s",
+            exc.response.status_code if exc.response is not None else "?",
+            slug, symbol, start_ms, exc,
+        )
+    except Exception:
+        logger.warning("[STRIKE] Unexpected error fetching kline for %s (symbol=%s)", slug, symbol, exc_info=True)
+
+    return None
 
 
 # ── Market evaluation ────────────────────────────────────────────────────────
@@ -60,7 +136,29 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
 
     best_outcome = outcomes[best_idx] if best_idx < len(outcomes) else "?"
     best_token_id = token_ids[best_idx]
-    
+
+    # priceToBeat lives in eventMetadata — check both the market object
+    # and the top-level event, since the Gamma API nests it differently
+    # depending on the endpoint (/events/slug/ vs /markets/).
+    price_to_beat = None
+    for obj in (market, event):
+        metadata = obj.get("eventMetadata") or {}
+        raw = metadata.get("priceToBeat")
+        if raw is not None:
+            try:
+                price_to_beat = float(raw)
+                break
+            except (ValueError, TypeError):
+                pass
+
+    if price_to_beat is None:
+        logger.warning("[STRIKE] priceToBeat not in Gamma response for %s, falling back to Binance kline", slug)
+        price_to_beat = fetch_strike_price(slug)
+        if price_to_beat is None:
+            logger.warning("[STRIKE] Both Gamma priceToBeat and Binance kline failed for %s — strike_price will be None", slug)
+        else:
+            logger.info("[STRIKE] Binance kline fallback succeeded for %s: $%.6f", slug, price_to_beat)
+
     return {
         "token_ids": token_ids,
         "prices": prices,
@@ -69,6 +167,7 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
         "best_price": best_price,
         "best_outcome": best_outcome,
         "best_token_id": best_token_id,
+        "price_to_beat": price_to_beat,
         "raw_prices_compact": "|".join([f"{o}:{p:.3f}" for o, p in zip(outcomes, prices)])
     }
 

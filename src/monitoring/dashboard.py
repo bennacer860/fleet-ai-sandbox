@@ -23,13 +23,17 @@ from ..logging_config import get_logger
 from ..utils.timestamps import format_slug_with_est_time
 from .metrics import Metrics
 from ..utils.telegram_notifier import TelegramNotifier
-from ..config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ENABLED
+from ..config import (
+    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ENABLED,
+    PROXIMITY_FILTER_ENABLED, PROXIMITY_MIN_DISTANCE,
+)
 
 if TYPE_CHECKING:
     from ..execution.auto_claimer import AutoClaimer
     from ..execution.order_manager import OrderManager
     from ..execution.position_tracker import PositionTracker
     from ..execution.risk_manager import RiskManager
+    from ..gateway.crypto_ws import CryptoWebSocket
     from ..gateway.market_ws import MarketWebSocket
     from ..gateway.user_ws import UserWebSocket
 
@@ -46,6 +50,7 @@ class Dashboard:
         self,
         market_ws: MarketWebSocket | None = None,
         user_ws: UserWebSocket | None = None,
+        crypto_ws: CryptoWebSocket | None = None,
         order_manager: OrderManager | None = None,
         position_tracker: PositionTracker | None = None,
         risk_manager: RiskManager | None = None,
@@ -54,9 +59,12 @@ class Dashboard:
         funder: str = "",
         claim_min_value: float | None = None,
         auto_claimer: AutoClaimer | None = None,
+        eval_cache: dict[str, dict] | None = None,
+        strategy_name: str = "sweep",
     ) -> None:
         self._market_ws = market_ws
         self._user_ws = user_ws
+        self._crypto_ws = crypto_ws
         self._order_mgr = order_manager
         self._pos_tracker = position_tracker
         self._risk_mgr = risk_manager
@@ -65,6 +73,8 @@ class Dashboard:
         self._funder = funder
         self._claim_min_value = claim_min_value
         self._auto_claimer = auto_claimer
+        self._eval_cache = eval_cache if eval_cache is not None else {}
+        self._strategy_name = strategy_name
         self._recent_events: deque[str] = deque(maxlen=MAX_EVENTS)
         self._exchange_latencies: deque[float] = deque(maxlen=100)
         self._tick_latencies: deque[float] = deque(maxlen=100)
@@ -109,15 +119,25 @@ class Dashboard:
         h, m = divmod(uptime // 60, 60)
         tag = "  [DRY-RUN]" if self._dry_run else ""
         profile_tag = f"  Profile {self._profile}" if self._profile else ""
+        strategy_tag = f"  Strategy: {self._strategy_name.upper()}"
         return Text(
-            f"  POLYMARKET HFT BOT v1{profile_tag}          Uptime: {h}h {m:02d}m{tag}",
+            f"  POLYMARKET HFT BOT v1{profile_tag}{strategy_tag}          Uptime: {h}h {m:02d}m{tag}",
             style="bold white on blue",
         )
+
+    @staticmethod
+    def _fmt_strike(price: float) -> str:
+        if price >= 100:
+            return f"${price:,.2f}"
+        elif price >= 1:
+            return f"${price:.4f}"
+        return f"${price:.6f}"
 
     def _markets_panel(self) -> Panel:
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Market", min_width=12)
         table.add_column("Prices", min_width=20)
+        table.add_column("Strike", width=12, justify="right")
         table.add_column("", width=3)
 
         if self._market_ws:
@@ -132,7 +152,12 @@ class Dashboard:
                     parts.append(f"{outcome}:{price:.2f}")
                 price_str = "  ".join(parts)
                 display = self._format_slug(slug)
-                table.add_row(display, price_str, "[green]OK[/green]")
+
+                eval_data = self._eval_cache.get(slug, {})
+                ptb = eval_data.get("price_to_beat")
+                strike_str = self._fmt_strike(ptb) if ptb is not None else "[dim]--[/dim]"
+
+                table.add_row(display, price_str, strike_str, "[green]OK[/green]")
             count = len(active)
         else:
             count = 0
@@ -225,22 +250,65 @@ class Dashboard:
         else:
             lines.append("AutoClaim: [dim]OFF[/dim]")
 
-        ws_market = "Connected" if (self._market_ws and self._market_ws.connected) else "Disconnected"
+        if self._market_ws and self._market_ws.connected:
+            ws_market = "[green]Connected[/green]"
+        elif self._market_ws:
+            ws_market = "[red]Disconnected[/red]"
+        else:
+            ws_market = "Disconnected"
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
+        market_reconnects = self._market_ws.reconnect_count if self._market_ws else 0
         msg_age = f"{self._market_ws.last_message_age_s:.0f}s ago" if self._market_ws and self._market_ws.last_message_age_s >= 0 else "N/A"
 
         if self._user_ws:
+            user_reconnects = self._user_ws.reconnect_count
+            user_age = self._user_ws.last_message_age_s
+            user_age_str = f"Last msg: {user_age:.0f}s ago" if user_age >= 0 else "Last msg: N/A"
             if self._dry_run:
                 ws_user = "[yellow]Skipped (dry-run)[/yellow]"
             elif self._user_ws.connected:
-                ws_user = f"[green]Connected[/green]  (reconnects: {self._user_ws.reconnect_count})"
+                ws_user = f"[green]Connected[/green]  (reconnects: {user_reconnects})   {user_age_str}"
             else:
-                ws_user = f"[red]Disconnected[/red]  (reconnects: {self._user_ws.reconnect_count})"
+                ws_user = f"[red]Disconnected[/red]  (reconnects: {user_reconnects})   {user_age_str}"
         else:
             ws_user = "[dim]N/A[/dim]"
 
-        lines.append(f"WS Market: {ws_market} ({token_count} tokens)   Last msg: {msg_age}")
+        if self._crypto_ws:
+            if self._crypto_ws.connected:
+                crypto_age = self._crypto_ws.last_message_age_s
+                age_str = f"{crypto_age:.0f}s ago" if crypto_age >= 0 else "N/A"
+                n_prices = len(self._crypto_ws.latest_prices)
+                def _fmt(p: float) -> str:
+                    if p >= 100:
+                        return f"${p:,.2f}"
+                    elif p >= 1:
+                        return f"${p:.4f}"
+                    return f"${p:.6f}"
+
+                prices_str = "  ".join(
+                    f"{asset}={_fmt(price)}"
+                    for asset, price in sorted(self._crypto_ws.latest_prices.items())
+                )
+                crypto_reconnects = self._crypto_ws.reconnect_count if self._crypto_ws else 0
+                ws_crypto = f"[green]Connected[/green]  ({n_prices} assets)  (reconnects: {crypto_reconnects})   Last msg: {age_str}"
+                ws_crypto_prices = prices_str
+            else:
+                crypto_reconnects = self._crypto_ws.reconnect_count if self._crypto_ws else 0
+                ws_crypto = f"[red]Disconnected[/red]  (reconnects: {crypto_reconnects})"
+                ws_crypto_prices = ""
+        else:
+            ws_crypto = "[dim]N/A[/dim]"
+            ws_crypto_prices = ""
+
+        lines.append(f"WS Market: {ws_market} ({token_count} tokens)  (reconnects: {market_reconnects})   Last msg: {msg_age}")
         lines.append(f"WS User:   {ws_user}")
+        lines.append(f"WS Crypto: {ws_crypto}")
+        if ws_crypto_prices:
+            lines.append(f"  Spot:    {ws_crypto_prices}")
+        if PROXIMITY_FILTER_ENABLED:
+            lines.append(f"Proximity:  [green]ON[/green]  (threshold: {PROXIMITY_MIN_DISTANCE:.4%})")
+        else:
+            lines.append("Proximity:  [yellow]OFF[/yellow]")
         lines.append(f"Event Loop Lag: {metrics.get_gauge('event_loop_lag_ms'):.1f}ms")
         lines.append(f"SQLite Queue: {metrics.get_gauge('persistence_pending'):.0f} pending")
 
@@ -320,7 +388,7 @@ class Dashboard:
         )
         layout["positions"].update(self._positions_panel())
         layout["bottom"].split_column(
-            Layout(self._system_panel(), name="system", size=9),
+            Layout(self._system_panel(), name="system", size=12),
             Layout(self._events_panel(), name="events"),
         )
         return layout

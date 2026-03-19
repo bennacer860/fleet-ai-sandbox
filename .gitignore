@@ -8,3 +8,8 @@ bids_*.csv
 bid_analysis_*.png
 test_fifteen_min.py
 market_events.csv
+
+# SQLite transient files
+*.db-wal
+*.db-shm
+data/*.log*

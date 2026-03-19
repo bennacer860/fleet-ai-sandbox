@@ -15,8 +15,18 @@ import time
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
-from ..markets.fifteen_min import detect_duration_from_slug, extract_market_end_ts
-from ..config import DEFAULT_TRADE_SIZE, POST_EXPIRY_MULTIPLIER
+from ..markets.fifteen_min import (
+    detect_duration_from_slug,
+    extract_market_end_ts,
+    extract_market_from_slug,
+)
+from ..utils.market_data import fetch_strike_price
+from ..config import (
+    DEFAULT_TRADE_SIZE,
+    POST_EXPIRY_MULTIPLIER,
+    PROXIMITY_FILTER_ENABLED,
+    PROXIMITY_MIN_DISTANCE,
+)
 from .base import Strategy, StrategyContext
 
 logger = get_logger(__name__)
@@ -45,6 +55,10 @@ class SweepStrategy(Strategy):
         self.last_best_price: float | None = None
         self.last_watching: bool = False
         self._too_early: bool = False
+        self.last_spot_price: float | None = None
+        self.last_price_to_beat: float | None = None
+        self.last_proximity: float | None = None
+        self.last_price_age_ms: float | None = None
         self._watching: dict[str, dict] = {}
         # Shared set with MarketWebSocket — tokens in this set get full
         # BookUpdate events published; all others are filtered early.
@@ -91,14 +105,15 @@ class SweepStrategy(Strategy):
             )
             return None
 
-        result = self._build_order(event.slug, eval_data)
-        if result is None and self._too_early:
-            eval_data["tte_early"] = True
+        result = self._build_order(event.slug, eval_data, ctx)
+        if result is None:
+            if self._too_early:
+                eval_data["tte_early"] = True
             self._start_watching(event.slug, eval_data)
             self.last_watching = True
             logger.info(
-                "[SWEEP] %s: TTE too early, price %.3f >= threshold — watching with stricter threshold %.3f",
-                event.slug, best_price, self._early_tick_threshold,
+                "[SWEEP] %s: order blocked (%s), price %.3f — watching for retry",
+                event.slug, self.last_skip_reason, best_price,
             )
             return None
         return result
@@ -138,7 +153,7 @@ class SweepStrategy(Strategy):
             "best_token_id": tids[best_idx],
         })
 
-        result = self._build_order(event.slug, eval_data)
+        result = self._build_order(event.slug, eval_data, ctx)
         if result is not None:
             self._stop_watching(event.slug)
             logger.info(
@@ -177,14 +192,22 @@ class SweepStrategy(Strategy):
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
-    def _build_order(self, slug: str, eval_data: dict) -> list[OrderIntent] | None:
-        """Apply TTE gate, post-expiry doubling, and build the OrderIntent."""
+    _STALE_THRESHOLD_MS = 10_000
+
+    def _build_order(
+        self, slug: str, eval_data: dict, ctx: StrategyContext | None = None,
+    ) -> list[OrderIntent] | None:
+        """Apply TTE gate, proximity calc, post-expiry doubling, and build the OrderIntent."""
         self._too_early = False
+        self.last_spot_price = None
+        self.last_price_to_beat = None
+        self.last_proximity = None
+        self.last_price_age_ms = None
+
         best_price = eval_data["best_price"]
         best_token = eval_data["best_token_id"]
         best_outcome = eval_data["best_outcome"]
         
-        # Use DEFAULT_TRADE_SIZE as the primary base, falling back to CLOB min_size
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
         order_size = max(DEFAULT_TRADE_SIZE, min_size)
 
@@ -202,7 +225,64 @@ class SweepStrategy(Strategy):
                 self.last_skip_reason = f"TTE {tte:.1f}s > {window_s:.0f}s window (last 1/10th)"
                 return None
 
-        if tte is not None and tte < 0:
+        # ── Proximity calculation (always runs) ──────────────────────────
+        asset = extract_market_from_slug(slug)
+        price_to_beat = eval_data.get("price_to_beat")
+        if price_to_beat is None:
+            price_to_beat = fetch_strike_price(slug)
+            if price_to_beat is not None:
+                eval_data["price_to_beat"] = price_to_beat
+                logger.info("[SWEEP] Lazy strike fetch succeeded for %s: $%.6f", slug, price_to_beat)
+            else:
+                logger.warning("[SWEEP] Strike price unavailable for %s — proximity filter will be skipped", slug)
+        if price_to_beat is not None:
+            self.last_price_to_beat = price_to_beat
+
+        spot = None
+        price_age_ms = None
+        stale = False
+        if ctx and asset:
+            spot = ctx.crypto_prices.get(asset)
+            ts = ctx.crypto_price_ts.get(asset)
+            if ts is not None:
+                price_age_ms = (time.monotonic() - ts) * 1000
+                if price_age_ms > self._STALE_THRESHOLD_MS:
+                    logger.debug(
+                        "[SWEEP] %s spot price stale (%.0fms)",
+                        asset, price_age_ms,
+                    )
+                    stale = True
+
+        if spot is not None:
+            self.last_spot_price = spot
+            self.last_price_age_ms = price_age_ms
+
+        if spot is not None and price_to_beat is not None and price_to_beat > 0:
+            self.last_proximity = abs(spot - price_to_beat) / price_to_beat
+
+        post_expiry = tte is not None and tte < 0
+
+        if PROXIMITY_FILTER_ENABLED and not post_expiry:
+            if stale:
+                self.last_skip_reason = f"spot price stale ({self.last_price_age_ms:.0f}ms old > {self._STALE_THRESHOLD_MS}ms)"
+                logger.info(
+                    "[SWEEP] %s: SKIP — %s",
+                    slug, self.last_skip_reason,
+                )
+                return None
+                
+            if self.last_proximity is not None and self.last_proximity < PROXIMITY_MIN_DISTANCE:
+                self.last_skip_reason = (
+                    f"proximity {self.last_proximity:.4%} < {PROXIMITY_MIN_DISTANCE:.4%}"
+                )
+                logger.info(
+                    "[SWEEP] %s: SKIP — %s (spot=$%.4f strike=$%.4f)",
+                    slug, self.last_skip_reason,
+                    self.last_spot_price, self.last_price_to_beat,
+                )
+                return None
+
+        if post_expiry:
             order_size *= POST_EXPIRY_MULTIPLIER
             logger.info(
                 "[SWEEP] Post-expiry signal for %s (%.1fs late) — multiplying size (x%.1f) to %.2f",

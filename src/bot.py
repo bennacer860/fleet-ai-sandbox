@@ -26,6 +26,7 @@ from .core.models import OrderIntent
 from .execution.order_manager import OrderManager
 from .execution.position_tracker import PositionTracker
 from .execution.risk_manager import RiskConfig, RiskManager
+from .gateway.crypto_ws import CryptoWebSocket
 from .gateway.market_ws import MarketWebSocket
 from .gateway.rest_client import AsyncRestClient
 from .gateway.user_ws import UserWebSocket
@@ -36,20 +37,24 @@ from .monitoring.health import HealthMonitor
 from .monitoring.metrics import Metrics
 from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
-from .utils.market_data import get_market_evaluation
+from .utils.market_data import fetch_strike_price, get_market_evaluation
 from .clob_client import precache_token_data, get_cached_min_order_size
 from .execution.auto_claimer import AutoClaimer
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
+    detect_duration_from_slug,
     extract_market_end_ts,
     extract_market_from_slug,
     get_current_interval_utc,
     get_market_slug,
     get_next_interval_utc,
 )
+from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
+from .strategy.post_expiry import PostExpirySweepStrategy
+from .strategy.aggressive_post_expiry import AggressivePostExpirySweepStrategy
 from .utils.slug_helpers import slugs_for_timestamp
 from .utils.telegram_notifier import TelegramNotifier
 from .config import (
@@ -66,6 +71,7 @@ from .config import (
     TELEGRAM_CHAT_ID,
     TELEGRAM_NOTIFICATIONS_ENABLED,
     TELEGRAM_ENABLED,
+
 )
 
 logger = get_logger(__name__)
@@ -88,6 +94,7 @@ class Bot:
         self,
         slugs: list[str],
         strategies: list[Strategy] | None = None,
+        strategy_name: str = "sweep",
         dry_run: bool | None = None,
         db_path: str | None = None,
         dashboard_enabled: bool = False,
@@ -97,10 +104,12 @@ class Bot:
         durations: list[int] | None = None,
         claim_min_value: float | None = None,
         claim_interval: float = 60.0,
+        persist: bool = True,
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self.db_path = db_path or DB_PATH
         self.dashboard_enabled = dashboard_enabled
+        self._persist = persist
         self.loop: asyncio.AbstractEventLoop | None = None
         self._slugs = slugs
         self._market_selections = market_selections or []
@@ -111,8 +120,6 @@ class Bot:
             for dur in self._durations
         }
 
-        # Timestamps that we know about but haven't subscribed yet
-        # because the market is too far from expiry (lazy subscription).
         self._deferred_ts: dict[int, dict[str, set[int]]] = {
             dur: {sel: set() for sel in self._market_selections}
             for dur in self._durations
@@ -120,9 +127,13 @@ class Bot:
 
         self.event_bus = EventBus()
 
-        conn = init_db(self.db_path)
-
-        self.persistence = AsyncPersistence(conn)
+        if self._persist:
+            conn = init_db(self.db_path)
+            self.persistence: AsyncPersistence | None = AsyncPersistence(conn)
+        else:
+            conn = None
+            self.persistence = None
+            logger.info("[BOT] Persistence disabled — running fully in-memory")
 
         risk_config = RiskConfig(
             max_position_per_market=MAX_POSITION_PER_MARKET,
@@ -141,10 +152,14 @@ class Bot:
             persistence=self.persistence,
             dry_run=self.dry_run,
         )
-        self.order_manager.load_dedup_from_db(conn)
+        if conn is not None:
+            self.order_manager.load_dedup_from_db(conn)
 
-        self.position_tracker = PositionTracker(persistence=self.persistence)
-        self.position_tracker.load_positions_from_db(conn)
+        self.position_tracker = PositionTracker(
+            persistence=self.persistence,
+        )
+        if conn is not None:
+            self.position_tracker.load_positions_from_db(conn)
 
         # Shared set: token IDs here get full BookUpdate events published
         # on the event bus.  Tokens NOT in this set still get best_prices
@@ -160,13 +175,32 @@ class Bot:
         )
         self.user_ws = UserWebSocket(event_bus=self.event_bus)
 
-        self.strategies: list[Strategy] = strategies or [
-            SweepStrategy(
-                price_threshold=price_threshold,
-                early_tick_threshold=early_tick_threshold,
-                hot_tokens=self._hot_tokens,
-            )
-        ]
+        crypto_assets = list(set(self._market_selections)) or None
+        self.crypto_ws = CryptoWebSocket(assets=crypto_assets)
+
+        if strategies:
+            self.strategies = strategies
+        else:
+            if strategy_name == "post_expiry":
+                self.strategies = [
+                    PostExpirySweepStrategy(
+                        hot_tokens=self._hot_tokens,
+                    )
+                ]
+            elif strategy_name == "aggressive_post_expiry":
+                self.strategies = [
+                    AggressivePostExpirySweepStrategy(
+                        hot_tokens=self._hot_tokens,
+                    )
+                ]
+            else:
+                self.strategies = [
+                    SweepStrategy(
+                        price_threshold=price_threshold,
+                        early_tick_threshold=early_tick_threshold,
+                        hot_tokens=self._hot_tokens,
+                    )
+                ]
 
         self.health_monitor = HealthMonitor(
             heartbeat_path=HEALTH_FILE_PATH,
@@ -174,11 +208,15 @@ class Bot:
         )
         self.alert_manager = AlertManager()
 
+        self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
+        self._eval_cache: dict[str, dict[str, Any]] = {}
+
         self.dashboard: Dashboard | None = None
         if dashboard_enabled:
             self.dashboard = Dashboard(
                 market_ws=self.market_ws,
                 user_ws=self.user_ws,
+                crypto_ws=self.crypto_ws,
                 order_manager=self.order_manager,
                 position_tracker=self.position_tracker,
                 risk_manager=self.risk_manager,
@@ -187,6 +225,8 @@ class Bot:
                 funder=FUNDER,
                 claim_min_value=claim_min_value,
                 auto_claimer=None,  # set after auto_claimer is created below
+                eval_cache=self._eval_cache,
+                strategy_name=strategy_name,
             )
 
         self.telegram = TelegramNotifier(
@@ -194,9 +234,7 @@ class Bot:
             chat_id=TELEGRAM_CHAT_ID,
             enabled=TELEGRAM_ENABLED,
         )
-
-        self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
-        self._eval_cache: dict[str, dict[str, Any]] = {}
+        self._profile = os.environ.get("ACTIVE_PROFILE") or "0"
 
         # Auto-claimer (None = disabled)
         self.auto_claimer: AutoClaimer | None = None
@@ -222,12 +260,11 @@ class Bot:
                     # Telegram notification (must be thread-safe for asyncio)
                     if self.telegram.enabled:
                         bal_tele = f"\n💰 <b>Balance: ${balance:.2f}</b>" if balance is not None else ""
-                        msg = (
-                            f"💎 <b>WINNINGS COLLECTED</b>\n"
-                            f"━━━━━━━━━━━━━━━\n"
+                        body = (
                             f"📦 <b>Market:</b> <code>{title}</code>\n"
                             f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>{bal_tele}"
                         )
+                        msg = self._telegram_msg("🟢", "WINNINGS COLLECTED", body)
                         logger.debug("[BOT] Sending claim notification to Telegram")
                         asyncio.run_coroutine_threadsafe(self.telegram.push_message(msg), self.loop)
                     else:
@@ -235,6 +272,15 @@ class Bot:
                 self.auto_claimer.on_claim = _on_claim
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
+
+    def _telegram_msg(self, color_emoji: str, title: str, body: str) -> str:
+        """Build a Telegram message with profile and color indicator."""
+        return (
+            f"{color_emoji} <b>{title}</b>\n"
+            f"👤 <b>Profile:</b> <code>{self._profile}</code>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"{body}"
+        )
 
     @staticmethod
     def _clean_reason(reason: str) -> str:
@@ -259,6 +305,48 @@ class Bot:
                 except Exception:
                     pass
         return r
+
+    @staticmethod
+    def _fmt_price(price: float) -> str:
+        if price >= 100:
+            return f"${price:,.2f}"
+        elif price >= 1:
+            return f"${price:.4f}"
+        return f"${price:.6f}"
+
+    @classmethod
+    def _format_proximity(
+        cls,
+        spot: float | None,
+        strike: float | None,
+        proximity: float | None = None,
+        age_ms: float | None = None,
+    ) -> str:
+        parts: list[str] = []
+        if spot is not None:
+            parts.append(f"spot={cls._fmt_price(spot)}")
+        else:
+            parts.append("spot=STALE")
+        if strike is not None:
+            parts.append(f"strike={cls._fmt_price(strike)}")
+        else:
+            parts.append("strike=--")
+        if proximity is not None:
+            parts.append(f"prox={proximity:.3%}")
+        if age_ms is not None:
+            parts.append(f"age={age_ms:.0f}ms")
+        return "  " + " ".join(parts)
+
+    def _proximity_for_slug(self, slug: str) -> str:
+        """Build a proximity display string from the current context for *slug*."""
+        asset = extract_market_from_slug(slug)
+        if not asset:
+            return ""
+        spot = self._strategy_ctx.crypto_prices.get(asset)
+        eval_data = self._eval_cache.get(slug) or {}
+        strike = eval_data.get("price_to_beat")
+        prox = abs(spot - strike) / strike if spot and strike and strike > 0 else None
+        return self._format_proximity(spot, strike, prox)
 
     # ── Eval pre-fetch (min_order_size) ───────────────────────────────────
 
@@ -294,6 +382,8 @@ class Bot:
                     "[CACHE] Pre-fetched eval for %s (min_size=%.2f)",
                     slug, eval_data.get("min_order_size", -1),
                 )
+                if eval_data.get("price_to_beat") is None:
+                    asyncio.create_task(self._deferred_strike_fetch(slug))
             else:
                 logger.warning("[CACHE] Pre-fetch returned no data for %s", slug)
         except Exception:
@@ -309,6 +399,48 @@ class Bot:
                 )
             except Exception:
                 logger.warning("[CACHE] precache_token_data failed for %s", slug)
+
+    _STRIKE_SETTLE_BUFFER_S = 5
+
+    async def _deferred_strike_fetch(self, slug: str) -> None:
+        """Wait until the market's start time has passed, then fetch the strike price.
+
+        The Binance kline for the start candle doesn't exist until the
+        market actually begins.  Instead of blind retries, we parse the
+        start timestamp from the slug and sleep until that moment (plus
+        a small buffer for the candle to appear on Binance).
+        """
+        end_ts = extract_market_end_ts(slug)
+        duration = detect_duration_from_slug(slug)
+        if end_ts is None or duration is None:
+            logger.warning("[STRIKE] Cannot parse start time from slug %s — skipping deferred fetch", slug)
+            return
+
+        start_ts = end_ts - duration * 60
+        wait_s = start_ts - time.time() + self._STRIKE_SETTLE_BUFFER_S
+        if wait_s > 0:
+            logger.info(
+                "[STRIKE] Deferring strike fetch for %s — market starts in %.1fs",
+                slug, wait_s - self._STRIKE_SETTLE_BUFFER_S,
+            )
+            await asyncio.sleep(wait_s)
+
+        if slug not in self._eval_cache:
+            return
+        if self._eval_cache[slug].get("price_to_beat") is not None:
+            return
+
+        try:
+            price = await asyncio.get_event_loop().run_in_executor(
+                None, fetch_strike_price, slug
+            )
+            if price is not None:
+                self._eval_cache[slug]["price_to_beat"] = price
+                logger.info("[STRIKE] Deferred fetch succeeded for %s: $%.6f", slug, price)
+            else:
+                logger.warning("[STRIKE] Deferred fetch returned None for %s", slug)
+        except Exception:
+            logger.warning("[STRIKE] Deferred fetch failed for %s", slug, exc_info=True)
 
     def _launch_prefetch(self, slugs: list[str]) -> None:
         """Fire-and-forget background prefetch for a batch of slugs."""
@@ -331,6 +463,8 @@ class Bot:
         bus.subscribe(OrderTerminal, self._dashboard_on_terminal)
 
         bus.subscribe(OrderFill, self.position_tracker.on_fill)
+        bus.subscribe(OrderFill, self._on_order_fill_notify_strategy)
+        bus.subscribe(OrderTerminal, self._on_order_terminal_notify_strategy)
         # NOTE: PositionTracker no longer subscribes to BookUpdate events.
         # best_prices are synced periodically from market_ws.best_prices
         # in _metrics_loop, avoiding the event bus overhead for every
@@ -349,21 +483,43 @@ class Bot:
             try:
                 intents = await strategy.on_tick_size_change(event, self._strategy_ctx)
                 if intents:
-                    await self._submit_intents(intents, event, handler_start_ns)
-                elif self.dashboard:
-                    display_slug = format_slug_with_est_time(event.slug)
+                    await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
+                else:
                     reason = getattr(strategy, "last_skip_reason", None) or "no signal"
-                    price = getattr(strategy, "last_best_price", None)
-                    price_str = f"  price={price:.3f}" if price is not None else ""
-                    watching = getattr(strategy, "last_watching", False)
-                    if watching:
-                        self.dashboard.push_event(
-                            f"👀 [yellow]WATCHING[/yellow]  {display_slug}{price_str}  waiting for bid >= threshold"
+                    
+                    if self.persistence and getattr(strategy, "last_skip_reason", None):
+                        self.persistence.enqueue(
+                            "INSERT INTO decisions (timestamp, strategy, slug, trigger, decision, reason, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                time.time(),
+                                strategy.name(),
+                                event.slug,
+                                "tick_size_change",
+                                "SKIP",
+                                reason,
+                                1 if self.dry_run else 0,
+                            ),
                         )
-                    else:
-                        self.dashboard.push_event(
-                            f"⏭️ [dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason}"
-                        )
+                        
+                    if self.dashboard:
+                        display_slug = format_slug_with_est_time(event.slug)
+                        price = getattr(strategy, "last_best_price", None)
+                        price_str = f"  price={price:.3f}" if price is not None else ""
+                        watching = getattr(strategy, "last_watching", False)
+                        if watching:
+                            self.dashboard.push_event(
+                                f"👀 [yellow]WATCHING[/yellow]  {display_slug}{price_str}  waiting for bid >= threshold"
+                            )
+                        else:
+                            if "stale" in reason.lower():
+                                reason_fmt = f"[bold red]BLOCKED: {reason}[/bold red]"
+                            elif "proximity" in reason.lower():
+                                reason_fmt = f"[bold magenta]BLOCKED: {reason}[/bold magenta]"
+                            else:
+                                reason_fmt = reason
+                            self.dashboard.push_event(
+                                f"⏭️ [dim]NO_TRADE[/dim]  {display_slug}{price_str}  {reason_fmt}"
+                            )
             except Exception:
                 logger.exception("Strategy %s error on tick_size_change", strategy.name())
 
@@ -374,7 +530,7 @@ class Bot:
             try:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
-                    await self._submit_intents(intents, event, handler_start_ns)
+                    await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
             except Exception:
                 logger.exception("Strategy %s error on book_update", strategy.name())
 
@@ -395,16 +551,15 @@ class Bot:
                 f"🏁 [blue]RESOLVED[/blue]  {display_slug}  unsubscribed"
             )
 
-        # Telegram notification
-        display_slug = format_slug_with_est_time(event.slug)
-        await self.telegram.push_message(
-            f"🏁 <b>MARKET RESOLVED</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
-            f"ℹ️ Unsubscribed from market."
-        )
+        # No Telegram for market resolved (noise)
 
-    async def _submit_intents(self, intents: list[OrderIntent], event: Any, handler_start_ns: int | None = None) -> None:
+    async def _submit_intents(
+        self,
+        intents: list[OrderIntent],
+        event: Any,
+        handler_start_ns: int | None = None,
+        strategy: Strategy | None = None,
+    ) -> None:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
             display_slug = format_slug_with_est_time(intent.slug)
@@ -418,6 +573,13 @@ class Bot:
                 bp = self._strategy_ctx.best_prices.get(intent.token_id, {})
                 state.best_bid = bp.get("bid")
                 state.best_ask = bp.get("ask")
+
+                if strategy is not None:
+                    state.spot_price = getattr(strategy, "last_spot_price", None)
+                    state.strike_price = getattr(strategy, "last_price_to_beat", None)
+                    state.proximity = getattr(strategy, "last_proximity", None)
+                    state.spot_price_age_ms = getattr(strategy, "last_price_age_ms", None)
+
                 self.order_manager.re_persist(state)
 
             if state is None and self.dashboard:
@@ -457,29 +619,31 @@ class Bot:
                 else:
                     bid_str = f"{state.best_bid:.3f}" if state.best_bid is not None else "--"
                     ask_str = f"{state.best_ask:.3f}" if state.best_ask is not None else "--"
+                    prox_str = self._format_proximity(
+                        state.spot_price, state.strike_price,
+                        state.proximity, state.spot_price_age_ms,
+                    )
                     self.dashboard.push_event(
                         f"📤 [green]SUBMITTED[/green]  {display_slug}  "
                         f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}  "
-                        f"(bid={bid_str} ask={ask_str}){timing}"
+                        f"(bid={bid_str} ask={ask_str}){timing}{prox_str}"
                     )
             
             # Telegram notification for submission (only if not dry-run for cleaner feed)
             if state and not self.dry_run:
                 if state.is_terminal:
                     reason = self._clean_reason(state.rejection_reason or state.status.value)
-                    await self.telegram.push_message(
-                        f"🛑 <b>ORDER {state.status.value}</b>\n"
-                        f"━━━━━━━━━━━━━━━\n"
+                    body = (
                         f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
                         f"❌ <b>Reason:</b> <code>{reason}</code>"
                     )
+                    await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {state.status.value}", body))
                 else:
-                    await self.telegram.push_message(
-                        f"📤 <b>ORDER SUBMITTED</b>\n"
-                        f"━━━━━━━━━━━━━━━\n"
+                    body = (
                         f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
                         f"🔄 <b>{intent.side.value}</b>: ${intent.price:.4f} × {intent.size:.2f} shares"
                     )
+                    await self.telegram.push_message(self._telegram_msg("🟡", "ORDER SUBMITTED", body))
 
             if state and not state.is_terminal:
                 self.position_tracker.register_order(
@@ -490,9 +654,58 @@ class Bot:
                     side=intent.side.value,
                     price=intent.price,
                     size=intent.size,
+                    spot_price=state.spot_price,
                 )
 
+            # Notify aggressive strategy of order result so it can retry
+            if strategy is not None and hasattr(strategy, "notify_order_result"):
+                if state is None or state.is_terminal:
+                    strategy.notify_order_result(intent.slug, filled=False)
+                elif state.status == OrderStatus.FILLED:
+                    strategy.notify_order_result(intent.slug, filled=True)
+                else:
+                    # Submitted/live — keep has_live_order=True until terminal
+                    pass
+
+    # ── Strategy poll loop ────────────────────────────────────────────────
+
+    async def _strategy_poll_loop(self) -> None:
+        """Periodically call poll() on all strategies for timer-driven logic."""
+        from .config import AGGRESSIVE_POLL_INTERVAL_S
+        while True:
+            await asyncio.sleep(AGGRESSIVE_POLL_INTERVAL_S)
+            self._update_context()
+            for strategy in self.strategies:
+                try:
+                    intents = await strategy.poll(self._strategy_ctx)
+                    if intents:
+                        await self._submit_intents(intents, None, strategy=strategy)
+                except Exception:
+                    logger.exception("Strategy %s error on poll", strategy.name())
+
     # ── Dashboard order lifecycle events ────────────────────────────────────
+
+    async def _on_order_fill_notify_strategy(self, event: OrderFill) -> None:
+        """Notify strategies when an order fills so they can stop retrying."""
+        state = self.order_manager.active_orders.get(event.order_id)
+        if not state:
+            return
+        slug = state.intent.slug
+        is_filled = state.status == OrderStatus.FILLED
+        for strategy in self.strategies:
+            if hasattr(strategy, "notify_order_result"):
+                strategy.notify_order_result(slug, filled=is_filled)
+
+    async def _on_order_terminal_notify_strategy(self, event: OrderTerminal) -> None:
+        """Notify strategies when an order terminates so they can retry."""
+        state = self.order_manager.active_orders.get(event.order_id)
+        if not state:
+            return
+        slug = state.intent.slug
+        is_filled = state.status == OrderStatus.FILLED
+        for strategy in self.strategies:
+            if hasattr(strategy, "notify_order_result"):
+                strategy.notify_order_result(slug, filled=is_filled)
 
     async def _dashboard_on_fill(self, event: OrderFill) -> None:
         if not self.dashboard:
@@ -509,14 +722,13 @@ class Bot:
         )
 
         # Telegram notification
-        emoji = "🎯" if label == "FILLED" else "🌓"
-        await self.telegram.push_message(
-            f"{emoji} <b>ORDER {label}</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
+        body = (
             f"📍 <b>Market:</b> <code>{display}</code>\n"
             f"💵 <b>Price:</b> ${event.fill_price:.4f}\n"
             f"📦 <b>Size:</b> {event.fill_size:.2f} shares"
         )
+        color = "🟢" if label == "FILLED" else "🔵"
+        await self.telegram.push_message(self._telegram_msg(color, f"ORDER {label}", body))
 
     async def _dashboard_on_terminal(self, event: OrderTerminal) -> None:
         if not self.dashboard:
@@ -530,12 +742,11 @@ class Bot:
         )
 
         # Telegram notification
-        await self.telegram.push_message(
-            f"🛑 <b>ORDER {event.status.value}</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
+        body = (
             f"📍 <b>Market:</b> <code>{display}</code>\n"
             f"❌ <b>Reason:</b> <code>{reason}</code>"
         )
+        await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {event.status.value}", body))
 
     # ── Context maintenance ───────────────────────────────────────────────
 
@@ -555,6 +766,8 @@ class Bot:
                 "condition_id": cond,
             }
         self._strategy_ctx.market_meta = meta
+        self._strategy_ctx.crypto_prices = dict(self.crypto_ws.latest_prices)
+        self._strategy_ctx.crypto_price_ts = dict(self.crypto_ws.last_update_ts)
 
     # ── Metrics collectors ────────────────────────────────────────────────
 
@@ -568,9 +781,10 @@ class Bot:
             bid = bp.get("bid")
             price_tag = f"  bid={bid:.3f}" if bid is not None else ""
             lat_tag = f"  (lat: {event.latency_ms:.1f}ms)" if event.latency_ms is not None else ""
+            prox_tag = self._proximity_for_slug(event.slug)
             self.dashboard.push_event(
                 f"📊 TICK_SIZE  {display_slug}  "
-                f"{event.old_tick_size} → {event.new_tick_size}{price_tag}{lat_tag}"
+                f"{event.old_tick_size} → {event.new_tick_size}{price_tag}{lat_tag}{prox_tag}"
             )
 
     async def _metrics_book_update(self, event: BookUpdate) -> None:
@@ -580,11 +794,12 @@ class Bot:
         """Periodic gauge updates for dashboard/health."""
         while True:
             await asyncio.sleep(2)
+            set_ws_prices(self.crypto_ws.latest_prices, self.crypto_ws.last_update_ts)
             active = sum(1 for v in self.market_ws.market_active.values() if v)
             self._metrics.set("active_markets", active)
             self._metrics.set("ws_market_connected", 1.0 if self.market_ws.connected else 0.0)
             self._metrics.set("ws_market_msg_age_s", self.market_ws.last_message_age_s)
-            self._metrics.set("persistence_pending", float(self.persistence.pending))
+            self._metrics.set("persistence_pending", float(self.persistence.pending) if self.persistence else 0.0)
             self._metrics.set("orders_pending", float(self.order_manager.pending_count))
             self._metrics.set("books_filtered", float(self.market_ws._books_filtered))
 
@@ -728,6 +943,7 @@ class Bot:
             "dry_run": self.dry_run,
             "ws_market_connected": self.market_ws.connected,
             "ws_user_connected": self.user_ws.connected,
+            "ws_crypto_connected": self.crypto_ws.connected,
             "active_markets": sum(1 for v in self.market_ws.market_active.values() if v),
             "pending_orders": self.order_manager.pending_count,
             "order_stats": self.order_manager.stats,
@@ -761,11 +977,16 @@ class Bot:
         self.loop = asyncio.get_running_loop()
         logger.info("=" * 60)
         logger.info("POLYMARKET HFT BOT v1 starting")
+        _profile = os.getenv("ACTIVE_PROFILE")
+        if _profile:
+            logger.info("  Profile  : %s", _profile)
         logger.info("  Slugs    : %d", len(self._slugs))
         logger.info("  Strategies: %s", ", ".join(s.name() for s in self.strategies))
         logger.info("  Dry-run  : %s", self.dry_run)
         logger.info("  Dashboard: %s", self.dashboard_enabled)
-        logger.info("  DB path  : %s", self.db_path)
+        logger.info("  Persist  : %s", self._persist)
+        if self._persist:
+            logger.info("  DB path  : %s", self.db_path)
         logger.info("=" * 60)
 
         self._wire_subscriptions()
@@ -777,13 +998,18 @@ class Bot:
 
         self._tasks = [
             asyncio.create_task(self._supervised_task("event_bus", self.event_bus.run)),
-            asyncio.create_task(self._supervised_task("persistence", self.persistence.drain_loop)),
+            *(
+                [asyncio.create_task(self._supervised_task("persistence", self.persistence.drain_loop))]
+                if self.persistence else []
+            ),
             asyncio.create_task(self._supervised_task("market_ws", self.market_ws.run)),
+            asyncio.create_task(self._supervised_task("crypto_ws", self.crypto_ws.run)),
             asyncio.create_task(self._supervised_task("health", self.health_monitor.run)),
             asyncio.create_task(self._supervised_task("alerts", self.alert_manager.run)),
             asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),
             asyncio.create_task(self._supervised_task("stale_reaper", self.order_manager.reap_stale_orders)),
             asyncio.create_task(self._supervised_task("sub_manager", self._manage_subscriptions)),
+            asyncio.create_task(self._supervised_task("strategy_poll", self._strategy_poll_loop)),
         ]
 
         if not self.dry_run:
@@ -824,7 +1050,8 @@ class Bot:
         await self.user_ws.stop()
         await self.event_bus.stop()
         await self.telegram.stop()
-        await self.persistence.stop()
+        if self.persistence:
+            await self.persistence.stop()
         await self.health_monitor.stop()
         await self.alert_manager.stop()
 

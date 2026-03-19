@@ -44,6 +44,8 @@ class UserWebSocket:
         self._running = False
         self._api_creds: Any = None
         self._reconnect_count = 0
+        self._last_message_time: float = 0.0
+        self._msg_count = 0
 
     @property
     def connected(self) -> bool:
@@ -52,6 +54,16 @@ class UserWebSocket:
     @property
     def reconnect_count(self) -> int:
         return self._reconnect_count
+
+    @property
+    def message_count(self) -> int:
+        return self._msg_count
+
+    @property
+    def last_message_age_s(self) -> float:
+        if self._last_message_time == 0:
+            return -1
+        return time.monotonic() - self._last_message_time
 
     # ── Message processing ────────────────────────────────────────────────
 
@@ -164,7 +176,7 @@ class UserWebSocket:
             while self._running:
                 try:
                     async with websockets.connect(
-                        self.ws_url, ping_interval=None, ping_timeout=60
+                        self.ws_url, ping_interval=30, ping_timeout=30
                     ) as ws:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
@@ -177,6 +189,8 @@ class UserWebSocket:
                             async for message in ws:
                                 if not self._running:
                                     break
+                                self._last_message_time = time.monotonic()
+                                self._msg_count += 1
                                 if isinstance(message, str) and message != "INVALID OPERATION":
                                     self._process_message(message)
                         finally:
@@ -188,14 +202,14 @@ class UserWebSocket:
                 ) as e:
                     self._reconnect_count += 1
                     if self._running:
-                        logger.warning("[WS_USER] Disconnected: %s — reconnecting in %ds", e, backoff)
+                        logger.warning("[WS_USER] Disconnected: %s — reconnect #%d in %ds", e, self._reconnect_count, backoff)
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except Exception as e:
                     self._reconnect_count += 1
                     if self._running:
-                        logger.error("[WS_USER] Error: %s — reconnecting in %ds", e, backoff)
+                        logger.error("[WS_USER] Error: %s — reconnect #%d in %ds", e, self._reconnect_count, backoff)
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 
@@ -208,4 +222,7 @@ class UserWebSocket:
     async def stop(self) -> None:
         self._running = False
         if self._websocket:
-            await self._websocket.close()
+            try:
+                await self._websocket.close()
+            except Exception:
+                pass

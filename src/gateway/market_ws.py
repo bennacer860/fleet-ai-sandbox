@@ -36,7 +36,7 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
-HEARTBEAT_TIMEOUT_S = 90
+HEARTBEAT_TIMEOUT_S = 60
 
 
 class MarketWebSocket:
@@ -74,6 +74,7 @@ class MarketWebSocket:
         self._running = False
         self._last_message_time: float = 0.0
         self._msg_count = 0
+        self._reconnect_count = 0
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
         self._books_filtered = 0  # counter for filtered-out book updates
 
@@ -86,6 +87,10 @@ class MarketWebSocket:
     @property
     def message_count(self) -> int:
         return self._msg_count
+
+    @property
+    def reconnect_count(self) -> int:
+        return self._reconnect_count
 
     @property
     def last_message_age_s(self) -> float:
@@ -407,7 +412,7 @@ class MarketWebSocket:
 
                 try:
                     async with websockets.connect(
-                        self.ws_url, ping_interval=None, ping_timeout=60
+                        self.ws_url, ping_interval=20, ping_timeout=20
                     ) as ws:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
@@ -458,13 +463,15 @@ class MarketWebSocket:
                     websockets.exceptions.ConnectionClosed,
                     websockets.exceptions.WebSocketException,
                 ) as e:
-                    logger.warning("[WS_MARKET] Disconnected: %s — reconnecting in %ds", e, backoff)
+                    self._reconnect_count += 1
+                    logger.warning("[WS_MARKET] Disconnected: %s — reconnect #%d in %ds", e, self._reconnect_count, backoff)
                     if self._running:
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
 
                 except Exception as e:
-                    logger.error("[WS_MARKET] Unexpected error: %s — reconnecting in %ds", e, backoff)
+                    self._reconnect_count += 1
+                    logger.error("[WS_MARKET] Unexpected error: %s — reconnect #%d in %ds", e, self._reconnect_count, backoff)
                     if self._running:
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, _MAX_BACKOFF)
@@ -481,4 +488,7 @@ class MarketWebSocket:
     async def stop(self) -> None:
         self._running = False
         if self._websocket:
-            await self._websocket.close()
+            try:
+                await self._websocket.close()
+            except Exception:
+                pass

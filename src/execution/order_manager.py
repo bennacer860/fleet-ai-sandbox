@@ -86,7 +86,7 @@ class OrderManager:
         """Full pipeline: dedup -> risk -> submit -> track."""
         signal_ns = time.time_ns()
 
-        if self._is_duplicate(intent):
+        if not intent.skip_dedup and self._is_duplicate(intent):
             self._stats["dedup_skips"] += 1
             logger.info("[ORDER] Dedup skip: %s/%s", intent.slug, intent.token_id[:16])
             self._log_decision(intent, "SKIP", "DEDUP: already ordered")
@@ -437,7 +437,7 @@ class OrderManager:
         if not self._persistence:
             return
         self._persistence.enqueue(
-            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, tick_to_order_ms, time_to_expiry_s, market, best_bid, best_ask, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, tick_to_order_ms, time_to_expiry_s, market, best_bid, best_ask, spot_price, strike_price, proximity, spot_price_age_ms, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 state.order_id,
                 state.intent.strategy,
@@ -458,6 +458,10 @@ class OrderManager:
                 state.market,
                 state.best_bid,
                 state.best_ask,
+                state.spot_price,
+                state.strike_price,
+                state.proximity,
+                state.spot_price_age_ms,
                 1 if state.dry_run else 0,
             ),
         )

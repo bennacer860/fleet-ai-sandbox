@@ -24,6 +24,8 @@ class StrategyContext:
     eval_cache: dict[str, dict[str, Any]] = field(default_factory=dict)
     market_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
     dry_run: bool = False
+    crypto_prices: dict[str, float] = field(default_factory=dict)
+    crypto_price_ts: dict[str, float] = field(default_factory=dict)
 
 
 class Strategy(ABC):
@@ -60,6 +62,14 @@ class Strategy(ABC):
         self, event: MarketResolved, ctx: StrategyContext
     ) -> None:
         """Called when a market resolves.  Default is a no-op."""
+
+    async def poll(self, ctx: StrategyContext) -> list[OrderIntent] | None:
+        """Called periodically by the bot's poll loop.
+
+        Strategies that need to act on a timer (not just react to events)
+        should override this.  Default is a no-op.
+        """
+        return None
 
     async def startup(self) -> None:
         """Called once during bot startup.  Override for initialisation."""
