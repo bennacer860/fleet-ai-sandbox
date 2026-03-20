@@ -422,7 +422,13 @@ class MarketWebSocket:
 
                 try:
                     async with websockets.connect(
-                        self.ws_url, ping_interval=20, ping_timeout=30
+                        self.ws_url,
+                        ping_interval=20,
+                        ping_timeout=30,
+                        extra_headers={
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                            "Origin": "https://polymarket.com",
+                        },
                     ) as ws:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
