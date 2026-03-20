@@ -8,7 +8,7 @@ echo "Starting Polymarket Bot Bootstrap..."
 
 # 1. Install dependencies
 dnf update -y
-dnf install -y git python3 python3-pip tmux jq
+dnf install -y git python3.11 python3.11-pip tmux jq
 
 # 2. Install Litestream (ARM64)
 echo "Installing Litestream..."
@@ -23,10 +23,11 @@ chown ec2-user:ec2-user $APP_DIR
 
 # 4. Clone repository
 echo "Cloning repository..."
-sudo -u ec2-user git clone https://github.com/bennacer860/polymarket-bot-sample.git $APP_DIR
+sudo -u ec2-user git clone -b feature/aws-deployment https://github.com/bennacer860/polymarket-bot-sample.git $APP_DIR
 
 # 5. Fetch secrets from SSM Parameter Store and create .env
 echo "Fetching secrets from SSM..."
+touch $APP_DIR/.env
 aws ssm get-parameters-by-path \
   --path "${ssm_prefix}" \
   --with-decryption \
@@ -44,7 +45,7 @@ chmod 600 $APP_DIR/.env
 # 6. Setup Python virtual environment
 echo "Setting up Python venv..."
 cd $APP_DIR
-sudo -u ec2-user python3 -m venv .venv
+sudo -u ec2-user python3.11 -m venv .venv
 sudo -u ec2-user .venv/bin/pip install -r requirements.txt
 
 # 7. Copy systemd services and litestream config
@@ -55,7 +56,7 @@ mkdir -p /etc/litestream
 cp $APP_DIR/deploy/litestream.yml /etc/litestream/litestream.yml
 
 # Replace placeholders in litestream config
-sed -i "s/\${S3_BUCKET}/${s3_bucket}/g" /etc/litestream/litestream.yml
+sed -i "s/\$${S3_BUCKET}/${s3_bucket}/g" /etc/litestream/litestream.yml
 
 # 8. Restore DB from Litestream (if exists)
 echo "Attempting to restore database from S3..."
