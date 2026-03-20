@@ -1,21 +1,21 @@
 [Unit]
-Description=Polymarket Bot (Tmux Session)
+Description=Polymarket Bot
 After=network.target litestream.service
 Requires=litestream.service
 
 [Service]
-Type=forking
+Type=simple
 User=ec2-user
 Group=ec2-user
 WorkingDirectory=/opt/polymarket-bot
 
-# Start a detached tmux session named 'bot'
-ExecStart=/usr/bin/tmux new-session -d -s bot 'cd /opt/polymarket-bot && .venv/bin/python main.py run --dashboard'
+# Load all the secrets from the .env file into the systemd environment
+EnvironmentFile=/opt/polymarket-bot/.env
 
-# To stop, kill the tmux session
-ExecStop=/usr/bin/tmux kill-session -t bot
+# Run python directly so systemd natively grabs the logs
+ExecStart=/opt/polymarket-bot/.venv/bin/python main.py run --dashboard
 
-# Restart automatically if the tmux session dies
+# Clean restart behaviour
 Restart=always
 RestartSec=10
 
