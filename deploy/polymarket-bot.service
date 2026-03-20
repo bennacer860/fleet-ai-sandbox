@@ -13,7 +13,7 @@ WorkingDirectory=/opt/polymarket-bot
 EnvironmentFile=/opt/polymarket-bot/.env
 
 # Run python directly so systemd natively grabs the logs
-ExecStart=/opt/polymarket-bot/.venv/bin/python main.py run --profile 2 --dashboard
+ExecStart=/opt/polymarket-bot/.venv/bin/python main.py run --profile 2 --strategy post_expiry --dashboard
 
 # Clean restart behaviour
 Restart=always
