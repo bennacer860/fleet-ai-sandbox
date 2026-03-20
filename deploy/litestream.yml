@@ -1,0 +1,6 @@
+dbs:
+  - path: /opt/polymarket-bot/data/bot.db
+    replicas:
+      - type: s3
+        bucket: ${S3_BUCKET}
+        path: bot.db

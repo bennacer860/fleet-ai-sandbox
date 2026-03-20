@@ -322,6 +322,54 @@ python main.py run --markets BTC ETH --price-threshold 0.98
 
 See `.env.example` for required variables. You need a Polymarket account with funded USDC and the appropriate wallet setup (EOA, email/Magic, or browser proxy).
 
+## AWS Deployment (Production)
+
+The bot includes a fully automated, cost-optimized deployment setup for AWS EC2 using Terraform. It runs on a `t4g.nano` instance (~$3/month) and uses `systemd` + `tmux` to keep the bot running in the background while allowing you to attach to the live dashboard at any time.
+
+### 1. Initial Setup
+
+1. Install [Terraform](https://developer.hashicorp.com/terraform/downloads) and the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+2. Configure your AWS credentials (`aws configure`).
+3. Add your secrets to AWS Systems Manager Parameter Store in the `eu-west-1` region (or your chosen region). Create them as `SecureString`:
+   - `/polymarket-bot/PRIVATE_KEY`
+   - `/polymarket-bot/POLYGON_RPC_URL`
+   - `/polymarket-bot/FUNDER`
+   - *(Any other variables from `.env`)*
+
+### 2. Provision Infrastructure
+
+```bash
+cd terraform
+terraform init
+terraform apply
+```
+
+This will create the VPC, Security Groups, IAM Roles, S3 Bucket (for SQLite backups via Litestream), and the EC2 instance. The instance will automatically download the code, fetch your secrets, and start the bot.
+
+### 3. View the Live Dashboard
+
+You do not need SSH keys. Connect securely using AWS SSM:
+
+```bash
+# Get the instance ID from terraform output
+aws ssm start-session --target <instance-id> --region eu-west-1
+
+# Once connected, attach to the tmux session:
+tmux attach -t bot
+```
+
+*To detach and leave the bot running, press `Ctrl+B`, then `D`.*
+
+### 4. Deploying Updates
+
+When you make changes to the code locally, push them to GitHub, then run the deploy script:
+
+```bash
+./deploy/deploy.sh
+```
+
+This script will connect to the EC2 instance, pull the latest code, update dependencies, and restart the bot service automatically.
+
 ## Logging
 
 Set `LOG_LEVEL=DEBUG` in `.env` for verbose output. All trading actions and API responses are logged to help debug why orders didn't go through.

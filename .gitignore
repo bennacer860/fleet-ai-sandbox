@@ -13,3 +13,11 @@ market_events.csv
 *.db-wal
 *.db-shm
 data/*.log*
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform.lock.hcl
+

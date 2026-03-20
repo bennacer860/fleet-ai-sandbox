@@ -1,0 +1,23 @@
+[Unit]
+Description=Polymarket Bot (Tmux Session)
+After=network.target litestream.service
+Requires=litestream.service
+
+[Service]
+Type=forking
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/polymarket-bot
+
+# Start a detached tmux session named 'bot'
+ExecStart=/usr/bin/tmux new-session -d -s bot 'cd /opt/polymarket-bot && .venv/bin/python main.py run --dashboard'
+
+# To stop, kill the tmux session
+ExecStop=/usr/bin/tmux kill-session -t bot
+
+# Restart automatically if the tmux session dies
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
