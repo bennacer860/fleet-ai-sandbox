@@ -389,6 +389,16 @@ class MarketWebSocket:
 
     # ── Main run loop ─────────────────────────────────────────────────────
 
+    async def _send_app_pings(self, ws: websockets.WebSocketClientProtocol) -> None:
+        """Send application-level PING payloads Polymarket expects for keep-alive."""
+        while self._running and self._websocket is ws:
+            try:
+                await asyncio.sleep(10)
+                if self._websocket is ws:
+                    await ws.send("PING")
+            except Exception:
+                break
+
     async def run(self) -> None:
         success = await self._init_markets()
         if not success:
@@ -412,7 +422,7 @@ class MarketWebSocket:
 
                 try:
                     async with websockets.connect(
-                        self.ws_url, ping_interval=20, ping_timeout=20
+                        self.ws_url, ping_interval=20, ping_timeout=30
                     ) as ws:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
@@ -426,6 +436,7 @@ class MarketWebSocket:
                         await ws.send(sub_msg)
                         logger.info("[WS_MARKET] Connected, subscribed to %d tokens (channels: book, tick_size_change)", len(all_tids))
 
+                        ping_task = asyncio.create_task(self._send_app_pings(ws))
                         try:
                             async for raw in ws:
                                 if not self._running:
@@ -434,7 +445,7 @@ class MarketWebSocket:
                                 self._last_message_time = time.monotonic()
                                 self._msg_count += 1
 
-                                if raw == "INVALID OPERATION":
+                                if raw == "INVALID OPERATION" or raw == "PONG":
                                     continue
 
                                 try:
@@ -457,6 +468,8 @@ class MarketWebSocket:
                                     elif msg_type == "last_trade_price":
                                         self._process_last_trade(item)
                         finally:
+                            ping_task.cancel()
+                            await asyncio.gather(ping_task, return_exceptions=True)
                             self._websocket = None
 
                 except (
