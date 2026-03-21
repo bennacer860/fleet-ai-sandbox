@@ -28,7 +28,7 @@ from ..storage.persistence import AsyncPersistence
 
 logger = get_logger(__name__)
 
-STALE_ORDER_TIMEOUT_S = 300
+STALE_ORDER_TIMEOUT_S = 90   # post-expiry fills are nearly instant; free exposure quickly
 RECONCILE_INTERVAL_S = 15
 TERMINAL_RETENTION_S = 600
 

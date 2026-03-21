@@ -13,7 +13,7 @@ WorkingDirectory=/opt/polymarket-bot
 EnvironmentFile=/opt/polymarket-bot/.env
 
 # Run python directly so systemd natively grabs the logs
-ExecStart=/opt/polymarket-bot/.venv/bin/python main.py run --profile 2 --strategy post_expiry --dashboard
+ExecStart=/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP --durations 5 15 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 60 --dashboard
 
 # Clean restart behaviour
 Restart=always
