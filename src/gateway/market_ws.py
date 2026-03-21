@@ -12,6 +12,7 @@ callback patterns, and display logic.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -31,6 +32,19 @@ from ..gamma_client import (
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# When True, spoof browser-like headers on the WS upgrade request.
+# Required on cloud/datacenter IPs (e.g. AWS EC2) where Cloudflare blocks
+# raw API connections. Set WS_BROWSER_HEADERS=true in .env for prod;
+# leave unset (or false) for local development.
+_BROWSER_HEADERS: dict[str, str] | None = (
+    {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Origin": "https://polymarket.com",
+    }
+    if os.environ.get("WS_BROWSER_HEADERS", "").lower() in ("true", "1", "yes")
+    else None
+)
 
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
@@ -425,10 +439,7 @@ class MarketWebSocket:
                         self.ws_url,
                         ping_interval=20,
                         ping_timeout=30,
-                        extra_headers={
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                            "Origin": "https://polymarket.com",
-                        },
+                        extra_headers=_BROWSER_HEADERS,
                     ) as ws:
                         self._websocket = ws
                         backoff = _BASE_BACKOFF
