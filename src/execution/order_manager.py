@@ -53,6 +53,9 @@ class OrderManager:
         self._active_orders: dict[str, OrderState] = {}
         self._dedup: set[tuple[str, str, str]] = set()
 
+        # Optional callback: on_stale_order(slug, order_id, age_s)
+        self.on_stale_order: Any = None
+
         self._stats = {
             "submitted": 0,
             "rejected": 0,
@@ -234,12 +237,17 @@ class OrderManager:
                 self.risk_manager.release_exposure(
                     state.intent.slug, state.intent.price * state.intent.size
                 )
+                age_s = (now_ns - state.placed_at_ns) / 1e9
                 logger.warning(
                     "[ORDER] Stale-expired %s: %s (pending %.0fs)",
-                    oid[:16], state.intent.slug,
-                    (now_ns - state.placed_at_ns) / 1e9,
+                    oid[:16], state.intent.slug, age_s,
                 )
                 self._persist_order(state)
+                if self.on_stale_order:
+                    try:
+                        self.on_stale_order(state.intent.slug, oid, age_s)
+                    except Exception:
+                        pass
 
             self._prune_terminal_orders(now_ns)
 

@@ -155,6 +155,23 @@ class Bot:
         if conn is not None:
             self.order_manager.load_dedup_from_db(conn)
 
+        # Wire stale-order Telegram alert
+        def _on_stale_order(slug: str, order_id: str, age_s: float) -> None:
+            if not self.telegram.enabled:
+                return
+            display = format_slug_with_est_time(slug)
+            body = (
+                f"📍 <b>Market:</b> <code>{display}</code>\n"
+                f"🆔 <b>Order:</b> <code>{order_id[:16]}…</code>\n"
+                f"⏱ <b>Pending for:</b> {age_s:.0f}s before force-expired\n"
+                f"💸 <b>Exposure released</b>"
+            )
+            asyncio.run_coroutine_threadsafe(
+                self.telegram.push_message(self._telegram_msg("🕐", "STALE ORDER EXPIRED", body)),
+                self.loop,
+            )
+        self.order_manager.on_stale_order = _on_stale_order
+
         self.position_tracker = PositionTracker(
             persistence=self.persistence,
         )
@@ -593,6 +610,13 @@ class Bot:
                     self.dashboard.push_event(
                         f"⚠️ [yellow]SKIP[/yellow]  {display_slug}  RISK: {risk_reason}"
                     )
+                    # Telegram alert for risk block
+                    if self.telegram.enabled:
+                        body = (
+                            f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
+                            f"🚫 <b>Reason:</b> <code>{risk_reason}</code>"
+                        )
+                        await self.telegram.push_message(self._telegram_msg("⚠️", "ORDER RISK BLOCKED", body))
                 continue
 
             if state and self.dashboard:
