@@ -247,6 +247,28 @@ def get_order_status(order_id: str) -> Optional[dict[str, Any]]:
         return None
 
 
+def cancel_order(order_id: str) -> bool:
+    """Cancel a live order by ID via the CLOB API.
+
+    Returns True on success, False on failure.
+    """
+    client = create_clob_client()
+    if client is None:
+        return False
+
+    try:
+        resp = client.cancel(order_id)
+        # py_clob_client returns a dict with 'canceled' list on success
+        if isinstance(resp, dict) and resp.get("canceled"):
+            logger.info("[ORDER] Cancelled order %s", order_id[:16])
+            return True
+        logger.warning("[ORDER] Cancel returned unexpected response for %s: %s", order_id[:16], resp)
+        return False
+    except Exception:
+        logger.warning("[ORDER] Cancel failed for %s", order_id[:16], exc_info=True)
+        return False
+
+
 def get_usdc_balance() -> float:
     """Fetch the USDC balance (collateral) for the current funder.
     

@@ -28,6 +28,14 @@ from ..storage.persistence import AsyncPersistence
 
 logger = get_logger(__name__)
 
+# Per market-duration cancel timeouts (seconds after placement)
+# Format: {duration_minutes: cancel_after_seconds}
+_CANCEL_TIMEOUT_BY_DURATION: dict[int, float] = {
+    5:  3 * 60,   # 3 min for 5-min markets
+    15: 7 * 60,   # 7 min for 15-min markets
+    60: 15 * 60,  # 15 min for 60-min markets
+}
+_DEFAULT_CANCEL_TIMEOUT_S: float = 5 * 60   # fallback: 5 min
 STALE_ORDER_TIMEOUT_S = 90   # post-expiry fills are nearly instant; free exposure quickly
 RECONCILE_INTERVAL_S = 15
 TERMINAL_RETENTION_S = 600
@@ -215,34 +223,60 @@ class OrderManager:
 
     # ── Stale order reaper ────────────────────────────────────────────────
 
+    @staticmethod
+    def _cancel_timeout_for_slug(slug: str) -> float:
+        """Return the cancel-after-N-seconds timeout for the given market slug."""
+        import re
+        m = re.search(r"-(\d+)m(?:in)?-", slug)
+        if m:
+            dur = int(m.group(1))
+            return _CANCEL_TIMEOUT_BY_DURATION.get(dur, _DEFAULT_CANCEL_TIMEOUT_S)
+        return _DEFAULT_CANCEL_TIMEOUT_S
+
     async def reap_stale_orders(self) -> None:
-        """Background task: expire orders stuck pending > timeout and prune old terminal orders."""
+        """Background task: cancel+expire orders pending beyond per-duration timeout."""
         while True:
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)   # check every 30s for responsiveness
             now_ns = time.time_ns()
 
-            stale: list[str] = []
+            to_cancel: list[str] = []
             for oid, state in self._active_orders.items():
-                if state.is_terminal:
+                if state.is_terminal or state.dry_run:
                     continue
                 age_s = (now_ns - state.placed_at_ns) / 1e9
-                if age_s > STALE_ORDER_TIMEOUT_S:
-                    stale.append(oid)
+                timeout = self._cancel_timeout_for_slug(state.intent.slug)
+                if age_s > timeout:
+                    to_cancel.append(oid)
 
-            for oid in stale:
-                state = self._active_orders[oid]
+            for oid in to_cancel:
+                state = self._active_orders.get(oid)
+                if state is None or state.is_terminal:
+                    continue
+                age_s = (now_ns - state.placed_at_ns) / 1e9
+
+                logger.warning(
+                    "[ORDER] Cancelling stale order %s: %s (pending %.0fs)",
+                    oid[:16], state.intent.slug, age_s,
+                )
+
+                # Actually cancel via the CLOB REST API
+                cancelled = await self.rest_client.cancel_order(oid)
+
                 state.status = OrderStatus.EXPIRED_STALE
-                state.resolved_at_ns = now_ns
+                state.resolved_at_ns = time.time_ns()
                 self._stats["expired"] += 1
                 self.risk_manager.release_exposure(
                     state.intent.slug, state.intent.price * state.intent.size
                 )
-                age_s = (now_ns - state.placed_at_ns) / 1e9
-                logger.warning(
-                    "[ORDER] Stale-expired %s: %s (pending %.0fs)",
-                    oid[:16], state.intent.slug, age_s,
-                )
                 self._persist_order(state)
+
+                logger.info(
+                    "[ORDER] Stale order %s %s after %.0fs",
+                    oid[:16],
+                    "cancelled on exchange" if cancelled else "locally expired (cancel failed)",
+                    age_s,
+                )
+
                 if self.on_stale_order:
                     try:
                         self.on_stale_order(state.intent.slug, oid, age_s)

@@ -11,7 +11,7 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order, get_usdc_balance
+from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order, get_usdc_balance, cancel_order as _cancel_order_sync
 from ..core.events import OrderStatus, OrderSubmitted, OrderTerminal
 from ..core.models import OrderIntent, Side
 from ..gamma_client import fetch_event_by_slug
@@ -123,6 +123,11 @@ class AsyncRestClient:
         """Fetch a single order's current state from the CLOB REST API."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, get_order_status, order_id)
+
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel a live order by ID. Returns True if successfully cancelled."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _cancel_order_sync, order_id)
 
     # ── Market data ───────────────────────────────────────────────────────
 
