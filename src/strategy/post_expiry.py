@@ -34,9 +34,11 @@ class PostExpirySweepStrategy(Strategy):
     def __init__(
         self,
         order_price: float = MAX_ORDER_PRICE,
+        price_threshold: float = 0.95,
         hot_tokens: set[str] | None = None,
     ) -> None:
         self._order_price = order_price
+        self._price_threshold = price_threshold
         self._watching: dict[str, dict] = {}
         self._hot_tokens: set[str] = hot_tokens if hot_tokens is not None else set()
         self.last_skip_reason: str | None = None
@@ -169,6 +171,16 @@ class PostExpirySweepStrategy(Strategy):
         best_token = eval_data["best_token_id"]
         best_outcome = eval_data["best_outcome"]
         self.last_best_price = best_price
+
+        if best_price < self._price_threshold:
+            self.last_skip_reason = (
+                f"price {best_price:.3f} < {self._price_threshold:.2f} — waiting for convergence"
+            )
+            logger.info(
+                "[POST_EXPIRY] %s: %s @ %.3f below threshold %.2f — skipping",
+                slug, best_outcome, best_price, self._price_threshold,
+            )
+            return None
 
         from ..config import POST_EXPIRY_MULTIPLIER
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)

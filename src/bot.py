@@ -201,12 +201,14 @@ class Bot:
             if strategy_name == "post_expiry":
                 self.strategies = [
                     PostExpirySweepStrategy(
+                        price_threshold=price_threshold,
                         hot_tokens=self._hot_tokens,
                     )
                 ]
             elif strategy_name == "aggressive_post_expiry":
                 self.strategies = [
                     AggressivePostExpirySweepStrategy(
+                        price_threshold=price_threshold,
                         hot_tokens=self._hot_tokens,
                     )
                 ]
