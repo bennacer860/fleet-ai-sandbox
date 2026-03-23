@@ -498,6 +498,7 @@ class Bot:
     async def _on_tick_size_change(self, event: TickSizeChange) -> None:
         handler_start_ns = time.time_ns()
         self._update_context()
+        self._strategy_ctx.tick_sizes[event.token_id] = float(event.new_tick_size)
         for strategy in self.strategies:
             try:
                 intents = await strategy.on_tick_size_change(event, self._strategy_ctx)

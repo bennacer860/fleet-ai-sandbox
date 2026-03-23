@@ -203,12 +203,15 @@ class AggressivePostExpirySweepStrategy(Strategy):
             self.last_skip_reason = "already filled (position exists)"
             return None
 
+        target_tick_size = ctx.tick_sizes.get(best_token, 0.01)
         if state.phase == 2:
             order_price = AGGRESSIVE_PHASE2_PRICE
-            tick_size = 0.001
         else:
             order_price = AGGRESSIVE_PHASE1_PRICE
-            tick_size = 0.01
+            
+        tick_size = target_tick_size
+        if tick_size >= 0.01:
+            order_price = min(order_price, 0.99)
 
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
         order_size = max(DEFAULT_TRADE_SIZE, min_size) * POST_EXPIRY_MULTIPLIER
