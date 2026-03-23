@@ -139,7 +139,7 @@ class UserWebSocket:
             },
             "type": "subscribe",
             "channels": ["user"],
-        })
+        }).decode("utf-8")
         await ws.send(auth_msg)
 
         for _ in range(5):

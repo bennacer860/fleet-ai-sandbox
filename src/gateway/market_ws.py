@@ -208,7 +208,7 @@ class MarketWebSocket:
                 "assets_ids": new_tids,
                 "channels": ["book", "tick_size_change"],
                 "custom_feature_enabled": False,
-            })
+            }).decode("utf-8")
             await self._websocket.send(msg)
 
     async def remove_markets(self, slugs: list[str]) -> None:
@@ -226,7 +226,7 @@ class MarketWebSocket:
             logger.info("[MARKET_REMOVE] %s", slug)
 
         if tids_to_unsub and self._websocket:
-            msg = orjson.dumps({"type": "unsubscribe", "assets_ids": tids_to_unsub})
+            msg = orjson.dumps({"type": "unsubscribe", "assets_ids": tids_to_unsub}).decode("utf-8")
             await self._websocket.send(msg)
 
     # ── Message processing ────────────────────────────────────────────────
@@ -449,7 +449,7 @@ class MarketWebSocket:
                             "assets_ids": all_tids,
                             "channels": ["book", "tick_size_change"],
                             "custom_feature_enabled": False,
-                        })
+                        }).decode("utf-8")
                         await ws.send(sub_msg)
                         logger.info("[WS_MARKET] Connected, subscribed to %d tokens (channels: book, tick_size_change)", len(all_tids))
 
