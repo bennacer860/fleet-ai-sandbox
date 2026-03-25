@@ -17,7 +17,7 @@ import asyncio
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
-from ..markets.fifteen_min import extract_market_end_ts
+from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug
 from ..config import DEFAULT_TRADE_SIZE, AGGRESSIVE_POLL_INTERVAL_S
 
 from .base import Strategy, StrategyContext
@@ -27,6 +27,13 @@ logger = get_logger(__name__)
 SWEEP_TICK_SIZE = "0.001"
 MAX_ORDER_PRICE = 0.999
 FALLBACK_MIN_ORDER_SIZE = 5.0
+
+DEFAULT_PRICE_THRESHOLD = 0.99
+_ASSET_PRICE_THRESHOLD: dict[str, float] = {
+    "DOGE": 0.85,
+    "HYPE": 0.85,
+    "BNB": 0.85,
+}
 
 class PostExpirySweepStrategy(Strategy):
     """Buys the winning token just after expiration if tick size is 0.001."""
@@ -172,13 +179,16 @@ class PostExpirySweepStrategy(Strategy):
         best_outcome = eval_data["best_outcome"]
         self.last_best_price = best_price
 
-        if best_price < self._price_threshold:
+        asset = extract_market_from_slug(slug)
+        threshold = _ASSET_PRICE_THRESHOLD.get(asset, self._price_threshold)
+
+        if best_price < threshold:
             self.last_skip_reason = (
-                f"price {best_price:.3f} < {self._price_threshold:.2f} — waiting for convergence"
+                f"price {best_price:.3f} < {threshold:.2f} — waiting for convergence"
             )
             logger.info(
                 "[POST_EXPIRY] %s: %s @ %.3f below threshold %.2f — skipping",
-                slug, best_outcome, best_price, self._price_threshold,
+                slug, best_outcome, best_price, threshold,
             )
             return None
 
