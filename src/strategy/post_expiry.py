@@ -67,7 +67,20 @@ class PostExpirySweepStrategy(Strategy):
 
         self._start_watching(event.slug, eval_data)
         self.last_watching = True
-        
+
+        end_ts = extract_market_end_ts(event.slug)
+        if end_ts is not None:
+            tte = end_ts - time.time()
+            if tte > 0:
+                logger.info(
+                    "[POST_EXPIRY] %s: tick arrived %.1fs before expiry — sleeping until expiration",
+                    event.slug, tte,
+                )
+                await asyncio.sleep(tte)
+                if event.slug not in self._watching:
+                    return None
+                self._refresh_prices(event.slug, eval_data, ctx)
+
         return self._check_and_build_order(event.slug, eval_data, ctx)
 
     async def on_book_update(
