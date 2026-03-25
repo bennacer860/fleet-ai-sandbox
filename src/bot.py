@@ -634,7 +634,10 @@ class Bot:
                     e_ms = state.eval_ms
                     r_ms = state.signal_to_rest_ms
                     if q_ms is not None and e_ms is not None and r_ms is not None:
-                        timing += f" (bus={q_ms:.0f}ms eval={e_ms:.0f}ms rest={r_ms:.0f}ms)"
+                        rest_detail = f"rest={r_ms:.0f}ms"
+                        if state.sign_ms is not None and state.post_ms is not None:
+                            rest_detail = f"sign={state.sign_ms:.0f}ms post={state.post_ms:.0f}ms"
+                        timing += f" (bus={q_ms:.0f}ms eval={e_ms:.0f}ms {rest_detail})"
                 if expiry_s is not None:
                     timing += f"  expires={expiry_s:.0f}s"
 

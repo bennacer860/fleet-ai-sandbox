@@ -75,6 +75,9 @@ class AsyncRestClient:
                 reason="CLOB client unavailable (not initialised)",
             )
 
+        sign_ms = resp.pop("_sign_ms", None) if resp else None
+        post_ms = resp.pop("_post_ms", None) if resp else None
+
         if resp.get("success"):
             order_id = resp.get("orderId") or resp.get("orderID")
             if not order_id:
@@ -87,9 +90,10 @@ class AsyncRestClient:
 
             latency_ms = (rest_ns - signal_ns) / 1_000_000
             logger.info(
-                "[ORDER] Submitted %s: %s %s @ %.4f x %.2f (%.0fms)",
+                "[ORDER] Submitted %s: %s %s @ %.4f x %.2f (%.0fms, sign=%.0fms post=%.0fms)",
                 order_id, intent.side.value, intent.slug,
                 intent.price, intent.size, latency_ms,
+                sign_ms or 0, post_ms or 0,
             )
             return OrderSubmitted(
                 order_id=order_id,
@@ -99,6 +103,8 @@ class AsyncRestClient:
                 price=intent.price,
                 size=intent.size,
                 side=intent.side.value,
+                sign_ms=sign_ms,
+                post_ms=post_ms,
                 timestamp_ns=rest_ns,
             )
 

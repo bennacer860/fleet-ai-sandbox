@@ -128,6 +128,8 @@ class OrderManager:
                 signal_ns=signal_ns,
                 rest_response_ns=rest_ns,
                 dry_run=self.dry_run,
+                sign_ms=result.sign_ms,
+                post_ms=result.post_ms,
             )
             self._active_orders[result.order_id] = state
             self.risk_manager.record_order(intent)

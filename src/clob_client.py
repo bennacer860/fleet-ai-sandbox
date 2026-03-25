@@ -1,5 +1,7 @@
 """CLOB client wrapper for placing Polymarket orders."""
 
+import time
+
 import httpx
 from typing import Any, Optional
 
@@ -361,8 +363,14 @@ def place_limit_order(
             side=side_const,
             token_id=token_id,
         )
+        t0 = time.perf_counter_ns()
         signed_order = client.create_order(order_args, options)
+        t1 = time.perf_counter_ns()
         resp = client.post_order(signed_order, OrderType.GTC)
+        t2 = time.perf_counter_ns()
+
+        resp["_sign_ms"] = (t1 - t0) / 1_000_000
+        resp["_post_ms"] = (t2 - t1) / 1_000_000
 
         success = resp.get("success", False)
         error_msg = resp.get("errorMsg") or resp.get("error_msg") or ""

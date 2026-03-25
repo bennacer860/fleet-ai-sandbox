@@ -56,6 +56,8 @@ class OrderState:
     rejection_reason: str = ""
     resolved_at_ns: int | None = None
     dry_run: bool = False
+    sign_ms: float | None = None
+    post_ms: float | None = None
     tick_event_ns: int | None = None
     handler_start_ns: int | None = None
     market_end_ts: float | None = None
