@@ -1034,7 +1034,6 @@ class Bot:
             asyncio.create_task(self._supervised_task("health", self.health_monitor.run)),
             asyncio.create_task(self._supervised_task("alerts", self.alert_manager.run)),
             asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),
-            asyncio.create_task(self._supervised_task("stale_reaper", self.order_manager.reap_stale_orders)),
             asyncio.create_task(self._supervised_task("sub_manager", self._manage_subscriptions)),
             asyncio.create_task(self._supervised_task("strategy_poll", self._strategy_poll_loop)),
         ]
