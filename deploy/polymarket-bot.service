@@ -1,21 +1,19 @@
 [Unit]
-Description=Polymarket Bot
+Description=Polymarket Bot (tmux)
 After=network.target litestream.service
 Requires=litestream.service
 
 [Service]
-Type=simple
+Type=forking
 User=ec2-user
 Group=ec2-user
 WorkingDirectory=/opt/polymarket-bot
-
-# Load all the secrets from the .env file into the systemd environment
 EnvironmentFile=/opt/polymarket-bot/.env
 
-# Run python directly so systemd natively grabs the logs
-ExecStart=/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP --durations 5 15 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 60 --dashboard
+ExecStart=/usr/bin/tmux new-session -d -s bot -e "HOME=/home/ec2-user" \
+  '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP --durations 5 15 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 60 --dashboard; exec bash'
+ExecStop=/usr/bin/tmux kill-session -t bot
 
-# Clean restart behaviour
 Restart=always
 RestartSec=10
 
