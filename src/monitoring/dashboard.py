@@ -361,7 +361,7 @@ class Dashboard:
 
     def _events_panel(self) -> Panel:
         if self._recent_events:
-            content = "\n".join(reversed(self._recent_events))
+            content = "\n".join(self._recent_events)
         else:
             content = "  (waiting for events...)"
         return Panel(content, title=f"RECENT EVENTS (last {MAX_EVENTS})", border_style="magenta")
