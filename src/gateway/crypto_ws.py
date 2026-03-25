@@ -31,6 +31,9 @@ _SYMBOL_TO_ASSET: dict[str, str] = {
     "ETHUSDT": "ETH",
     "SOLUSDT": "SOL",
     "XRPUSDT": "XRP",
+    "DOGEUSDT": "DOGE",
+    "HYPEUSDT": "HYPE",
+    "BNBUSDT": "BNB",
 }
 
 _ASSET_TO_SYMBOL: dict[str, str] = {v: k for k, v in _SYMBOL_TO_ASSET.items()}
