@@ -186,9 +186,10 @@ class PostExpirySweepStrategy(Strategy):
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
         order_size = max(DEFAULT_TRADE_SIZE, min_size) * POST_EXPIRY_MULTIPLIER
 
-        target_tick_size = ctx.tick_sizes.get(best_token, 0.01)
-        # Ensure order price is valid for the token's current tick size
-        safe_order_price = self._order_price if target_tick_size < 0.01 else min(self._order_price, 0.99)
+        all_tids = eval_data.get("token_ids", (best_token,))
+        tick_sizes = [ctx.tick_sizes.get(t, 0.01) for t in all_tids]
+        market_tick_size = min(tick_sizes)
+        safe_order_price = self._order_price if market_tick_size < 0.01 else min(self._order_price, 0.99)
 
         logger.info(
             "[POST_EXPIRY] Expiration passed for %s. Winning outcome: %s @ %.3f → BUY %.4f x %.2f",
@@ -205,7 +206,7 @@ class PostExpirySweepStrategy(Strategy):
             side=Side.BUY,
             strategy=self.name(),
             slug=slug,
-            tick_size=target_tick_size,
+            tick_size=market_tick_size,
         )]
 
     def _get_eval(
