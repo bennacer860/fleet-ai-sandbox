@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS orders (
     strike_price     REAL,
     proximity        REAL,
     spot_price_age_ms REAL,
+    sign_ms         REAL,
+    post_ms         REAL,
     dry_run         INTEGER NOT NULL DEFAULT 0
 );
 
@@ -138,6 +140,8 @@ _MIGRATIONS = [
     ("orders", "proximity", "ALTER TABLE orders ADD COLUMN proximity REAL"),
     ("orders", "spot_price_age_ms", "ALTER TABLE orders ADD COLUMN spot_price_age_ms REAL"),
     ("trades", "spot_price", "ALTER TABLE trades ADD COLUMN spot_price REAL"),
+    ("orders", "sign_ms", "ALTER TABLE orders ADD COLUMN sign_ms REAL"),
+    ("orders", "post_ms", "ALTER TABLE orders ADD COLUMN post_ms REAL"),
 ]
 
 
