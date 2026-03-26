@@ -189,10 +189,15 @@ class Bot:
         # time-critical short-duration events.
         self._hot_tokens: set[str] = set()
 
+        # Gabagool needs book updates from all markets to function (it
+        # activates from book data, not tick-size changes).  Disable the
+        # filter so BookUpdate events reach the strategy immediately.
+        use_book_filter = strategy_name != "gabagool"
+
         self.market_ws = MarketWebSocket(
             event_bus=self.event_bus,
             initial_slugs=list(self._slugs),
-            book_event_filter=self._hot_tokens,
+            book_event_filter=self._hot_tokens if use_book_filter else None,
         )
         self.user_ws = UserWebSocket(event_bus=self.event_bus)
 
