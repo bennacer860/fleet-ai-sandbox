@@ -91,6 +91,7 @@ class MarketWebSocket:
         self._reconnect_count = 0
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
         self._books_filtered = 0  # counter for filtered-out book updates
+        self._books_processed = 0  # counter for successfully processed book updates
 
     # ── Public read-only state ────────────────────────────────────────────
 
@@ -202,14 +203,18 @@ class MarketWebSocket:
             except Exception:
                 logger.exception("Error adding %s", slug)
 
-        if new_tids and self._websocket:
-            msg = orjson.dumps({
-                "type": "subscribe",
-                "assets_ids": new_tids,
-                "channels": ["book", "tick_size_change"],
-                "custom_feature_enabled": False,
-            }).decode("utf-8")
-            await self._websocket.send(msg)
+        if new_tids:
+            if self._websocket:
+                msg = orjson.dumps({
+                    "type": "subscribe",
+                    "assets_ids": new_tids,
+                    "channels": ["book", "tick_size_change"],
+                    "custom_feature_enabled": False,
+                }).decode("utf-8")
+                await self._websocket.send(msg)
+                logger.info("[MARKET_WS_SUB] Subscribed %d new tokens on live WS", len(new_tids))
+            else:
+                logger.warning("[MARKET_WS_SUB] No active WS connection — %d tokens NOT subscribed", len(new_tids))
 
     async def remove_markets(self, slugs: list[str]) -> None:
         tids_to_unsub: list[str] = []
@@ -237,6 +242,13 @@ class MarketWebSocket:
             return
         slug = self.slug_by_token.get(asset_id)
         if not slug or not self.market_active.get(slug, False):
+            if self._msg_count % 500 == 0:
+                logger.debug(
+                    "[BOOK_DROP] asset=%s… slug=%s active=%s known_slugs=%d",
+                    str(asset_id)[:20], slug,
+                    self.market_active.get(slug) if slug else "N/A",
+                    len(self.slug_by_token),
+                )
             return
 
         raw_bids = data.get("bids") or []
@@ -273,6 +285,7 @@ class MarketWebSocket:
         )
 
         cond = self.condition_by_token.get(asset_id, "")
+        self._books_processed += 1
         self.event_bus.publish_nowait(BookUpdate(
             token_id=asset_id,
             condition_id=cond,
@@ -461,6 +474,14 @@ class MarketWebSocket:
 
                                 self._last_message_time = time.monotonic()
                                 self._msg_count += 1
+
+                                if self._msg_count % 1000 == 0:
+                                    logger.info(
+                                        "[WS_STATS] msgs=%d book_processed=%d book_filtered=%d slugs=%d active=%d",
+                                        self._msg_count, self._books_processed,
+                                        self._books_filtered,
+                                        len(self.slug_by_token), sum(1 for v in self.market_active.values() if v),
+                                    )
 
                                 if raw == "INVALID OPERATION" or raw == "PONG":
                                     continue
