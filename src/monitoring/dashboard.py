@@ -78,6 +78,8 @@ class Dashboard:
         self._recent_events: deque[str] = deque(maxlen=MAX_EVENTS)
         self._exchange_latencies: deque[float] = deque(maxlen=100)
         self._tick_latencies: deque[float] = deque(maxlen=100)
+        self._sign_latencies: deque[float] = deque(maxlen=100)
+        self._post_latencies: deque[float] = deque(maxlen=100)
         self._expiry_times: deque[float] = deque(maxlen=100)
         self._running = False
         self._slug_display_cache: dict[str, str] = {}
@@ -98,11 +100,21 @@ class Dashboard:
     def push_latency(self, latency_ms: float) -> None:
         self._exchange_latencies.append(latency_ms)
         
-    def push_order_metrics(self, tick_ms: float | None, expiry_s: float | None) -> None:
+    def push_order_metrics(
+        self,
+        tick_ms: float | None,
+        expiry_s: float | None,
+        sign_ms: float | None = None,
+        post_ms: float | None = None,
+    ) -> None:
         if tick_ms is not None:
             self._tick_latencies.append(tick_ms)
         if expiry_s is not None:
             self._expiry_times.append(expiry_s)
+        if sign_ms is not None:
+            self._sign_latencies.append(sign_ms)
+        if post_ms is not None:
+            self._post_latencies.append(post_ms)
 
     def push_event(self, text: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
@@ -182,6 +194,13 @@ class Dashboard:
                 avg_tick = sum(t_lats) / len(t_lats)
                 last_tick = t_lats[-1]
                 lines.append(f"Tick→Order: {last_tick:.0f}ms (avg {avg_tick:.0f}ms)")
+
+            if self._sign_latencies:
+                s = list(self._sign_latencies)
+                lines.append(f"  Sign:  min={min(s):.0f}  avg={sum(s)/len(s):.0f}  max={max(s):.0f}ms")
+            if self._post_latencies:
+                p = list(self._post_latencies)
+                lines.append(f"  Post:  min={min(p):.0f}  avg={sum(p)/len(p):.0f}  max={max(p):.0f}ms")
             
             if self._expiry_times:
                 e_vals = list(self._expiry_times)
