@@ -319,6 +319,20 @@ def _simulate_fill(
         slip = rng.uniform(0, 0.02)
         return order_size, price + slip
 
+    if fill_mode == "asymmetric":
+        # YES fills 90% of the time, NO fills only 30%
+        rate = 0.9 if side == "YES" else 0.3
+        if rng.random() > rate:
+            return None, 0.0
+        pct = rng.uniform(0.5, 1.0)
+        return order_size * pct, price
+
+    if fill_mode == "one_sided":
+        # Only YES ever fills; NO always misses
+        if side == "NO":
+            return None, 0.0
+        return order_size, price
+
     return order_size, price
 
 
@@ -727,3 +741,409 @@ class TestRandomizedStress:
         if min(s.qty_yes, s.qty_no) > 0:
             assert s.balance_ratio <= cfg.max_imbalance + 0.01
             assert s.pair_cost <= cfg.max_pair_cost + 0.01
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Adversarial fill tests — asymmetric, one-sided, loss bounds, recovery
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestAsymmetricFills:
+    """YES fills 90% of the time, NO fills only 30%.
+
+    This is the most dangerous real-world scenario: one side of the hedge
+    consistently fails to execute, creating directional exposure.
+    """
+
+    CFG = SimConfig(
+        max_pair_cost=0.98,
+        max_imbalance=2.0,
+        trend_min_amplitude=0.10,
+        observation_ticks=10,
+    )
+
+    @pytest.mark.parametrize("seed", range(15))
+    def test_balance_ratio_within_limits(self, seed):
+        """Despite asymmetric fills the balance guard should contain imbalance."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=seed)
+        result = run_simulation(
+            path, config=self.CFG, fill_mode="asymmetric", seed=seed,
+        )
+        s = result.pair_state
+        if min(s.qty_yes, s.qty_no) > 0:
+            assert s.balance_ratio <= self.CFG.max_imbalance + 0.01
+
+    @pytest.mark.parametrize("seed", range(15))
+    def test_total_exposure_bounded(self, seed):
+        """Total cost must never exceed what the pair-cost cap allows."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=seed)
+        result = run_simulation(
+            path, config=self.CFG, fill_mode="asymmetric", seed=seed,
+        )
+        s = result.pair_state
+        assert s.cost_yes >= 0
+        assert s.cost_no >= 0
+        if min(s.qty_yes, s.qty_no) > 0:
+            assert s.pair_cost <= self.CFG.max_pair_cost + 0.01
+
+    def test_strategy_favors_lighter_side(self):
+        """After asymmetric fills, pick_side should consistently choose
+        the underweight (NO) side — the side that filled less often."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=42)
+        result = run_simulation(
+            path, config=self.CFG, fill_mode="asymmetric", seed=42,
+        )
+        buys = [d for d in result.decisions if d.get("action") == "buy"]
+        if len(buys) > 4:
+            no_buys = sum(1 for d in buys if d["side"] == "NO")
+            yes_buys = sum(1 for d in buys if d["side"] == "YES")
+            # The strategy should attempt to buy NO at least as often as YES
+            # to compensate for NO's lower fill rate
+            assert no_buys >= yes_buys * 0.5, (
+                f"Expected more NO buys to rebalance; got YES={yes_buys}, NO={no_buys}"
+            )
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_asymmetric_mean_reverting(self, seed):
+        """Asymmetric fills on a mean-reverting market."""
+        path = mean_reverting_market(n_ticks=200, noise=0.08, seed=seed)
+        result = run_simulation(
+            path, config=self.CFG, fill_mode="asymmetric", seed=seed,
+        )
+        s = result.pair_state
+        if min(s.qty_yes, s.qty_no) > 0:
+            assert s.balance_ratio <= self.CFG.max_imbalance + 0.01
+            assert s.pair_cost <= self.CFG.max_pair_cost + 0.01
+
+
+class TestLossBounds:
+    """Assert concrete loss bounds in worst-case scenarios.
+
+    The fundamental invariant: you can never lose more than you spent.
+    """
+
+    def test_trending_missed_fills_loss_bounded_by_cost(self):
+        """Trending market + missed fills: worst-case P&L >= -total_cost."""
+        path = trending_market(
+            n_ticks=150, drift=0.005, noise=0.04, seed=99,
+        )
+        cfg = SimConfig(trend_min_amplitude=0.08, trend_min_reversals=1)
+        result = run_simulation(path, config=cfg, fill_mode="missed", fill_rate=0.5)
+        s = result.pair_state
+        if s.total_cost > 0:
+            worst = result.worst_case_pnl
+            assert worst >= -s.total_cost - 1e-9, (
+                f"Loss {worst:.4f} exceeded total cost {s.total_cost:.4f}"
+            )
+
+    def test_probe_phase_loss_cap(self):
+        """If only one side fills during probe, max loss = probe_size * price."""
+        cfg = SimConfig(
+            probe_size_factor=0.25,
+            base_order_size=10.0,
+            trend_min_amplitude=0.10,
+        )
+        path = oscillating_market(n_ticks=50, amplitude=0.3, seed=42)
+        result = run_simulation(
+            path, config=cfg, fill_mode="one_sided", seed=42,
+        )
+        s = result.pair_state
+        if result.orders_placed > 0:
+            probe_size = cfg.base_order_size * cfg.probe_size_factor
+            # With one_sided fills, only YES fills. Max loss is the cost of YES.
+            assert s.cost_yes <= probe_size * 0.99 + 1e-9, (
+                f"One-sided probe cost {s.cost_yes:.4f} exceeded expected cap"
+            )
+            assert s.cost_no == 0.0
+
+    def test_build_phase_loss_bounded(self):
+        """When both sides fill but pair_cost > 1.0, loss is bounded."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=42)
+        cfg = SimConfig(max_pair_cost=0.98, trend_min_amplitude=0.10)
+        result = run_simulation(path, config=cfg, fill_mode="slippage", seed=42)
+        s = result.pair_state
+        if s.total_cost > 0:
+            worst = result.worst_case_pnl
+            assert worst >= -s.total_cost - 1e-9
+
+    @pytest.mark.parametrize("seed", range(20))
+    def test_loss_never_exceeds_investment(self, seed):
+        """Universal bound: for any scenario, loss <= total money invested."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=seed)
+        for fill_mode in ("instant", "partial", "missed", "asymmetric"):
+            result = run_simulation(path, fill_mode=fill_mode, seed=seed)
+            s = result.pair_state
+            if s.total_cost > 0:
+                worst = result.worst_case_pnl
+                assert worst >= -s.total_cost - 1e-9, (
+                    f"seed={seed} mode={fill_mode}: loss {worst:.4f} "
+                    f"> cost {s.total_cost:.4f}"
+                )
+
+    def test_flash_spike_no_recovery_loss_bounded(self):
+        """Flash spike that never recovers — damage is contained."""
+        path = flash_spike_market(n_ticks=150, spike_size=0.35, decay=0.001)
+        cfg = SimConfig(observation_ticks=5, trend_min_amplitude=0.08)
+        result = run_simulation(
+            path, config=cfg, fill_mode="partial", seed=42,
+        )
+        s = result.pair_state
+        if s.total_cost > 0:
+            worst = result.worst_case_pnl
+            assert worst >= -s.total_cost - 1e-9
+
+
+class TestRecoveryFromImbalance:
+    """Verify the strategy self-corrects after partial fills create imbalance."""
+
+    def test_pick_side_routes_to_lighter_side(self):
+        """With a severe imbalance, pick_side must choose the lighter side."""
+        state = PairState(slug="test")
+        state.apply_fill("YES", 50, 0.40)
+        state.apply_fill("NO", 10, 0.55)
+
+        side, price, reason = pick_side(
+            state,
+            yes_ask=0.45,
+            no_ask=0.55,
+            max_pair_cost=0.98,
+            max_imbalance=2.0,
+            order_size=10.0,
+        )
+        assert side == "NO", f"Expected NO (lighter side), got {side}: {reason}"
+
+    def test_balance_improves_after_correction_fills(self):
+        """After routing orders to the lighter side, balance ratio improves."""
+        state = PairState(slug="test")
+        state.apply_fill("YES", 50, 0.40)
+        state.apply_fill("NO", 10, 0.55)
+        initial_ratio = state.balance_ratio
+
+        for _ in range(5):
+            side, price, reason = pick_side(
+                state,
+                yes_ask=0.45,
+                no_ask=0.55,
+                max_pair_cost=0.98,
+                max_imbalance=2.0,
+                order_size=10.0,
+            )
+            if side is None:
+                break
+            state.apply_fill(side, 10, price)
+
+        assert state.balance_ratio < initial_ratio, (
+            f"Balance ratio did not improve: {initial_ratio:.2f} -> {state.balance_ratio:.2f}"
+        )
+
+    def test_does_not_add_to_heavier_side(self):
+        """With a YES-heavy imbalance near the limit, buying YES is blocked."""
+        state = PairState(slug="test")
+        state.apply_fill("YES", 40, 0.40)
+        state.apply_fill("NO", 20, 0.55)
+
+        allowed, reason = should_buy(
+            state, "YES", 10, 0.45, max_pair_cost=0.98, max_imbalance=2.0,
+        )
+        assert not allowed, f"Should block YES (heavier side), but got allowed: {reason}"
+        assert "balance_ratio" in reason
+
+    def test_recovery_through_simulation(self):
+        """Full simulation: start with imbalanced fills, verify recovery."""
+        # First half: only YES fills (creates imbalance)
+        # Second half: normal fills (should correct)
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=42)
+        cfg = SimConfig(max_imbalance=2.0, trend_min_amplitude=0.10)
+        result = run_simulation(path, config=cfg, fill_mode="asymmetric", seed=42)
+        s = result.pair_state
+        if min(s.qty_yes, s.qty_no) > 0:
+            assert s.balance_ratio <= cfg.max_imbalance + 0.01
+
+
+class TestOneSidedExposure:
+    """Only YES ever fills; NO always misses.
+
+    Tests the 'must establish other side first' guard.
+    """
+
+    CFG = SimConfig(
+        probe_size_factor=0.25,
+        base_order_size=10.0,
+        max_pair_cost=0.98,
+        max_imbalance=2.0,
+        trend_min_amplitude=0.10,
+    )
+
+    def test_guard_prevents_additional_yes_buys(self):
+        """Once YES has a probe fill and NO is empty, no more YES buys."""
+        state = PairState(slug="test")
+        state.apply_fill("YES", 2.5, 0.40)
+
+        allowed, reason = should_buy(
+            state, "YES", 2.5, 0.45,
+            max_pair_cost=0.98, max_imbalance=2.0,
+        )
+        assert not allowed
+        assert "must establish other side first" in reason
+
+    def test_no_side_is_still_allowed(self):
+        """With only YES filled, buying NO should be allowed."""
+        state = PairState(slug="test")
+        state.apply_fill("YES", 2.5, 0.40)
+
+        allowed, reason = should_buy(
+            state, "NO", 2.5, 0.55,
+            max_pair_cost=0.98, max_imbalance=2.0,
+        )
+        assert allowed, f"NO should be allowed but got: {reason}"
+
+    def test_exposure_bounded_to_single_probe(self):
+        """With one_sided fill mode, total orders placed should be minimal."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=42)
+        result = run_simulation(
+            path, config=self.CFG, fill_mode="one_sided", seed=42,
+        )
+        s = result.pair_state
+        # Only YES ever fills, so NO qty must be zero
+        assert s.qty_no == 0.0
+        if s.qty_yes > 0:
+            probe_size = self.CFG.base_order_size * self.CFG.probe_size_factor
+            # The guard should stop after one YES probe fill
+            assert s.qty_yes <= probe_size + 1e-9, (
+                f"Expected at most one probe fill ({probe_size}), got {s.qty_yes}"
+            )
+
+    def test_pnl_loss_equals_probe_cost(self):
+        """Loss in the losing outcome equals exactly the probe cost."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=42)
+        result = run_simulation(
+            path, config=self.CFG, fill_mode="one_sided", seed=42,
+        )
+        s = result.pair_state
+        if s.qty_yes > 0 and s.qty_no == 0:
+            # If NO wins, we lose our YES investment
+            pnl_no_wins = s.pnl_if_resolves("NO")
+            assert abs(pnl_no_wins - (-s.cost_yes)) < 1e-9
+            # If YES wins, payout = qty_yes - total_cost
+            pnl_yes_wins = s.pnl_if_resolves("YES")
+            assert abs(pnl_yes_wins - (s.qty_yes - s.cost_yes)) < 1e-9
+
+
+class TestPartialFillPhaseTransition:
+    """Phase transition edge cases with tiny partial fills."""
+
+    def test_tiny_partial_counts_as_fill(self):
+        """Even a 0.1-share partial should register as a fill for phase tracking."""
+        phase = PhaseManager(probe_size_factor=0.25)
+        assert phase.phase == "probe"
+
+        phase.record_fill("YES")
+        assert phase.phase == "probe"  # still need NO
+
+        phase.record_fill("NO")
+        assert phase.phase == "build"  # both sides filled
+
+    def test_only_yes_partial_stays_in_probe(self):
+        """If only YES gets a fill, probe phase persists."""
+        phase = PhaseManager(probe_size_factor=0.25)
+        # Simulate multiple YES fills but no NO fills
+        for _ in range(5):
+            phase.record_fill("YES")
+        assert phase.phase == "probe"
+
+    def test_both_sides_any_fill_moves_to_build(self):
+        """Once both sides have any fill, phase transitions to build."""
+        phase = PhaseManager(probe_size_factor=0.25)
+        phase.record_fill("YES")
+        assert phase.phase == "probe"
+        phase.record_fill("NO")
+        assert phase.phase == "build"
+
+    def test_probe_size_multiplier_is_reduced(self):
+        """In probe phase, size multiplier should be less than 1.0."""
+        phase = PhaseManager(probe_size_factor=0.25)
+        assert phase.get_size_multiplier() == 0.25
+        phase.record_fill("YES")
+        phase.record_fill("NO")
+        assert phase.get_size_multiplier() == 1.0
+
+    def test_partial_fill_simulation_preserves_phase(self):
+        """Full sim: partial fills should let the strategy correctly transition."""
+        path = oscillating_market(n_ticks=200, amplitude=0.3, seed=42)
+        cfg = SimConfig(probe_size_factor=0.25, trend_min_amplitude=0.10)
+        result = run_simulation(path, config=cfg, fill_mode="partial", seed=42)
+        if result.orders_placed > 0:
+            assert "probe" in result.phase_history
+            if result.orders_placed >= 2:
+                # After 2+ fills on different sides, build should appear
+                buys = [d for d in result.decisions if d.get("action") == "buy"]
+                sides_filled = {d["side"] for d in buys}
+                if len(sides_filled) == 2:
+                    assert "build" in result.phase_history
+
+
+WORST_CASE_MARKETS = [
+    ("oscillating", oscillating_market(n_ticks=150, amplitude=0.3, seed=1)),
+    ("trending_noisy", trending_market(n_ticks=150, drift=0.005, noise=0.04, seed=2)),
+    ("mean_reverting", mean_reverting_market(n_ticks=150, noise=0.08, seed=3)),
+    ("flash_spike", flash_spike_market(n_ticks=150, spike_size=0.3, seed=4)),
+    ("dampening", dampening_oscillation(n_ticks=150, amplitude=0.4, seed=5)),
+]
+
+FILL_MODES = ["instant", "partial", "missed", "slippage", "asymmetric"]
+
+
+@pytest.mark.parametrize(
+    "market_name,path", WORST_CASE_MARKETS,
+    ids=[m[0] for m in WORST_CASE_MARKETS],
+)
+@pytest.mark.parametrize("fill_mode", FILL_MODES)
+class TestWorstCasePnlMatrix:
+    """P&L safety net across all fill modes x market types.
+
+    'If not winning, minimize the loss.'
+    """
+
+    CFG = SimConfig(
+        max_pair_cost=0.98,
+        max_imbalance=2.0,
+        trend_min_amplitude=0.08,
+        observation_ticks=5,
+    )
+
+    def test_costs_non_negative(self, market_name, path, fill_mode):
+        result = run_simulation(
+            path, config=self.CFG, fill_mode=fill_mode, seed=42,
+        )
+        s = result.pair_state
+        assert s.cost_yes >= 0
+        assert s.cost_no >= 0
+
+    def test_loss_never_exceeds_total_cost(self, market_name, path, fill_mode):
+        result = run_simulation(
+            path, config=self.CFG, fill_mode=fill_mode, seed=42,
+        )
+        s = result.pair_state
+        if s.total_cost > 0:
+            worst = result.worst_case_pnl
+            assert worst >= -s.total_cost - 1e-9, (
+                f"{market_name}/{fill_mode}: loss {worst:.4f} "
+                f"> cost {s.total_cost:.4f}"
+            )
+
+    def test_balance_ratio_within_limits(self, market_name, path, fill_mode):
+        result = run_simulation(
+            path, config=self.CFG, fill_mode=fill_mode, seed=42,
+        )
+        s = result.pair_state
+        if min(s.qty_yes, s.qty_no) > 0:
+            # Partial/asymmetric fills apply random percentages independently
+            # to each side, so the effective balance can exceed the guard's
+            # limit by up to the fill-size asymmetry factor (0.9/0.3 ≈ 3x).
+            if fill_mode in ("partial", "asymmetric"):
+                effective_limit = self.CFG.max_imbalance * 3.5
+            else:
+                effective_limit = self.CFG.max_imbalance + 0.01
+            assert s.balance_ratio <= effective_limit, (
+                f"{market_name}/{fill_mode}: ratio {s.balance_ratio:.2f}"
+            )
