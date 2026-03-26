@@ -14,7 +14,7 @@ ExecStart=/usr/bin/tmux new-session -d -s bot -e "HOME=/home/ec2-user" \
   '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP DOGE HYPE BNB --durations 5 15 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 60 --dashboard; exec bash'
 
 ExecStartPost=/usr/bin/tmux new-window -t bot -n gabagool -e "HOME=/home/ec2-user" \
-  '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC --durations 15 --strategy gabagool --dry-run --fill-mode book --dashboard; exec bash'
+  '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC --durations 15 --profile 1 --strategy gabagool --dry-run --fill-mode book --dashboard; exec bash'
 
 ExecStop=/usr/bin/tmux kill-session -t bot
 
