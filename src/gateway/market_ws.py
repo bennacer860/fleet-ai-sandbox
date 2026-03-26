@@ -205,14 +205,17 @@ class MarketWebSocket:
 
         if new_tids:
             if self._websocket:
+                all_tids: list[str] = []
+                for tids in self.token_ids.values():
+                    all_tids.extend(tids)
                 msg = orjson.dumps({
                     "type": "subscribe",
-                    "assets_ids": new_tids,
+                    "assets_ids": all_tids,
                     "channels": ["book", "tick_size_change"],
                     "custom_feature_enabled": False,
                 }).decode("utf-8")
                 await self._websocket.send(msg)
-                logger.info("[MARKET_WS_SUB] Subscribed %d new tokens on live WS", len(new_tids))
+                logger.info("[MARKET_WS_SUB] Re-subscribed ALL %d tokens (%d new) on live WS", len(all_tids), len(new_tids))
             else:
                 logger.warning("[MARKET_WS_SUB] No active WS connection — %d tokens NOT subscribed", len(new_tids))
 
