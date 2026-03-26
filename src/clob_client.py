@@ -1,6 +1,7 @@
 """CLOB client wrapper for placing Polymarket orders."""
 
 import time
+from dataclasses import dataclass
 
 import httpx
 from typing import Any, Optional
@@ -177,7 +178,16 @@ def create_clob_client() -> Optional[ClobClient]:
         return None
 
 
-def precache_token_data(token_ids: list[str]) -> None:
+@dataclass
+class BookSnapshot:
+    """REST-fetched book state for a single token."""
+    best_bid: float
+    best_ask: float
+    bids: tuple[tuple[float, float], ...]
+    asks: tuple[tuple[float, float], ...]
+
+
+def precache_token_data(token_ids: list[str]) -> dict[str, BookSnapshot]:
     """Pre-fetch and cache neg_risk, fee_rate, AND min_order_size at market-add time.
 
     This populates the py_clob_client internal caches so that
@@ -186,24 +196,43 @@ def precache_token_data(token_ids: list[str]) -> None:
 
     Also caches ``min_order_size`` from the order book so the strategy
     can look it up instantly instead of making a blocking CLOB call.
+
+    Returns a dict mapping token_id -> BookSnapshot from the REST book
+    response, so callers can seed best_prices and publish initial events.
     """
     client = create_clob_client()
     if client is None:
-        return
+        return {}
+
+    snapshots: dict[str, BookSnapshot] = {}
 
     for token_id in token_ids:
         try:
-            # These calls hit the CLOB API and cache the result internally
-            # in client.__neg_risk[token_id] and client.__fee_rates[token_id]
             neg_risk = client.get_neg_risk(token_id)
             fee_rate = client.get_fee_rate_bps(token_id)
 
-            # Also fetch order book to cache min_order_size
             try:
                 book = client.get_order_book(token_id)
                 if book.min_order_size:
                     mos = float(book.min_order_size)
                     _min_order_size_cache[token_id] = mos
+                raw_bids = book.bids or []
+                raw_asks = book.asks or []
+                bids = tuple(
+                    (float(b.price), float(b.size))
+                    for b in sorted(raw_bids, key=lambda x: float(x.price), reverse=True)[:10]
+                )
+                asks = tuple(
+                    (float(a.price), float(a.size))
+                    for a in sorted(raw_asks, key=lambda x: float(x.price))[:10]
+                )
+                best_bid = max((p for p, _ in bids), default=0.0)
+                best_ask = min((p for p, _ in asks), default=0.0)
+                if best_bid > 0 or best_ask > 0:
+                    snapshots[token_id] = BookSnapshot(
+                        best_bid=best_bid, best_ask=best_ask,
+                        bids=bids, asks=asks,
+                    )
             except Exception:
                 logger.debug("[PRECACHE] Order book fetch failed for %s…", token_id[:20])
 
@@ -214,6 +243,8 @@ def precache_token_data(token_ids: list[str]) -> None:
             )
         except Exception:
             logger.warning("[PRECACHE] Failed for token %s…", token_id[:20])
+
+    return snapshots
 
 
 # ── Min order size cache ──────────────────────────────────────────────────

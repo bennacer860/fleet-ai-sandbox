@@ -39,7 +39,7 @@ from .monitoring.metrics import Metrics
 from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
 from .utils.market_data import fetch_strike_price, get_market_evaluation
-from .clob_client import precache_token_data, get_cached_min_order_size
+from .clob_client import precache_token_data, get_cached_min_order_size, BookSnapshot
 from .execution.auto_claimer import AutoClaimer
 from .execution.fill_simulator import FillSimulator
 from .markets.fifteen_min import (
@@ -431,12 +431,31 @@ class Bot:
 
         # Pre-cache neg_risk + fee_rate in the ClobClient for all token IDs
         # so the library won't need HTTP calls during order placement.
+        # Also seed market_ws.best_prices from the REST book response so
+        # strategies see initial prices before the WebSocket sends deltas.
         token_ids = list(self.market_ws.token_ids.get(slug, []))
         if token_ids:
             try:
-                await asyncio.get_event_loop().run_in_executor(
+                books = await asyncio.get_event_loop().run_in_executor(
                     None, precache_token_data, token_ids
                 )
+                if books:
+                    for tid, snap in books.items():
+                        self.market_ws.best_prices[tid] = {
+                            "bid": snap.best_bid, "ask": snap.best_ask,
+                        }
+                        cond = self.market_ws.condition_by_token.get(tid, "")
+                        self.event_bus.publish_nowait(BookUpdate(
+                            token_id=tid,
+                            condition_id=cond,
+                            slug=slug,
+                            bids=snap.bids,
+                            asks=snap.asks,
+                            best_bid=snap.best_bid,
+                            best_ask=snap.best_ask,
+                        ))
+                        logger.info("[CACHE] Seeded book for %s…: bid=%.4f ask=%.4f",
+                                    tid[:20], snap.best_bid, snap.best_ask)
             except Exception:
                 logger.warning("[CACHE] precache_token_data failed for %s", slug)
 
