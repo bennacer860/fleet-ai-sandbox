@@ -332,10 +332,11 @@ def place_limit_order(
         ts_str = _TICK_SIZE_MAP.get(tick_size)
         if ts_str is not None:
             options = PartialCreateOrderOptions(tick_size=ts_str)
-            # Also force-update the library's internal cache so subsequent
-            # calls (e.g. __resolve_tick_size) see the new value.
-            # This uses name-mangling to access the private dict.
+            # Force-update the library's internal tick-size cache AND its
+            # TTL timestamp so get_tick_size() returns immediately instead
+            # of making a blocking HTTP call on every order.
             client._ClobClient__tick_sizes[token_id] = ts_str
+            client._ClobClient__tick_size_timestamps[token_id] = time.monotonic()
             logger.debug(
                 "[ORDER] Using authoritative tick_size=%s for token %s…",
                 ts_str, token_id[:20],
