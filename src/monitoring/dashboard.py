@@ -345,9 +345,13 @@ class Dashboard:
         table.add_column("uPnL", width=8, justify="right")
 
         if self._pos_tracker:
-            positions = self._pos_tracker.positions
-            if positions:
-                for tid, pos in list(positions.items())[:8]:
+            all_positions = self._pos_tracker.positions
+            filtered = {
+                tid: pos for tid, pos in all_positions.items()
+                if pos.strategy == self._strategy_name
+            }
+            if filtered:
+                for tid, pos in list(filtered.items())[:8]:
                     display = self._format_slug(pos.slug) if pos.slug else tid[:16]
                     current = 0.0
                     if self._market_ws:
@@ -377,7 +381,7 @@ class Dashboard:
         else:
             table.add_row("[dim]No data[/dim]", "", "", "", "", "")
 
-        count = len(self._pos_tracker.positions) if self._pos_tracker else 0
+        count = len(filtered) if self._pos_tracker and filtered else 0
         return Panel(table, title=f"POSITIONS ({count} open)", border_style="green")
 
     def _events_panel(self) -> Panel:
