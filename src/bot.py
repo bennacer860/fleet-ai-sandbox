@@ -18,6 +18,7 @@ from .core.events import (
     OrderFill,
     OrderLive,
     OrderStatus,
+    OrderSubmitted,
     OrderTerminal,
     TickSizeChange,
 )
@@ -40,6 +41,7 @@ from .storage.persistence import AsyncPersistence
 from .utils.market_data import fetch_strike_price, get_market_evaluation
 from .clob_client import precache_token_data, get_cached_min_order_size
 from .execution.auto_claimer import AutoClaimer
+from .execution.fill_simulator import FillSimulator
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
@@ -105,8 +107,10 @@ class Bot:
         claim_min_value: float | None = None,
         claim_interval: float = 60.0,
         persist: bool = True,
+        fill_mode: str = "book",
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
+        self._fill_mode = fill_mode
         self.db_path = db_path or DB_PATH
         self.dashboard_enabled = dashboard_enabled
         self._persist = persist
@@ -212,6 +216,11 @@ class Bot:
                         hot_tokens=self._hot_tokens,
                     )
                 ]
+            elif strategy_name == "gabagool":
+                from .strategy.gabagool_adapter import GabagoolStrategy
+                self.strategies = [
+                    GabagoolStrategy(hot_tokens=self._hot_tokens)
+                ]
             else:
                 self.strategies = [
                     SweepStrategy(
@@ -229,6 +238,13 @@ class Bot:
 
         self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
         self._eval_cache: dict[str, dict[str, Any]] = {}
+
+        self._fill_simulator: FillSimulator | None = None
+        if self.dry_run:
+            self._fill_simulator = FillSimulator(
+                event_bus=self.event_bus,
+                mode=self._fill_mode,
+            )
 
         self.dashboard: Dashboard | None = None
         if dashboard_enabled:
@@ -493,6 +509,10 @@ class Bot:
         bus.subscribe(TickSizeChange, self._metrics_tick_size)
         bus.subscribe(BookUpdate, self._metrics_book_update)
 
+        if self._fill_simulator is not None:
+            bus.subscribe(OrderSubmitted, self._fill_simulator.on_order_submitted)
+            bus.subscribe(BookUpdate, self._fill_simulator.on_book_update)
+
     # ── Strategy dispatchers ──────────────────────────────────────────────
 
     async def _on_tick_size_change(self, event: TickSizeChange) -> None:
@@ -725,6 +745,12 @@ class Bot:
         for strategy in self.strategies:
             if hasattr(strategy, "notify_order_result"):
                 strategy.notify_order_result(slug, filled=is_filled)
+            if hasattr(strategy, "on_fill_event"):
+                strategy.on_fill_event(
+                    token_id=state.intent.token_id,
+                    fill_size=event.fill_size,
+                    fill_price=event.fill_price,
+                )
 
     async def _on_order_terminal_notify_strategy(self, event: OrderTerminal) -> None:
         """Notify strategies when an order terminates so they can retry."""
@@ -1047,6 +1073,11 @@ class Bot:
             )
             self._tasks.append(
                 asyncio.create_task(self._supervised_task("order_reconciler", self.order_manager.reconcile_orders))
+            )
+
+        if self._fill_simulator is not None:
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("fill_simulator", self._fill_simulator.run))
             )
 
         if self.dashboard:

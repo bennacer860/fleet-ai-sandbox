@@ -222,13 +222,15 @@ class Dashboard:
         lines: list[str] = []
         if self._pos_tracker:
             pt = self._pos_tracker
-            lines.append(f"Session:   ${pt.session_pnl:.4f}")
+            tag = " [SIMULATED]" if self._dry_run else ""
+            lines.append(f"Session:   ${pt.session_pnl:.4f}{tag}")
             lines.append(f"Win Rate:  {pt.win_rate:.1%} ({pt.wins}/{pt.trades_closed})")
             lines.append(f"EV/Trade:  ${pt.ev_per_trade:.4f}")
-            lines.append(f"Unrealised: ${pt.get_total_unrealized_pnl():.4f}")
+            lines.append(f"Unrealised: ${pt.get_total_unrealized_pnl():.4f}{tag}")
         else:
             lines.append("No data")
-        return Panel("\n".join(lines), title="P&L", border_style="green")
+        title = "P&L [SIMULATED]" if self._dry_run else "P&L"
+        return Panel("\n".join(lines), title=title, border_style="green")
 
     def _risk_panel(self) -> Panel:
         lines: list[str] = []
