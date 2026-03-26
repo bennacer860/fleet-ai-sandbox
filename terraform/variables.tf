@@ -21,3 +21,9 @@ variable "ssm_parameter_prefix" {
   type        = string
   default     = "/polymarket-bot/"
 }
+
+variable "log_retention_days" {
+  description = "Days to keep archived log files in S3 before expiration"
+  type        = number
+  default     = 30
+}

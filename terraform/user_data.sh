@@ -58,17 +58,27 @@ cp $APP_DIR/deploy/litestream.yml /etc/litestream/litestream.yml
 # Replace placeholders in litestream config
 sed -i "s/\$${S3_BUCKET}/${s3_bucket}/g" /etc/litestream/litestream.yml
 
-# 8. Restore DB from Litestream (if exists)
-echo "Attempting to restore database from S3..."
+# 7b. Log archival to S3 (hourly timer)
+echo "Configuring log archival..."
+cp $APP_DIR/deploy/log-sync.service /etc/systemd/system/
+cp $APP_DIR/deploy/log-sync.timer /etc/systemd/system/
+sed -i "s/\$${S3_BUCKET}/${s3_bucket}/g" /etc/systemd/system/log-sync.service
+sed -i "s/\$${REGION}/${region}/g" /etc/systemd/system/log-sync.service
+
+# 8. Restore DBs from Litestream (if exists)
+echo "Attempting to restore databases from S3..."
 mkdir -p $APP_DIR/data
 chown ec2-user:ec2-user $APP_DIR/data
-sudo -u ec2-user litestream restore -config /etc/litestream/litestream.yml -if-replica-exists $APP_DIR/data/bot.db || echo "No existing replica found or restore failed."
+sudo -u ec2-user litestream restore -config /etc/litestream/litestream.yml -if-replica-exists $APP_DIR/data/bot.db || echo "No existing replica found for bot.db."
+sudo -u ec2-user litestream restore -config /etc/litestream/litestream.yml -if-replica-exists $APP_DIR/data/bot_p2.db || echo "No existing replica found for bot_p2.db."
 
 # 9. Enable and start services
 echo "Starting services..."
 systemctl daemon-reload
 systemctl enable litestream
 systemctl start litestream
+systemctl enable log-sync.timer
+systemctl start log-sync.timer
 systemctl enable polymarket-bot
 systemctl start polymarket-bot
 

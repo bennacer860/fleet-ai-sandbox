@@ -107,6 +107,23 @@ resource "aws_s3_bucket_public_access_block" "bot_backups_block" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "bot_backups_lifecycle" {
+  bucket = aws_s3_bucket.bot_backups.id
+
+  rule {
+    id     = "expire-old-logs"
+    status = "Enabled"
+
+    filter {
+      prefix = "logs/"
+    }
+
+    expiration {
+      days = var.log_retention_days
+    }
+  }
+}
+
 # ------------------------------------------------------------------------------
 # IAM Role & Instance Profile
 # ------------------------------------------------------------------------------
