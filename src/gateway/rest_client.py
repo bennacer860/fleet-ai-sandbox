@@ -11,7 +11,7 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order, get_usdc_balance
+from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order, get_usdc_balance, cancel_order as _cancel_order_sync
 from ..core.events import OrderStatus, OrderSubmitted, OrderTerminal
 from ..core.models import OrderIntent, Side
 from ..gamma_client import fetch_event_by_slug
@@ -75,6 +75,9 @@ class AsyncRestClient:
                 reason="CLOB client unavailable (not initialised)",
             )
 
+        sign_ms = resp.pop("_sign_ms", None) if resp else None
+        post_ms = resp.pop("_post_ms", None) if resp else None
+
         if resp.get("success"):
             order_id = resp.get("orderId") or resp.get("orderID")
             if not order_id:
@@ -87,9 +90,10 @@ class AsyncRestClient:
 
             latency_ms = (rest_ns - signal_ns) / 1_000_000
             logger.info(
-                "[ORDER] Submitted %s: %s %s @ %.4f x %.2f (%.0fms)",
+                "[ORDER] Submitted %s: %s %s @ %.4f x %.2f (%.0fms, sign=%.0fms post=%.0fms)",
                 order_id, intent.side.value, intent.slug,
                 intent.price, intent.size, latency_ms,
+                sign_ms or 0, post_ms or 0,
             )
             return OrderSubmitted(
                 order_id=order_id,
@@ -99,6 +103,8 @@ class AsyncRestClient:
                 price=intent.price,
                 size=intent.size,
                 side=intent.side.value,
+                sign_ms=sign_ms,
+                post_ms=post_ms,
                 timestamp_ns=rest_ns,
             )
 
@@ -123,6 +129,11 @@ class AsyncRestClient:
         """Fetch a single order's current state from the CLOB REST API."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, get_order_status, order_id)
+
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel a live order by ID. Returns True if successfully cancelled."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _cancel_order_sync, order_id)
 
     # ── Market data ───────────────────────────────────────────────────────
 

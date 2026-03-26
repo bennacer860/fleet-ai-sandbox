@@ -1,0 +1,12 @@
+[Unit]
+Description=Archive rotated bot logs to S3
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+ExecStart=/opt/polymarket-bot/deploy/log-sync.sh
+Environment=LOG_SYNC_S3_BUCKET=${S3_BUCKET}
+Environment=LOG_SYNC_REGION=${REGION}

@@ -25,7 +25,7 @@ _DURATION_LABEL: dict[int, str] = {
     60: "1hour",
 }
 
-MarketSelection = Literal["BTC", "ETH", "SOL", "XRP"]
+MarketSelection = Literal["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"]
 
 # Mapping for 1-hour human-readable slugs
 _ASSET_NAME_MAP: dict[str, str] = {
@@ -33,6 +33,9 @@ _ASSET_NAME_MAP: dict[str, str] = {
     "ETH": "ethereum",
     "SOL": "solana",
     "XRP": "xrp",
+    "DOGE": "dogecoin",
+    "HYPE": "hyperliquid",
+    "BNB": "bnb",
 }
 
 
@@ -41,9 +44,14 @@ _SLUG_PREFIX_TO_MARKET: dict[str, str] = {
     "eth": "ETH",
     "sol": "SOL",
     "xrp": "XRP",
+    "doge": "DOGE",
+    "hype": "HYPE",
+    "bnb": "BNB",
     "bitcoin": "BTC",
     "ethereum": "ETH",
     "solana": "SOL",
+    "dogecoin": "DOGE",
+    "hyperliquid": "HYPE",
 }
 
 
@@ -307,7 +315,7 @@ def extract_market_end_ts(slug: str) -> int | None:
 # etc.) working without modification during the transition.
 
 MARKET_IDS: dict[str, str] = {
-    sel: _market_base(sel, 15) for sel in ("BTC", "ETH", "SOL", "XRP")
+    sel: _market_base(sel, 15) for sel in ("BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB")
 }
 
 FIFTEEN_MIN_SECONDS: int = 15 * 60

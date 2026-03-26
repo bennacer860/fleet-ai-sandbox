@@ -155,6 +155,23 @@ class Bot:
         if conn is not None:
             self.order_manager.load_dedup_from_db(conn)
 
+        # Wire stale-order Telegram alert
+        def _on_stale_order(slug: str, order_id: str, age_s: float) -> None:
+            if not self.telegram.enabled:
+                return
+            display = format_slug_with_est_time(slug)
+            body = (
+                f"📍 <b>Market:</b> <code>{display}</code>\n"
+                f"🆔 <b>Order:</b> <code>{order_id[:16]}…</code>\n"
+                f"⏱ <b>Pending for:</b> {age_s:.0f}s before force-expired\n"
+                f"💸 <b>Exposure released</b>"
+            )
+            asyncio.run_coroutine_threadsafe(
+                self.telegram.push_message(self._telegram_msg("🕐", "STALE ORDER EXPIRED", body)),
+                self.loop,
+            )
+        self.order_manager.on_stale_order = _on_stale_order
+
         self.position_tracker = PositionTracker(
             persistence=self.persistence,
         )
@@ -184,12 +201,14 @@ class Bot:
             if strategy_name == "post_expiry":
                 self.strategies = [
                     PostExpirySweepStrategy(
+                        price_threshold=price_threshold,
                         hot_tokens=self._hot_tokens,
                     )
                 ]
             elif strategy_name == "aggressive_post_expiry":
                 self.strategies = [
                     AggressivePostExpirySweepStrategy(
+                        price_threshold=price_threshold,
                         hot_tokens=self._hot_tokens,
                     )
                 ]
@@ -479,6 +498,7 @@ class Bot:
     async def _on_tick_size_change(self, event: TickSizeChange) -> None:
         handler_start_ns = time.time_ns()
         self._update_context()
+        self._strategy_ctx.tick_sizes[event.token_id] = float(event.new_tick_size)
         for strategy in self.strategies:
             try:
                 intents = await strategy.on_tick_size_change(event, self._strategy_ctx)
@@ -593,6 +613,13 @@ class Bot:
                     self.dashboard.push_event(
                         f"⚠️ [yellow]SKIP[/yellow]  {display_slug}  RISK: {risk_reason}"
                     )
+                    # Telegram alert for risk block
+                    if self.telegram.enabled:
+                        body = (
+                            f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
+                            f"🚫 <b>Reason:</b> <code>{risk_reason}</code>"
+                        )
+                        await self.telegram.push_message(self._telegram_msg("⚠️", "ORDER RISK BLOCKED", body))
                 continue
 
             if state and self.dashboard:
@@ -607,7 +634,10 @@ class Bot:
                     e_ms = state.eval_ms
                     r_ms = state.signal_to_rest_ms
                     if q_ms is not None and e_ms is not None and r_ms is not None:
-                        timing += f" (bus={q_ms:.0f}ms eval={e_ms:.0f}ms rest={r_ms:.0f}ms)"
+                        rest_detail = f"rest={r_ms:.0f}ms"
+                        if state.sign_ms is not None and state.post_ms is not None:
+                            rest_detail = f"sign={state.sign_ms:.0f}ms post={state.post_ms:.0f}ms"
+                        timing += f" (bus={q_ms:.0f}ms eval={e_ms:.0f}ms {rest_detail})"
                 if expiry_s is not None:
                     timing += f"  expires={expiry_s:.0f}s"
 
@@ -1007,7 +1037,6 @@ class Bot:
             asyncio.create_task(self._supervised_task("health", self.health_monitor.run)),
             asyncio.create_task(self._supervised_task("alerts", self.alert_manager.run)),
             asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),
-            asyncio.create_task(self._supervised_task("stale_reaper", self.order_manager.reap_stale_orders)),
             asyncio.create_task(self._supervised_task("sub_manager", self._manage_subscriptions)),
             asyncio.create_task(self._supervised_task("strategy_poll", self._strategy_poll_loop)),
         ]

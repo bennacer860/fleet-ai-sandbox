@@ -17,7 +17,7 @@ import asyncio
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
-from ..markets.fifteen_min import extract_market_end_ts
+from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug
 from ..config import DEFAULT_TRADE_SIZE, AGGRESSIVE_POLL_INTERVAL_S
 
 from .base import Strategy, StrategyContext
@@ -28,15 +28,24 @@ SWEEP_TICK_SIZE = "0.001"
 MAX_ORDER_PRICE = 0.999
 FALLBACK_MIN_ORDER_SIZE = 5.0
 
+DEFAULT_PRICE_THRESHOLD = 0.99
+_ASSET_PRICE_THRESHOLD: dict[str, float] = {
+    "DOGE": 0.85,
+    "HYPE": 0.85,
+    "BNB": 0.85,
+}
+
 class PostExpirySweepStrategy(Strategy):
     """Buys the winning token just after expiration if tick size is 0.001."""
 
     def __init__(
         self,
         order_price: float = MAX_ORDER_PRICE,
+        price_threshold: float = 0.95,
         hot_tokens: set[str] | None = None,
     ) -> None:
         self._order_price = order_price
+        self._price_threshold = price_threshold
         self._watching: dict[str, dict] = {}
         self._hot_tokens: set[str] = hot_tokens if hot_tokens is not None else set()
         self.last_skip_reason: str | None = None
@@ -170,13 +179,31 @@ class PostExpirySweepStrategy(Strategy):
         best_outcome = eval_data["best_outcome"]
         self.last_best_price = best_price
 
+        asset = extract_market_from_slug(slug)
+        threshold = _ASSET_PRICE_THRESHOLD.get(asset, self._price_threshold)
+
+        if best_price < threshold:
+            self.last_skip_reason = (
+                f"price {best_price:.3f} < {threshold:.2f} — waiting for convergence"
+            )
+            logger.info(
+                "[POST_EXPIRY] %s: %s @ %.3f below threshold %.2f — skipping",
+                slug, best_outcome, best_price, threshold,
+            )
+            return None
+
         from ..config import POST_EXPIRY_MULTIPLIER
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
         order_size = max(DEFAULT_TRADE_SIZE, min_size) * POST_EXPIRY_MULTIPLIER
 
+        all_tids = eval_data.get("token_ids", (best_token,))
+        tick_sizes = [ctx.tick_sizes.get(t, 0.01) for t in all_tids]
+        market_tick_size = min(tick_sizes)
+        safe_order_price = self._order_price if market_tick_size < 0.01 else min(self._order_price, 0.99)
+
         logger.info(
             "[POST_EXPIRY] Expiration passed for %s. Winning outcome: %s @ %.3f → BUY %.4f x %.2f",
-            slug, best_outcome, best_price, self._order_price, order_size,
+            slug, best_outcome, best_price, safe_order_price, order_size,
         )
 
         self._ordered_slugs.add(slug)
@@ -184,12 +211,12 @@ class PostExpirySweepStrategy(Strategy):
 
         return [OrderIntent(
             token_id=best_token,
-            price=self._order_price,
+            price=safe_order_price,
             size=order_size,
             side=Side.BUY,
             strategy=self.name(),
             slug=slug,
-            tick_size=float(SWEEP_TICK_SIZE),
+            tick_size=market_tick_size,
         )]
 
     def _get_eval(

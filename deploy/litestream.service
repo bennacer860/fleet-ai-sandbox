@@ -1,0 +1,14 @@
+[Unit]
+Description=Litestream SQLite Replication
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream/litestream.yml
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

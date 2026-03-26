@@ -76,6 +76,8 @@ class OrderSubmitted:
     size: float
     side: str
     dry_run: bool = False
+    sign_ms: float | None = None
+    post_ms: float | None = None
     timestamp_ns: int = field(default_factory=_now_ns)
 
 

@@ -1,0 +1,21 @@
+[Unit]
+Description=Polymarket Bot (tmux)
+After=network.target litestream.service
+Requires=litestream.service
+
+[Service]
+Type=forking
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/polymarket-bot
+EnvironmentFile=/opt/polymarket-bot/.env
+
+ExecStart=/usr/bin/tmux new-session -d -s bot -e "HOME=/home/ec2-user" \
+  '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP DOGE HYPE BNB --durations 5 15 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 60 --dashboard; exec bash'
+ExecStop=/usr/bin/tmux kill-session -t bot
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
