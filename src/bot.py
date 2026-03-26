@@ -625,7 +625,7 @@ class Bot:
             if state and self.dashboard:
                 tick_ms = state.tick_to_order_ms
                 expiry_s = state.time_to_expiry_s
-                self.dashboard.push_order_metrics(tick_ms, expiry_s)
+                self.dashboard.push_order_metrics(tick_ms, expiry_s, state.sign_ms, state.post_ms)
                 
                 timing = ""
                 if tick_ms is not None:
