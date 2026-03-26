@@ -19,5 +19,6 @@ data/*.log*
 *.tfstate
 *.tfstate.backup
 *.tfvars
+*.tfplan
 .terraform.lock.hcl
 
