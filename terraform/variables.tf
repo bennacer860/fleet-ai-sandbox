@@ -13,7 +13,7 @@ variable "instance_type" {
 variable "use_spot_instance" {
   description = "Whether to use a Spot Instance to save costs"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "ssm_parameter_prefix" {
