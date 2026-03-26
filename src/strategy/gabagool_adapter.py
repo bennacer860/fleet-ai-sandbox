@@ -26,9 +26,9 @@ class GabagoolConfig:
     max_imbalance: float = 2.0
     base_order_size: float = 10.0
     probe_size_factor: float = 0.25
-    trend_min_reversals: int = 1
-    trend_min_amplitude: float = 0.15
-    observation_ticks: int = 10
+    trend_min_reversals: int = 0
+    trend_min_amplitude: float = 0.03
+    observation_ticks: int = 5
     fee_bps: int = 0
 
 
@@ -81,6 +81,11 @@ class GabagoolStrategy(Strategy):
         yes_ask = self._get_ask(state.yes_token_id, ctx)
         no_ask = self._get_ask(state.no_token_id, ctx)
         if yes_ask is None or no_ask is None:
+            if state.tick_count == 0:
+                logger.debug(
+                    "[GABAGOOL] %s: missing ask (yes=%s, no=%s) — skipping",
+                    slug, yes_ask, no_ask,
+                )
             return None
 
         cfg = self._cfg
@@ -88,6 +93,11 @@ class GabagoolStrategy(Strategy):
         state.trend.update(yes_ask)
 
         if state.tick_count <= cfg.observation_ticks:
+            if state.tick_count == cfg.observation_ticks:
+                logger.info(
+                    "[GABAGOOL] %s: observation done (%d ticks), checking activation",
+                    slug, state.tick_count,
+                )
             return None
 
         if not state.activated:
@@ -98,6 +108,13 @@ class GabagoolStrategy(Strategy):
                     slug, state.trend.reversals, state.trend.amplitude,
                 )
             else:
+                if state.tick_count % 20 == 0:
+                    logger.info(
+                        "[GABAGOOL] %s: not yet activated (ticks=%d, reversals=%d/%d, amplitude=%.3f/%.3f)",
+                        slug, state.tick_count,
+                        state.trend.reversals, cfg.trend_min_reversals,
+                        state.trend.amplitude, cfg.trend_min_amplitude,
+                    )
                 return None
 
         if state.pair.is_profit_locked:

@@ -571,6 +571,12 @@ class Bot:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
                     await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
+                    if self.dashboard:
+                        for intent in intents:
+                            display_slug = format_slug_with_est_time(event.slug)
+                            self.dashboard.push_event(
+                                f"📊 [green]GABAGOOL[/green]  {display_slug}  BUY {intent.token_id[:12]}… @ {intent.price:.4f} x {intent.size:.2f}"
+                            )
             except Exception:
                 logger.exception("Strategy %s error on book_update", strategy.name())
 
