@@ -111,21 +111,18 @@ class Dashboard:
             return 0
 
     def _market_sort_key(self, slug: str, now_ts: int) -> tuple[int, int, str]:
-        """Sort markets by window state: live, future, then stale."""
+        """Sort markets with newest started first, future last."""
         end_ts = self._market_end_ts(slug)
         duration_m = detect_duration_from_slug(slug)
         if end_ts > 0 and duration_m:
             start_ts = end_ts - (duration_m * 60)
-            if start_ts <= now_ts < end_ts:
-                # Live market first, closest expiry first.
-                return (0, end_ts, slug)
-            if now_ts < start_ts:
-                # Future market next, soonest start first.
-                return (1, start_ts, slug)
-            # Stale market last, most recently ended first.
-            return (2, -end_ts, slug)
-        # Unknown timestamp/duration: put after live/future.
-        return (3, 10**12, slug)
+            if start_ts <= now_ts:
+                # Started/live markets first, most recent start first.
+                return (0, -start_ts, slug)
+            # Future markets always last, nearest upcoming first.
+            return (1, start_ts, slug)
+        # Unknown timestamp/duration: keep near the end.
+        return (2, 10**12, slug)
 
     def push_latency(self, latency_ms: float) -> None:
         self._exchange_latencies.append(latency_ms)
@@ -184,7 +181,7 @@ class Dashboard:
 
         if self._market_ws:
             active = [s for s, a in self._market_ws.market_active.items() if a]
-            # Show currently live markets first, then future windows.
+            # Show most recently started markets first; future windows last.
             now_ts = int(time.time())
             active.sort(key=lambda s: self._market_sort_key(s, now_ts))
             for slug in active[:12]:
