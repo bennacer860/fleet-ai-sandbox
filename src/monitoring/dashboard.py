@@ -21,6 +21,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..logging_config import get_logger
+from ..markets.fifteen_min import detect_duration_from_slug
 from ..utils.timestamps import format_slug_with_est_time
 from .metrics import Metrics
 from ..utils.telegram_notifier import TelegramNotifier
@@ -109,6 +110,23 @@ class Dashboard:
         except ValueError:
             return 0
 
+    def _market_sort_key(self, slug: str, now_ts: int) -> tuple[int, int, str]:
+        """Sort markets by window state: live, future, then stale."""
+        end_ts = self._market_end_ts(slug)
+        duration_m = detect_duration_from_slug(slug)
+        if end_ts > 0 and duration_m:
+            start_ts = end_ts - (duration_m * 60)
+            if start_ts <= now_ts < end_ts:
+                # Live market first, closest expiry first.
+                return (0, end_ts, slug)
+            if now_ts < start_ts:
+                # Future market next, soonest start first.
+                return (1, start_ts, slug)
+            # Stale market last, most recently ended first.
+            return (2, -end_ts, slug)
+        # Unknown timestamp/duration: put after live/future.
+        return (3, 10**12, slug)
+
     def push_latency(self, latency_ms: float) -> None:
         self._exchange_latencies.append(latency_ms)
         
@@ -166,16 +184,9 @@ class Dashboard:
 
         if self._market_ws:
             active = [s for s, a in self._market_ws.market_active.items() if a]
-            # Show the currently active/closest-to-expiry market first.
+            # Show currently live markets first, then future windows.
             now_ts = int(time.time())
-            end_ts_by_slug = {s: self._market_end_ts(s) for s in active}
-            active.sort(
-                key=lambda s: (
-                    0 if end_ts_by_slug[s] >= now_ts and end_ts_by_slug[s] > 0 else 1,
-                    abs(end_ts_by_slug[s] - now_ts) if end_ts_by_slug[s] > 0 else 10**12,
-                    s,
-                )
-            )
+            active.sort(key=lambda s: self._market_sort_key(s, now_ts))
             for slug in active[:12]:
                 tids = self._market_ws.token_ids.get(slug, [])
                 parts: list[str] = []
