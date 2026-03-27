@@ -111,14 +111,14 @@ class Dashboard:
             return 0
 
     def _market_sort_key(self, slug: str, now_ts: int) -> tuple[int, int, str]:
-        """Sort markets with newest started first, future last."""
+        """Sort started markets oldest-first, future markets last."""
         end_ts = self._market_end_ts(slug)
         duration_m = detect_duration_from_slug(slug)
         if end_ts > 0 and duration_m:
             start_ts = end_ts - (duration_m * 60)
             if start_ts <= now_ts:
-                # Started/live markets first, most recent start first.
-                return (0, -start_ts, slug)
+                # Started/live markets first, oldest start first.
+                return (0, start_ts, slug)
             # Future markets always last, nearest upcoming first.
             return (1, start_ts, slug)
         # Unknown timestamp/duration: keep near the end.
@@ -181,7 +181,7 @@ class Dashboard:
 
         if self._market_ws:
             active = [s for s, a in self._market_ws.market_active.items() if a]
-            # Show most recently started markets first; future windows last.
+            # Show started markets oldest-first; future windows last.
             now_ts = int(time.time())
             active.sort(key=lambda s: self._market_sort_key(s, now_ts))
             for slug in active[:12]:
