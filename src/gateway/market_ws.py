@@ -50,8 +50,9 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
-HEARTBEAT_TIMEOUT_S = 10
 HEARTBEAT_CHECK_INTERVAL_S = 2
+HEARTBEAT_RESUBSCRIBE_AFTER_S = 4
+HEARTBEAT_RECONNECT_AFTER_S = 6
 _DATA_CHANNELS: tuple[str, ...] = ("book", "price_change", "tick_size_change")
 
 
@@ -94,6 +95,7 @@ class MarketWebSocket:
         self._last_channel_message_time: dict[str, float] = {c: 0.0 for c in _DATA_CHANNELS}
         self._msg_count = 0
         self._reconnect_count = 0
+        self._resubscribe_attempted_for_stale = False
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
         self._books_filtered = 0  # counter for filtered-out book updates
         self._books_processed = 0  # counter for successfully processed book updates
@@ -144,8 +146,24 @@ class MarketWebSocket:
         """Record market-data activity timestamps for watchdog/diagnostics."""
         now = time.monotonic()
         self._last_data_message_time = now
+        self._resubscribe_attempted_for_stale = False
         if channel in self._last_channel_message_time:
             self._last_channel_message_time[channel] = now
+
+    def _all_token_ids(self) -> list[str]:
+        all_tids: list[str] = []
+        for tids in self.token_ids.values():
+            all_tids.extend(tids)
+        return all_tids
+
+    @staticmethod
+    def _build_subscribe_message(asset_ids: list[str]) -> str:
+        return orjson.dumps({
+            "type": "subscribe",
+            "assets_ids": asset_ids,
+            "channels": ["book", "price_change", "tick_size_change"],
+            "custom_feature_enabled": False,
+        }).decode("utf-8")
 
     # ── Market initialisation ─────────────────────────────────────────────
 
@@ -234,14 +252,8 @@ class MarketWebSocket:
         if new_tids:
             if self._websocket:
                 all_tids: list[str] = []
-                for tids in self.token_ids.values():
-                    all_tids.extend(tids)
-                msg = orjson.dumps({
-                    "type": "subscribe",
-                    "assets_ids": all_tids,
-                    "channels": ["book", "price_change", "tick_size_change"],
-                    "custom_feature_enabled": False,
-                }).decode("utf-8")
+                all_tids = self._all_token_ids()
+                msg = self._build_subscribe_message(all_tids)
                 await self._websocket.send(msg)
                 logger.info(
                     "[MARKET_WS_SUB] Re-subscribed ALL %d tokens (%d new) on live WS "
@@ -468,6 +480,32 @@ class MarketWebSocket:
 
     # ── Heartbeat watchdog ────────────────────────────────────────────────
 
+    async def _attempt_inplace_resubscribe_recovery(
+        self,
+        ws: websockets.WebSocketClientProtocol,
+        reason: str,
+        silence: float,
+    ) -> None:
+        """Try one in-place re-subscribe during a stale episode."""
+        try:
+            if self._websocket is not ws:
+                return
+
+            all_tids = self._all_token_ids()
+            if not all_tids:
+                return
+
+            await ws.send(self._build_subscribe_message(all_tids))
+            logger.warning(
+                "[HEARTBEAT] %s for %.0fs — attempting in-place re-subscribe (%d tokens)",
+                reason,
+                silence,
+                len(all_tids),
+            )
+            self._resubscribe_attempted_for_stale = True
+        except Exception:
+            logger.warning("[HEARTBEAT] In-place re-subscribe attempt failed", exc_info=True)
+
     async def _heartbeat_watchdog(self) -> None:
         while self._running:
             await asyncio.sleep(HEARTBEAT_CHECK_INTERVAL_S)
@@ -486,7 +524,15 @@ class MarketWebSocket:
                 silence = time.monotonic() - self._last_data_message_time
                 reason = "No market-data message"
 
-            if silence > HEARTBEAT_TIMEOUT_S:
+            if (
+                silence > HEARTBEAT_RESUBSCRIBE_AFTER_S
+                and not self._resubscribe_attempted_for_stale
+            ):
+                ws = self._websocket
+                if ws:
+                    await self._attempt_inplace_resubscribe_recovery(ws, reason, silence)
+
+            if silence > HEARTBEAT_RECONNECT_AFTER_S:
                 logger.warning(
                     "[HEARTBEAT] %s for %.0fs — forcing reconnect", reason, silence
                 )
@@ -520,9 +566,7 @@ class MarketWebSocket:
         backoff = _BASE_BACKOFF
         try:
             while self._running:
-                all_tids: list[str] = []
-                for tids in self.token_ids.values():
-                    all_tids.extend(tids)
+                all_tids = self._all_token_ids()
 
                 if not all_tids:
                     await asyncio.sleep(backoff)
@@ -538,15 +582,11 @@ class MarketWebSocket:
                         self._websocket = ws
                         self._connected_since = time.monotonic()
                         self._last_data_message_time = 0.0
+                        self._resubscribe_attempted_for_stale = False
                         self._last_channel_message_time = {c: 0.0 for c in _DATA_CHANNELS}
                         backoff = _BASE_BACKOFF
 
-                        sub_msg = orjson.dumps({
-                            "type": "subscribe",
-                            "assets_ids": all_tids,
-                            "channels": ["book", "price_change", "tick_size_change"],
-                            "custom_feature_enabled": False,
-                        }).decode("utf-8")
+                        sub_msg = self._build_subscribe_message(all_tids)
                         await ws.send(sub_msg)
                         logger.info(
                             "[WS_MARKET] Connected, subscribed to %d tokens "
