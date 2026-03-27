@@ -342,7 +342,11 @@ class Dashboard:
             ws_market = "Disconnected"
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
         market_reconnects = self._market_ws.reconnect_count if self._market_ws else 0
-        msg_age = f"{self._market_ws.last_message_age_s:.0f}s ago" if self._market_ws and self._market_ws.last_message_age_s >= 0 else "N/A"
+        msg_age = (
+            f"{self._market_ws.last_data_message_age_s:.0f}s ago"
+            if self._market_ws and self._market_ws.last_data_message_age_s >= 0
+            else "N/A"
+        )
 
         if self._user_ws:
             user_reconnects = self._user_ws.reconnect_count
@@ -385,6 +389,16 @@ class Dashboard:
             ws_crypto_prices = ""
 
         lines.append(f"WS Market: {ws_market} ({token_count} tokens)  (reconnects: {market_reconnects})   Last msg: {msg_age}")
+        if self._market_ws:
+            ages = self._market_ws.channel_message_ages_s()
+            def _age(v: float) -> str:
+                return "N/A" if v < 0 else f"{v:.0f}s"
+            lines.append(
+                "  Market channels: "
+                f"book={_age(ages.get('book', -1))}  "
+                f"price_change={_age(ages.get('price_change', -1))}  "
+                f"tick_size={_age(ages.get('tick_size_change', -1))}"
+            )
         lines.append(f"WS User:   {ws_user}")
         lines.append(f"WS Crypto: {ws_crypto}")
         if ws_crypto_prices:

@@ -887,7 +887,7 @@ class Bot:
             active = sum(1 for v in self.market_ws.market_active.values() if v)
             self._metrics.set("active_markets", active)
             self._metrics.set("ws_market_connected", 1.0 if self.market_ws.connected else 0.0)
-            self._metrics.set("ws_market_msg_age_s", self.market_ws.last_message_age_s)
+            self._metrics.set("ws_market_msg_age_s", self.market_ws.last_data_message_age_s)
             self._metrics.set("persistence_pending", float(self.persistence.pending) if self.persistence else 0.0)
             self._metrics.set("orders_pending", float(self.order_manager.pending_count))
             self._metrics.set("books_filtered", float(self.market_ws._books_filtered))
