@@ -8,6 +8,7 @@ Activated via ``--dashboard`` flag.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import deque
 from datetime import datetime
@@ -97,6 +98,17 @@ class Dashboard:
             self._slug_display_cache[slug] = format_slug_with_est_time(slug)
         return self._slug_display_cache[slug]
 
+    @staticmethod
+    def _market_end_ts(slug: str) -> int:
+        """Extract unix end timestamp from market slug if present."""
+        m = re.search(r"-(\d{10})$", slug)
+        if not m:
+            return 0
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return 0
+
     def push_latency(self, latency_ms: float) -> None:
         self._exchange_latencies.append(latency_ms)
         
@@ -154,6 +166,16 @@ class Dashboard:
 
         if self._market_ws:
             active = [s for s, a in self._market_ws.market_active.items() if a]
+            # Show the currently active/closest-to-expiry market first.
+            now_ts = int(time.time())
+            end_ts_by_slug = {s: self._market_end_ts(s) for s in active}
+            active.sort(
+                key=lambda s: (
+                    0 if end_ts_by_slug[s] >= now_ts and end_ts_by_slug[s] > 0 else 1,
+                    abs(end_ts_by_slug[s] - now_ts) if end_ts_by_slug[s] > 0 else 10**12,
+                    s,
+                )
+            )
             for slug in active[:12]:
                 tids = self._market_ws.token_ids.get(slug, [])
                 parts: list[str] = []
