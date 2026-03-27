@@ -338,7 +338,7 @@ class Dashboard:
     def _positions_panel(self) -> Panel:
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Market", min_width=16)
-        table.add_column("Side", width=4)
+        table.add_column("Side", width=10)
         table.add_column("Qty", width=6, justify="right")
         table.add_column("Entry", width=7, justify="right")
         table.add_column("Current", width=7, justify="right")
@@ -359,9 +359,16 @@ class Dashboard:
                         current = bp.get("bid", 0.0)
                     upnl = pos.unrealized_pnl(current) if current > 0 else 0.0
                     pnl_style = "green" if upnl >= 0 else "red"
+                    outcome = "?"
+                    if self._market_ws:
+                        raw_outcome = self._market_ws.token_outcomes.get(tid)
+                        if raw_outcome:
+                            outcome = str(raw_outcome).upper()
+                    side_label = f"BUY {outcome}" if outcome != "?" else "BUY"
+
                     table.add_row(
                         display,
-                        "BUY",
+                        side_label,
                         f"{pos.quantity:.1f}",
                         f"{pos.avg_entry_price:.4f}",
                         f"{current:.4f}" if current > 0 else "[dim]--[/dim]",
