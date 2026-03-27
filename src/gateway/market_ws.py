@@ -50,7 +50,8 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
-HEARTBEAT_TIMEOUT_S = 60
+HEARTBEAT_TIMEOUT_S = 10
+HEARTBEAT_CHECK_INTERVAL_S = 2
 _DATA_CHANNELS: tuple[str, ...] = ("book", "price_change", "tick_size_change")
 
 
@@ -469,7 +470,7 @@ class MarketWebSocket:
 
     async def _heartbeat_watchdog(self) -> None:
         while self._running:
-            await asyncio.sleep(HEARTBEAT_TIMEOUT_S / 2)
+            await asyncio.sleep(HEARTBEAT_CHECK_INTERVAL_S)
             if not self._websocket:
                 continue
 
