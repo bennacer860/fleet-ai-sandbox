@@ -1164,6 +1164,9 @@ class Bot:
             self._tasks.append(
                 asyncio.create_task(self._supervised_task("order_reconciler", self.order_manager.reconcile_orders))
             )
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("order_reaper", self.order_manager.reap_stale_orders))
+            )
 
         if self._fill_simulator is not None:
             self._tasks.append(
