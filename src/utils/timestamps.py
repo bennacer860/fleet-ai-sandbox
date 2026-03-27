@@ -19,8 +19,14 @@ _UTC = pytz_timezone("UTC")
 _EST = pytz_timezone("US/Eastern")
 
 # Known crypto prefixes for slug formatting (short and long names)
-_CRYPTO_PREFIXES = ("btc", "eth", "sol", "xrp")
-_LONG_TO_SHORT = {"bitcoin": "btc", "ethereum": "eth", "solana": "sol"}
+_CRYPTO_PREFIXES = ("btc", "eth", "sol", "xrp", "doge", "hype", "bnb")
+_LONG_TO_SHORT = {
+    "bitcoin": "btc",
+    "ethereum": "eth",
+    "solana": "sol",
+    "dogecoin": "doge",
+    "hyperliquid": "hype",
+}
 
 
 # ── Basic timestamp helpers ──────────────────────────────────────────────────
