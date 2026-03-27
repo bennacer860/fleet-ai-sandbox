@@ -212,11 +212,16 @@ class MarketWebSocket:
                 msg = orjson.dumps({
                     "type": "subscribe",
                     "assets_ids": all_tids,
-                    "channels": ["book", "tick_size_change"],
+                    "channels": ["book", "price_change", "tick_size_change"],
                     "custom_feature_enabled": False,
                 }).decode("utf-8")
                 await self._websocket.send(msg)
-                logger.info("[MARKET_WS_SUB] Re-subscribed ALL %d tokens (%d new) on live WS", len(all_tids), len(new_tids))
+                logger.info(
+                    "[MARKET_WS_SUB] Re-subscribed ALL %d tokens (%d new) on live WS "
+                    "(channels: book, price_change, tick_size_change)",
+                    len(all_tids),
+                    len(new_tids),
+                )
             else:
                 logger.warning("[MARKET_WS_SUB] No active WS connection — %d tokens NOT subscribed", len(new_tids))
 
@@ -497,11 +502,15 @@ class MarketWebSocket:
                         sub_msg = orjson.dumps({
                             "type": "subscribe",
                             "assets_ids": all_tids,
-                            "channels": ["book", "tick_size_change"],
+                            "channels": ["book", "price_change", "tick_size_change"],
                             "custom_feature_enabled": False,
                         }).decode("utf-8")
                         await ws.send(sub_msg)
-                        logger.info("[WS_MARKET] Connected, subscribed to %d tokens (channels: book, tick_size_change)", len(all_tids))
+                        logger.info(
+                            "[WS_MARKET] Connected, subscribed to %d tokens "
+                            "(channels: book, price_change, tick_size_change)",
+                            len(all_tids),
+                        )
 
                         ping_task = asyncio.create_task(self._send_app_pings(ws))
                         try:
