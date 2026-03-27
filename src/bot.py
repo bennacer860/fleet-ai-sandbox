@@ -40,6 +40,7 @@ from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
 from .utils.market_data import fetch_strike_price, get_market_evaluation
 from .clob_client import precache_token_data, get_cached_min_order_size, BookSnapshot
+from .gamma_client import get_winning_token_id, is_market_ended
 from .execution.auto_claimer import AutoClaimer
 from .execution.fill_simulator import FillSimulator
 from .markets.fifteen_min import (
@@ -73,6 +74,8 @@ from .config import (
     TELEGRAM_CHAT_ID,
     TELEGRAM_NOTIFICATIONS_ENABLED,
     TELEGRAM_ENABLED,
+    STARTUP_CANCEL_OPEN_ORDERS,
+    STARTUP_RECONCILE_POSITIONS,
 
 )
 
@@ -1022,6 +1025,62 @@ class Bot:
             for slug in slugs_to_remove:
                 self._eval_cache.pop(slug, None)
 
+    # ── Startup housekeeping ──────────────────────────────────────────────
+
+    async def _startup_housekeeping(self) -> None:
+        """Clean stale exchange/orders state after process restart."""
+        if self.dry_run:
+            return
+
+        if STARTUP_CANCEL_OPEN_ORDERS:
+            try:
+                open_orders = await self.rest_client.get_open_orders()
+                order_ids = [
+                    str(o.get("id", ""))
+                    for o in open_orders
+                    if isinstance(o, dict) and o.get("id")
+                ]
+                if order_ids:
+                    cancelled = await self.rest_client.cancel_orders(order_ids)
+                    logger.info(
+                        "[STARTUP] Cancelled %d/%d open exchange orders",
+                        cancelled, len(order_ids),
+                    )
+                else:
+                    logger.info("[STARTUP] No open exchange orders found")
+            except Exception:
+                logger.exception("[STARTUP] Failed while cancelling open orders")
+
+        if STARTUP_RECONCILE_POSITIONS and self.position_tracker.positions:
+            resolved_count = 0
+            for slug in sorted({p.slug for p in self.position_tracker.positions.values() if p.slug}):
+                try:
+                    event = await self.rest_client.fetch_event(slug)
+                    if not event:
+                        continue
+                    markets = event.get("markets", [])
+                    if not markets:
+                        continue
+                    market = markets[0]
+                    if not is_market_ended(market):
+                        continue
+
+                    winning = get_winning_token_id(market)
+                    if not winning:
+                        continue
+
+                    await self.position_tracker.on_market_resolved(MarketResolved(
+                        slug=slug,
+                        condition_id=str(market.get("conditionId", market.get("condition_id", ""))),
+                        winning_token_id=winning,
+                    ))
+                    resolved_count += 1
+                except Exception:
+                    logger.exception("[STARTUP] Position reconcile failed for %s", slug)
+
+            if resolved_count:
+                logger.info("[STARTUP] Reconciled %d resolved-position markets", resolved_count)
+
     # ── Health context ────────────────────────────────────────────────────
 
     def _health_context(self) -> dict[str, Any]:
@@ -1076,6 +1135,7 @@ class Bot:
         logger.info("=" * 60)
 
         self._wire_subscriptions()
+        await self._startup_housekeeping()
         self._seed_monitored_timestamps()
         self._launch_prefetch(self._slugs)
 

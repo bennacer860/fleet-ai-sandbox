@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import (
+    OpenOrderParams,
     OrderArgs,
     OrderType,
     PartialCreateOrderOptions,
@@ -300,6 +301,45 @@ def cancel_order(order_id: str) -> bool:
     except Exception:
         logger.warning("[ORDER] Cancel failed for %s", order_id[:16], exc_info=True)
         return False
+
+
+def get_open_orders(market: str | None = None, asset_id: str | None = None) -> list[dict[str, Any]]:
+    """Return currently open orders for this API key."""
+    client = create_clob_client()
+    if client is None:
+        return []
+
+    try:
+        params = OpenOrderParams(market=market, asset_id=asset_id)
+        orders = client.get_orders(params=params)
+        if not isinstance(orders, list):
+            return []
+        return [o for o in orders if isinstance(o, dict)]
+    except Exception:
+        logger.warning("[ORDER] Failed to fetch open orders", exc_info=True)
+        return []
+
+
+def cancel_orders(order_ids: list[str]) -> int:
+    """Cancel many orders by ID, returning number cancelled."""
+    if not order_ids:
+        return 0
+
+    client = create_clob_client()
+    if client is None:
+        return 0
+
+    try:
+        resp = client.cancel_orders(order_ids)
+        if isinstance(resp, dict):
+            cancelled = resp.get("canceled") or resp.get("cancelled") or []
+            if isinstance(cancelled, list):
+                return len(cancelled)
+        logger.warning("[ORDER] cancel_orders unexpected response: %s", resp)
+        return 0
+    except Exception:
+        logger.warning("[ORDER] cancel_orders failed for %d orders", len(order_ids), exc_info=True)
+        return 0
 
 
 def get_usdc_balance() -> float:

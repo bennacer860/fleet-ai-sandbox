@@ -94,3 +94,8 @@ AGGRESSIVE_MAX_RETRIES = int(os.getenv("AGGRESSIVE_MAX_RETRIES", "10"))
 AGGRESSIVE_PHASE1_PRICE = float(os.getenv("AGGRESSIVE_PHASE1_PRICE", "0.99"))
 AGGRESSIVE_PHASE2_PRICE = float(os.getenv("AGGRESSIVE_PHASE2_PRICE", "0.999"))
 AGGRESSIVE_MIN_BEST_PRICE = float(os.getenv("AGGRESSIVE_MIN_BEST_PRICE", "0.85"))
+
+# Startup housekeeping
+# Enabled by default to prevent stale exchange orders/positions after restarts.
+STARTUP_CANCEL_OPEN_ORDERS = os.getenv("STARTUP_CANCEL_OPEN_ORDERS", "true").lower() in ("true", "1", "yes")
+STARTUP_RECONCILE_POSITIONS = os.getenv("STARTUP_RECONCILE_POSITIONS", "true").lower() in ("true", "1", "yes")

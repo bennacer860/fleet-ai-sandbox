@@ -11,7 +11,15 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from ..clob_client import ERROR_REASONS, get_order_status, place_limit_order, get_usdc_balance, cancel_order as _cancel_order_sync
+from ..clob_client import (
+    ERROR_REASONS,
+    cancel_order as _cancel_order_sync,
+    cancel_orders as _cancel_orders_sync,
+    get_open_orders as _get_open_orders_sync,
+    get_order_status,
+    get_usdc_balance,
+    place_limit_order,
+)
 from ..core.events import OrderStatus, OrderSubmitted, OrderTerminal
 from ..core.models import OrderIntent, Side
 from ..gamma_client import fetch_event_by_slug
@@ -134,6 +142,18 @@ class AsyncRestClient:
         """Cancel a live order by ID. Returns True if successfully cancelled."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _cancel_order_sync, order_id)
+
+    async def get_open_orders(
+        self, market: str | None = None, asset_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Fetch all open orders for this API key."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _get_open_orders_sync, market, asset_id)
+
+    async def cancel_orders(self, order_ids: list[str]) -> int:
+        """Cancel many orders by ID. Returns count cancelled."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _cancel_orders_sync, order_ids)
 
     # ── Market data ───────────────────────────────────────────────────────
 
