@@ -43,6 +43,8 @@ logger = get_logger(__name__)
 
 MAX_EVENTS = 35
 REFRESH_INTERVAL = 1.0
+MARKET_PRICE_FLASH_S = 1.5
+PRICE_EPSILON = 1e-9
 
 
 class Dashboard:
@@ -85,6 +87,9 @@ class Dashboard:
         self._expiry_times: deque[float] = deque(maxlen=100)
         self._running = False
         self._slug_display_cache: dict[str, str] = {}
+        # token_id -> (last_price, changed_at_monotonic, direction)
+        # direction: +1 up, -1 down, 0 unchanged/unknown
+        self._market_price_state: dict[str, tuple[float, float, int]] = {}
         
         # Telegram integration
         self._telegram = TelegramNotifier(
@@ -172,6 +177,33 @@ class Dashboard:
             return f"${price:.4f}"
         return f"${price:.6f}"
 
+    def _fmt_market_price(self, token_id: str, outcome: str, price: float, now_mono: float) -> str:
+        """Format market price with a short directional highlight pulse."""
+        direction = 0
+        last = self._market_price_state.get(token_id)
+        if last is None:
+            self._market_price_state[token_id] = (price, now_mono, 0)
+        else:
+            last_price, changed_at, last_direction = last
+            if abs(price - last_price) > PRICE_EPSILON:
+                direction = 1 if price > last_price else -1
+                self._market_price_state[token_id] = (price, now_mono, direction)
+                changed_at = now_mono
+            else:
+                direction = last_direction
+
+            # If the pulse window elapsed, clear highlight direction.
+            if now_mono - changed_at > MARKET_PRICE_FLASH_S and direction != 0:
+                self._market_price_state[token_id] = (price, changed_at, 0)
+                direction = 0
+
+        label = f"{outcome}:{price:.2f}"
+        if direction > 0:
+            return f"[bold green]{label}^[/bold green]"
+        if direction < 0:
+            return f"[bold red]{label}v[/bold red]"
+        return label
+
     def _markets_panel(self) -> Panel:
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Market", min_width=12)
@@ -183,6 +215,7 @@ class Dashboard:
             active = [s for s, a in self._market_ws.market_active.items() if a]
             # Show started markets oldest-first; future windows last.
             now_ts = int(time.time())
+            now_mono = time.monotonic()
             active.sort(key=lambda s: self._market_sort_key(s, now_ts))
             for slug in active[:12]:
                 tids = self._market_ws.token_ids.get(slug, [])
@@ -191,7 +224,7 @@ class Dashboard:
                     outcome = self._market_ws.token_outcomes.get(tid, "?")
                     bp = self._market_ws.best_prices.get(tid, {})
                     price = bp.get("bid", 0.0)
-                    parts.append(f"{outcome}:{price:.2f}")
+                    parts.append(self._fmt_market_price(tid, outcome, price, now_mono))
                 price_str = "  ".join(parts)
                 display = self._format_slug(slug)
 
