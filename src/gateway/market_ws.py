@@ -1,8 +1,8 @@
 """Market-data WebSocket gateway.
 
 Connects to the Polymarket CLOB market WebSocket, subscribes to token
-IDs, and publishes typed events (BookUpdate, TickSizeChange,
-LastTradePrice) onto the EventBus.
+IDs, and publishes typed events (BookUpdate, TickSizeChange) onto the
+EventBus.
 
 Refactored from the original ``MultiEventMonitor``, keeping the
 connection management and subscription logic but removing all CSV I/O,
@@ -21,7 +21,7 @@ import orjson
 import websockets
 
 from ..core.event_bus import EventBus
-from ..core.events import BookUpdate, LastTradePrice, MarketMeta, MarketResolved, TickSizeChange
+from ..core.events import BookUpdate, MarketMeta, MarketResolved, TickSizeChange
 from ..gamma_client import (
     fetch_event_by_slug,
     get_market_token_ids,
@@ -92,6 +92,7 @@ class MarketWebSocket:
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
         self._books_filtered = 0  # counter for filtered-out book updates
         self._books_processed = 0  # counter for successfully processed book updates
+        self._last_top_by_token: dict[str, tuple[float, float]] = {}
 
     # ── Public read-only state ────────────────────────────────────────────
 
@@ -345,29 +346,62 @@ class MarketWebSocket:
             latency_ms=latency_ms,
         ))
 
-    def _process_last_trade(self, data: dict[str, Any]) -> None:
-        asset_id = data.get("asset_id")
-        if not asset_id:
-            return
-        slug = self.slug_by_token.get(asset_id)
-        if not slug or not self.market_active.get(slug, False):
-            return
+    def _process_price_change(self, data: dict[str, Any]) -> None:
+        """Handle price_change batches and keep best_prices fresh.
 
-        try:
-            price = float(data.get("price", 0))
-            size = float(data.get("size", 0))
-        except (ValueError, TypeError):
+        Polymarket emits frequent top-of-book updates via ``price_change``
+        events. These include ``best_bid`` / ``best_ask`` per asset_id.
+        """
+        changes = data.get("price_changes") or []
+        if not isinstance(changes, list):
             return
 
-        side = str(data.get("side", "")).upper()
+        for ch in changes:
+            if not isinstance(ch, dict):
+                continue
+            asset_id = ch.get("asset_id")
+            if not asset_id:
+                continue
 
-        self.event_bus.publish_nowait(LastTradePrice(
-            token_id=asset_id,
-            slug=slug,
-            price=price,
-            size=size,
-            side=side,
-        ))
+            slug = self.slug_by_token.get(asset_id)
+            if not slug or not self.market_active.get(slug, False):
+                continue
+
+            try:
+                best_bid = float(ch.get("best_bid", 0) or 0)
+                best_ask = float(ch.get("best_ask", 0) or 0)
+            except (ValueError, TypeError):
+                continue
+
+            if best_bid <= 0 and best_ask <= 0:
+                continue
+
+            prev = self._last_top_by_token.get(asset_id)
+            cur = (best_bid, best_ask)
+            if prev == cur:
+                continue
+
+            self._last_top_by_token[asset_id] = cur
+            self.best_prices[asset_id] = {"bid": best_bid, "ask": best_ask}
+
+            if self.book_event_filter is not None and asset_id not in self.book_event_filter:
+                self._books_filtered += 1
+                continue
+
+            # Emit a lightweight BookUpdate so strategies react to live top-of-book changes.
+            cond = self.condition_by_token.get(asset_id, "")
+            bids = ((best_bid, 0.0),) if best_bid > 0 else tuple()
+            asks = ((best_ask, 0.0),) if best_ask > 0 else tuple()
+            self._books_processed += 1
+            self.event_bus.publish_nowait(BookUpdate(
+                token_id=asset_id,
+                condition_id=cond,
+                slug=slug,
+                bids=bids,
+                asks=asks,
+                best_bid=best_bid,
+                best_ask=best_ask,
+            ))
 
     # ── Market status checker ─────────────────────────────────────────────
 
@@ -478,14 +512,6 @@ class MarketWebSocket:
                                 self._last_message_time = time.monotonic()
                                 self._msg_count += 1
 
-                                if self._msg_count % 1000 == 0:
-                                    logger.info(
-                                        "[WS_STATS] msgs=%d book_processed=%d book_filtered=%d slugs=%d active=%d",
-                                        self._msg_count, self._books_processed,
-                                        self._books_filtered,
-                                        len(self.slug_by_token), sum(1 for v in self.market_active.values() if v),
-                                    )
-
                                 if raw == "INVALID OPERATION" or raw == "PONG":
                                     continue
 
@@ -504,10 +530,10 @@ class MarketWebSocket:
 
                                     if msg_type == "book":
                                         self._process_book(item)
+                                    elif msg_type == "price_change":
+                                        self._process_price_change(item)
                                     elif msg_type == "tick_size_change":
                                         self._process_tick_size(item)
-                                    elif msg_type == "last_trade_price":
-                                        self._process_last_trade(item)
                         finally:
                             ping_task.cancel()
                             await asyncio.gather(ping_task, return_exceptions=True)
