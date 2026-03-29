@@ -20,8 +20,8 @@ stale, which websocket channel is stale, and whether restart is needed.
 - Instance ID: `i-04fb74e5b95fdc098`
 - Region: `eu-west-1`
 - App path: `/opt/polymarket-bot`
-- Service: `polymarket-bot`
-- Dashboard tmux session: `bot`
+- Service: `polymarket-bot` (profile 2)
+- Dashboard tmux session: `bot-p2`
 - Log file: `/opt/polymarket-bot/data/bot_p2.log`
 
 ## Step 1 - Baseline health
@@ -51,7 +51,7 @@ Capture two snapshots 15-30s apart:
 AWS_PROFILE=rafik aws ssm send-command \
   --instance-ids "i-04fb74e5b95fdc098" \
   --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["sudo su - ec2-user -c '\''tmux capture-pane -pt bot:0 -S -120 | grep -E \"WS Market:|WS User:|WS Crypto:|Market channels:|Spot:\"'\''"]' \
+  --parameters 'commands=["sudo su - ec2-user -c '\''tmux capture-pane -pt bot-p2:0 -S -120 | grep -E \"WS Market:|WS User:|WS Crypto:|Market channels:|Spot:\"'\''"]' \
   --region eu-west-1 \
   --output json --query 'Command.CommandId'
 ```

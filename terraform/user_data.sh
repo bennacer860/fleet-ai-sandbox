@@ -51,6 +51,7 @@ sudo -u ec2-user .venv/bin/pip install -r requirements.txt
 # 7. Copy systemd services and litestream config
 echo "Configuring services..."
 cp $APP_DIR/deploy/polymarket-bot.service /etc/systemd/system/
+cp $APP_DIR/deploy/polymarket-bot-p1-gabagool.service /etc/systemd/system/
 cp $APP_DIR/deploy/litestream.service /etc/systemd/system/
 mkdir -p /etc/litestream
 cp $APP_DIR/deploy/litestream.yml /etc/litestream/litestream.yml
@@ -70,6 +71,7 @@ echo "Attempting to restore databases from S3..."
 mkdir -p $APP_DIR/data
 chown ec2-user:ec2-user $APP_DIR/data
 sudo -u ec2-user litestream restore -config /etc/litestream/litestream.yml -if-replica-exists $APP_DIR/data/bot.db || echo "No existing replica found for bot.db."
+sudo -u ec2-user litestream restore -config /etc/litestream/litestream.yml -if-replica-exists $APP_DIR/data/bot_p1.db || echo "No existing replica found for bot_p1.db."
 sudo -u ec2-user litestream restore -config /etc/litestream/litestream.yml -if-replica-exists $APP_DIR/data/bot_p2.db || echo "No existing replica found for bot_p2.db."
 
 # 9. Enable and start services
@@ -81,5 +83,7 @@ systemctl enable log-sync.timer
 systemctl start log-sync.timer
 systemctl enable polymarket-bot
 systemctl start polymarket-bot
+systemctl enable polymarket-bot-p1-gabagool
+systemctl start polymarket-bot-p1-gabagool
 
 echo "Bootstrap complete!"

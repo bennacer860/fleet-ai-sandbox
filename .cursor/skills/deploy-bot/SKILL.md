@@ -13,7 +13,9 @@ description: >-
 - Instance ID: `i-04fb74e5b95fdc098`
 - Region: `eu-west-1`
 - Bot runs at `/opt/polymarket-bot` as `ec2-user`
-- Service: `polymarket-bot.service` (systemd → tmux)
+- Services:
+  - `polymarket-bot.service` (profile 2, tmux session `bot-p2`)
+  - `polymarket-bot-p1-gabagool.service` (profile 1, tmux session `bot-p1`)
 
 ## Deployment Steps
 
@@ -30,7 +32,7 @@ Run the deployment as a non-interactive SSM command (requires `required_permissi
 AWS_PROFILE=rafik aws ssm send-command \
   --instance-ids "i-04fb74e5b95fdc098" \
   --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["sudo su - ec2-user -c '\''cd /opt/polymarket-bot && git pull && .venv/bin/pip install -r requirements.txt -q && sudo systemctl restart polymarket-bot && echo Deploy complete && sleep 3 && sudo systemctl status polymarket-bot --no-pager'\''"]' \
+  --parameters 'commands=["sudo su - ec2-user -c '\''cd /opt/polymarket-bot && git pull && .venv/bin/pip install -r requirements.txt -q && sudo cp deploy/polymarket-bot.service /etc/systemd/system/ && sudo cp deploy/polymarket-bot-p1-gabagool.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable polymarket-bot polymarket-bot-p1-gabagool && tmux kill-session -t bot || true && sudo systemctl restart polymarket-bot && sudo systemctl restart polymarket-bot-p1-gabagool && echo Deploy complete && sleep 3 && sudo systemctl status polymarket-bot --no-pager && sudo systemctl status polymarket-bot-p1-gabagool --no-pager'\''"]' \
   --region eu-west-1 \
   --comment "Deploy from Cursor" \
   --output json --query 'Command.CommandId'
@@ -55,7 +57,7 @@ AWS_PROFILE=rafik aws ssm get-command-invocation \
 
 Check for:
 - `"Status": "Success"` in the response
-- `Active: active (running)` in the systemctl output
+- `Active: active` for both services in the systemctl output (`running` for profile 2, `exited` for profile 1 helper unit)
 - No errors in `StandardErrorContent` (git fetch messages in stderr are normal)
 
 Report the deployment result to the user.
