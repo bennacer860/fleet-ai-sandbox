@@ -41,7 +41,9 @@ sudo su - ec2-user -c '
     sudo -u ec2-user tmux -L bot-p1 kill-session -t bot-p1 || true
 
     echo "Updating Litestream config..."
+    BUCKET=$(grep -oP "bucket: \K\S+" /etc/litestream/litestream.yml | head -1)
     sudo cp deploy/litestream.yml /etc/litestream/litestream.yml
+    sudo sed -i "s/\${S3_BUCKET}/$BUCKET/g" /etc/litestream/litestream.yml
     sudo systemctl restart litestream
 
     echo "Restarting bot services..."
