@@ -162,21 +162,10 @@ class Bot:
         if conn is not None:
             self.order_manager.load_dedup_from_db(conn)
 
-        # Wire stale-order Telegram alert
+        # Wire stale-order callback (dashboard/logging only, no Telegram)
         def _on_stale_order(slug: str, order_id: str, age_s: float) -> None:
-            if not self.telegram.enabled:
-                return
             display = format_slug_with_est_time(slug)
-            body = (
-                f"📍 <b>Market:</b> <code>{display}</code>\n"
-                f"🆔 <b>Order:</b> <code>{order_id[:16]}…</code>\n"
-                f"⏱ <b>Pending for:</b> {age_s:.0f}s before force-expired\n"
-                f"💸 <b>Exposure released</b>"
-            )
-            asyncio.run_coroutine_threadsafe(
-                self.telegram.push_message(self._telegram_msg("🕐", "STALE ORDER EXPIRED", body)),
-                self.loop,
-            )
+            logger.info("[STALE] %s order=%s pending %.0fs — force-expired", display, order_id[:16], age_s)
         self.order_manager.on_stale_order = _on_stale_order
 
         self.position_tracker = PositionTracker(
@@ -275,7 +264,8 @@ class Bot:
         self.telegram = TelegramNotifier(
             token=TELEGRAM_BOT_TOKEN,
             chat_id=TELEGRAM_CHAT_ID,
-            enabled=TELEGRAM_ENABLED,
+            # Never send Telegram notifications while running in dry-run mode.
+            enabled=TELEGRAM_ENABLED and not self.dry_run,
         )
         self._profile = os.environ.get("ACTIVE_PROFILE") or "0"
 
@@ -835,7 +825,9 @@ class Bot:
             f"📍 <b>Market:</b> <code>{display}</code>\n"
             f"❌ <b>Reason:</b> <code>{reason}</code>"
         )
-        await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {event.status.value}", body))
+        # Suppress noisy alerts for force-expired stale orders.
+        if event.status != OrderStatus.EXPIRED_STALE:
+            await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {event.status.value}", body))
 
     # ── Context maintenance ───────────────────────────────────────────────
 
