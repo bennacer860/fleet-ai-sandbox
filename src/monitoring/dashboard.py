@@ -87,9 +87,12 @@ class Dashboard:
         self._expiry_times: deque[float] = deque(maxlen=100)
         self._running = False
         self._slug_display_cache: dict[str, str] = {}
+        self._started_at_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # token_id -> (last_price, changed_at_monotonic, direction)
         # direction: +1 up, -1 down, 0 unchanged/unknown
         self._market_price_state: dict[str, tuple[float, float, int]] = {}
+        self._filled_by_source: dict[str, int] = {}
+        self._counted_filled_order_ids: set[str] = set()
         
         # Telegram integration
         self._telegram = TelegramNotifier(
@@ -155,6 +158,20 @@ class Dashboard:
         # Note: We don't push general events to Telegram from here to avoid noise. 
         # Important trading events are handled with specialized formatting in bot.py.
 
+    def record_filled_submission_source(
+        self,
+        order_id: str,
+        submission_source: str | None,
+        *,
+        is_final_fill: bool,
+    ) -> None:
+        """Track session filled-order attribution by submission source."""
+        if not is_final_fill or not order_id or order_id in self._counted_filled_order_ids:
+            return
+        source = submission_source or "unknown"
+        self._filled_by_source[source] = self._filled_by_source.get(source, 0) + 1
+        self._counted_filled_order_ids.add(order_id)
+
     # ── Panel builders ────────────────────────────────────────────────────
 
     def _header(self) -> Text:
@@ -164,8 +181,9 @@ class Dashboard:
         tag = "  [DRY-RUN]" if self._dry_run else ""
         profile_tag = f"  Profile {self._profile}" if self._profile else ""
         strategy_tag = f"  Strategy: {self._strategy_name.upper()}"
+        started_tag = f"  Started: {self._started_at_local}"
         return Text(
-            f"  POLYMARKET HFT BOT v1{profile_tag}{strategy_tag}          Uptime: {h}h {m:02d}m{tag}",
+            f"  POLYMARKET HFT BOT v1{profile_tag}{strategy_tag}          Uptime: {h}h {m:02d}m{started_tag}{tag}",
             style="bold white on blue",
         )
 
@@ -251,6 +269,24 @@ class Dashboard:
             rate = (filled / total * 100) if total > 0 else 0
             lines.append(f"Fill Rate: {rate:.1f}%")
             lines.append(f"Dedup Skips: {s.get('dedup_skips', 0)}")
+            if self._filled_by_source:
+                filled_total = sum(self._filled_by_source.values())
+                if filled_total > 0:
+                    source_parts = []
+                    preferred = ("poll", "tick_size_change", "book_update", "unknown")
+                    for source in preferred:
+                        cnt = self._filled_by_source.get(source, 0)
+                        if cnt <= 0:
+                            continue
+                        pct = (cnt / filled_total) * 100
+                        source_parts.append(f"{source} {pct:.0f}%")
+                    for source, cnt in self._filled_by_source.items():
+                        if source in preferred or cnt <= 0:
+                            continue
+                        pct = (cnt / filled_total) * 100
+                        source_parts.append(f"{source} {pct:.0f}%")
+                    if source_parts:
+                        lines.append("Source Fill %: " + " | ".join(source_parts))
 
             if self._tick_latencies:
                 t_lats = list(self._tick_latencies)
@@ -342,6 +378,7 @@ class Dashboard:
             ws_market = "Disconnected"
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
         market_reconnects = self._market_ws.reconnect_count if self._market_ws else 0
+        market_resubs = self._market_ws.resubscribe_count if self._market_ws else 0
         msg_age = (
             f"{self._market_ws.last_data_message_age_s:.0f}s ago"
             if self._market_ws and self._market_ws.last_data_message_age_s >= 0
@@ -388,7 +425,10 @@ class Dashboard:
             ws_crypto = "[dim]N/A[/dim]"
             ws_crypto_prices = ""
 
-        lines.append(f"WS Market: {ws_market} ({token_count} tokens)  (reconnects: {market_reconnects})   Last msg: {msg_age}")
+        lines.append(
+            f"WS Market: {ws_market} ({token_count} tokens)  "
+            f"(reconnects: {market_reconnects} resubs: {market_resubs})   Last msg: {msg_age}"
+        )
         if self._market_ws:
             ages = self._market_ws.channel_message_ages_s()
             def _age(v: float) -> str:

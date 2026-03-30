@@ -95,6 +95,7 @@ class MarketWebSocket:
         self._last_channel_message_time: dict[str, float] = {c: 0.0 for c in _DATA_CHANNELS}
         self._msg_count = 0
         self._reconnect_count = 0
+        self._resubscribe_count = 0
         self._resubscribe_attempted_for_stale = False
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
         self._books_filtered = 0  # counter for filtered-out book updates
@@ -114,6 +115,10 @@ class MarketWebSocket:
     @property
     def reconnect_count(self) -> int:
         return self._reconnect_count
+
+    @property
+    def resubscribe_count(self) -> int:
+        return self._resubscribe_count
 
     @property
     def last_message_age_s(self) -> float:
@@ -496,11 +501,13 @@ class MarketWebSocket:
                 return
 
             await ws.send(self._build_subscribe_message(all_tids))
+            self._resubscribe_count += 1
             logger.warning(
-                "[HEARTBEAT] %s for %.0fs — attempting in-place re-subscribe (%d tokens)",
+                "[HEARTBEAT] %s for %.0fs — attempting in-place re-subscribe (%d tokens) [count=%d]",
                 reason,
                 silence,
                 len(all_tids),
+                self._resubscribe_count,
             )
             self._resubscribe_attempted_for_stale = True
         except Exception:

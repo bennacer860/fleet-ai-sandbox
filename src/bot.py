@@ -807,6 +807,12 @@ class Bot:
             f"{emoji} [{color}]{label}[/{color}]  {display}  "
             f"@ {event.fill_price:.4f} x {event.fill_size:.2f}"
         )
+        if state:
+            self.dashboard.record_filled_submission_source(
+                event.order_id,
+                getattr(state, "submission_source", "unknown"),
+                is_final_fill=(label == "FILLED"),
+            )
 
         # Telegram notification
         body = (
@@ -1136,6 +1142,9 @@ class Bot:
 
         self._wire_subscriptions()
         await self._startup_housekeeping()
+        # Session metrics should always be per-process-run, independent of
+        # any startup reconciliation of historical positions.
+        self.position_tracker.reset_session_metrics()
         self._seed_monitored_timestamps()
         self._launch_prefetch(self._slugs)
 
