@@ -50,9 +50,11 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
-HEARTBEAT_CHECK_INTERVAL_S = 2
-HEARTBEAT_RESUBSCRIBE_AFTER_S = 4
-HEARTBEAT_RECONNECT_AFTER_S = 6
+HEARTBEAT_CHECK_INTERVAL_S = float(os.environ.get("MARKET_WS_HEARTBEAT_CHECK_INTERVAL_S", "1.0"))
+HEARTBEAT_RESUBSCRIBE_AFTER_S = float(os.environ.get("MARKET_WS_RESUBSCRIBE_AFTER_S", "2.5"))
+HEARTBEAT_RESUBSCRIBE_EVERY_S = float(os.environ.get("MARKET_WS_RESUBSCRIBE_EVERY_S", "1.5"))
+HEARTBEAT_MAX_RESUBSCRIBE_ATTEMPTS = int(os.environ.get("MARKET_WS_MAX_RESUBSCRIBE_ATTEMPTS", "3"))
+HEARTBEAT_RECONNECT_AFTER_S = float(os.environ.get("MARKET_WS_RECONNECT_AFTER_S", "7.0"))
 _DATA_CHANNELS: tuple[str, ...] = ("book", "price_change", "tick_size_change")
 
 
@@ -96,7 +98,8 @@ class MarketWebSocket:
         self._msg_count = 0
         self._reconnect_count = 0
         self._resubscribe_count = 0
-        self._resubscribe_attempted_for_stale = False
+        self._stale_resubscribe_attempts = 0
+        self._last_stale_resubscribe_ts = 0.0
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
         self._books_filtered = 0  # counter for filtered-out book updates
         self._books_processed = 0  # counter for successfully processed book updates
@@ -151,7 +154,8 @@ class MarketWebSocket:
         """Record market-data activity timestamps for watchdog/diagnostics."""
         now = time.monotonic()
         self._last_data_message_time = now
-        self._resubscribe_attempted_for_stale = False
+        self._stale_resubscribe_attempts = 0
+        self._last_stale_resubscribe_ts = 0.0
         if channel in self._last_channel_message_time:
             self._last_channel_message_time[channel] = now
 
@@ -503,13 +507,12 @@ class MarketWebSocket:
             await ws.send(self._build_subscribe_message(all_tids))
             self._resubscribe_count += 1
             logger.warning(
-                "[HEARTBEAT] %s for %.0fs — attempting in-place re-subscribe (%d tokens) [count=%d]",
+                "[HEARTBEAT] %s for %.1fs — attempting in-place re-subscribe (%d tokens) [count=%d]",
                 reason,
                 silence,
                 len(all_tids),
                 self._resubscribe_count,
             )
-            self._resubscribe_attempted_for_stale = True
         except Exception:
             logger.warning("[HEARTBEAT] In-place re-subscribe attempt failed", exc_info=True)
 
@@ -531,13 +534,17 @@ class MarketWebSocket:
                 silence = time.monotonic() - self._last_data_message_time
                 reason = "No market-data message"
 
-            if (
-                silence > HEARTBEAT_RESUBSCRIBE_AFTER_S
-                and not self._resubscribe_attempted_for_stale
-            ):
+            if silence > HEARTBEAT_RESUBSCRIBE_AFTER_S:
                 ws = self._websocket
-                if ws:
+                now = time.monotonic()
+                should_retry = (
+                    self._stale_resubscribe_attempts < HEARTBEAT_MAX_RESUBSCRIBE_ATTEMPTS
+                    and (now - self._last_stale_resubscribe_ts) >= HEARTBEAT_RESUBSCRIBE_EVERY_S
+                )
+                if ws and should_retry:
                     await self._attempt_inplace_resubscribe_recovery(ws, reason, silence)
+                    self._stale_resubscribe_attempts += 1
+                    self._last_stale_resubscribe_ts = now
 
             if silence > HEARTBEAT_RECONNECT_AFTER_S:
                 logger.warning(
@@ -589,7 +596,8 @@ class MarketWebSocket:
                         self._websocket = ws
                         self._connected_since = time.monotonic()
                         self._last_data_message_time = 0.0
-                        self._resubscribe_attempted_for_stale = False
+                        self._stale_resubscribe_attempts = 0
+                        self._last_stale_resubscribe_ts = 0.0
                         self._last_channel_message_time = {c: 0.0 for c in _DATA_CHANNELS}
                         backoff = _BASE_BACKOFF
 

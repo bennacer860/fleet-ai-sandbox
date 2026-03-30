@@ -81,17 +81,17 @@ class UserWebSocket:
                 self._process_event(item)
 
     def _process_event(self, event: dict[str, Any]) -> None:
-        order_id = (
-            event.get("id", "")
-            or event.get("order_id", "")
+        evt_type = event.get("type", event.get("event_type", "")).upper()
+        status = event.get("status", "").upper()
+        explicit_order_id = (
+            event.get("order_id", "")
             or event.get("orderId", "")
             or event.get("orderID", "")
         )
+        event_id = event.get("id", "")
+        order_id = explicit_order_id or event_id
         if not order_id:
             return
-
-        evt_type = event.get("type", event.get("event_type", "")).upper()
-        status = event.get("status", "").upper()
 
         fill_size: float | None = None
         fill_price: float | None = None
@@ -119,6 +119,17 @@ class UserWebSocket:
                     event.get("match_price"),
                     event.get("price"),
                 )
+            # Some user-feed trade events are account-level and carry a trade UUID
+            # in `id` instead of an exchange order id (0x...). Ignore those so
+            # they don't become orphan PARTIAL rows in the dashboard.
+            is_probable_order_id = isinstance(order_id, str) and order_id.startswith("0x")
+            if not explicit_order_id and not is_probable_order_id:
+                if _LOG_TRADE_EVENTS:
+                    logger.info(
+                        "[WS_USER][TRADE_EVT_IGNORED] missing order id fields, id=%s",
+                        event_id,
+                    )
+                return
             self.event_bus.publish_nowait(OrderFill(
                 order_id=order_id,
                 fill_price=fill_price or 0.0,
