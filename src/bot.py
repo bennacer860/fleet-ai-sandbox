@@ -623,6 +623,13 @@ class Bot:
         handler_start_ns: int | None = None,
         strategy: Strategy | None = None,
     ) -> None:
+        if isinstance(event, TickSizeChange):
+            submission_source = "tick_size_change"
+        elif isinstance(event, BookUpdate):
+            submission_source = "book_update"
+        else:
+            submission_source = "poll"
+
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
             display_slug = format_slug_with_est_time(intent.slug)
@@ -633,6 +640,7 @@ class Bot:
                 state.handler_start_ns = handler_start_ns
                 state.market_end_ts = extract_market_end_ts(intent.slug)
                 state.market = extract_market_from_slug(intent.slug)
+                state.submission_source = submission_source
                 bp = self._strategy_ctx.best_prices.get(intent.token_id, {})
                 state.best_bid = bp.get("bid")
                 state.best_ask = bp.get("ask")
