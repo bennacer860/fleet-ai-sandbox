@@ -344,11 +344,15 @@ class Dashboard:
         if self._pos_tracker:
             pt = self._pos_tracker
             tag = " [SIMULATED]" if self._dry_run else ""
+            open_positions = [p for p in pt.positions.values() if p.quantity > 0]
+            position_count = len(open_positions)
+            cost_basis = sum(p.cost_basis for p in open_positions)
             position_value = pt.get_total_position_value()
             lines.append(f"Session:   ${pt.session_pnl:.4f}{tag}")
             lines.append(f"Win Rate:  {pt.win_rate:.1%} ({pt.wins}/{pt.trades_closed})")
             lines.append(f"EV/Trade:  ${pt.ev_per_trade:.4f}")
             lines.append(f"Unrealised: ${pt.get_total_unrealized_pnl():.4f}{tag}")
+            lines.append(f"Open Pos:  {position_count}  Cost: ${cost_basis:.4f}")
             lines.append(f"Pos Value: ${position_value:.4f}")
             if self._cash_balance_usdc is not None:
                 age = (
@@ -563,9 +567,9 @@ class Dashboard:
         layout.split_column(
             Layout(name="header", size=1),
             Layout(name="top", size=12),
-            # P&L now includes cash + portfolio rows; reserve more height
+            # P&L now includes cash and portfolio rows; reserve more height
             # so those lines are not clipped in the terminal.
-            Layout(name="middle", size=8),
+            Layout(name="middle", size=10),
             Layout(name="positions", size=8),
             Layout(name="bottom"),
         )

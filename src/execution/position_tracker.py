@@ -109,6 +109,8 @@ class PositionTracker:
         total = 0.0
         for pos in self._positions.values():
             price = self._best_prices.get(pos.token_id, pos.avg_entry_price)
+            if price <= 0:
+                price = pos.avg_entry_price
             total += pos.unrealized_pnl(price)
         return total
 
@@ -119,6 +121,8 @@ class PositionTracker:
             if pos.quantity <= 0:
                 continue
             price = self._best_prices.get(pos.token_id, pos.avg_entry_price)
+            if price <= 0:
+                price = pos.avg_entry_price
             total += pos.quantity * price
         return total
 
