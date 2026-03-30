@@ -85,6 +85,7 @@ MAX_RETRIES = 10
 RETRY_BASE_DELAY = 5
 SUB_CHECK_INTERVAL = 30
 GRACE_PERIOD_SECONDS = 5 * 60
+BALANCE_REFRESH_INTERVAL_S = 30
 
 # Lazy subscription: only subscribe to markets with duration >= this
 # threshold when they are within LAZY_SUB_LEAD_S of expiry.
@@ -305,6 +306,7 @@ class Bot:
                 self.auto_claimer.on_claim = _on_claim
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
+        self._last_balance_refresh_mono: float = 0.0
 
     def _telegram_msg(self, color_emoji: str, title: str, body: str) -> str:
         """Build a Telegram message with profile and color indicator."""
@@ -903,6 +905,19 @@ class Bot:
                 bid = prices.get("bid")
                 if bid is not None:
                     self.position_tracker._best_prices[tid] = bid
+
+            if self.dashboard and not self.dry_run:
+                now_mono = time.monotonic()
+                if (
+                    self._last_balance_refresh_mono <= 0
+                    or (now_mono - self._last_balance_refresh_mono) >= BALANCE_REFRESH_INTERVAL_S
+                ):
+                    try:
+                        balance = await self.rest_client.fetch_balance()
+                        self.dashboard.set_cash_balance(balance)
+                        self._last_balance_refresh_mono = now_mono
+                    except Exception:
+                        logger.warning("[METRICS] Failed to refresh account balance", exc_info=True)
 
     # ── Subscription management (market rolling) ───────────────────────────
 

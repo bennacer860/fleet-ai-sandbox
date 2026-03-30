@@ -93,6 +93,8 @@ class Dashboard:
         self._market_price_state: dict[str, tuple[float, float, int]] = {}
         self._filled_by_source: dict[str, int] = {}
         self._counted_filled_order_ids: set[str] = set()
+        self._cash_balance_usdc: float | None = None
+        self._cash_balance_updated_mono: float | None = None
         
         # Telegram integration
         self._telegram = TelegramNotifier(
@@ -342,14 +344,33 @@ class Dashboard:
         if self._pos_tracker:
             pt = self._pos_tracker
             tag = " [SIMULATED]" if self._dry_run else ""
+            position_value = pt.get_total_position_value()
             lines.append(f"Session:   ${pt.session_pnl:.4f}{tag}")
             lines.append(f"Win Rate:  {pt.win_rate:.1%} ({pt.wins}/{pt.trades_closed})")
             lines.append(f"EV/Trade:  ${pt.ev_per_trade:.4f}")
             lines.append(f"Unrealised: ${pt.get_total_unrealized_pnl():.4f}{tag}")
+            lines.append(f"Pos Value: ${position_value:.4f}")
+            if self._cash_balance_usdc is not None:
+                age = (
+                    f" ({int(time.monotonic() - self._cash_balance_updated_mono)}s old)"
+                    if self._cash_balance_updated_mono is not None
+                    else ""
+                )
+                portfolio_total = self._cash_balance_usdc + position_value
+                lines.append(f"Cash:      ${self._cash_balance_usdc:.4f}{age}")
+                lines.append(f"Portfolio: ${portfolio_total:.4f}")
+            else:
+                lines.append("Cash:      [dim]N/A[/dim]")
+                lines.append("Portfolio: [dim]N/A (waiting for balance)[/dim]")
         else:
             lines.append("No data")
         title = "P&L [SIMULATED]" if self._dry_run else "P&L"
         return Panel("\n".join(lines), title=title, border_style="green")
+
+    def set_cash_balance(self, balance_usdc: float | None) -> None:
+        """Set latest fetched USDC collateral balance for portfolio display."""
+        self._cash_balance_usdc = balance_usdc
+        self._cash_balance_updated_mono = time.monotonic() if balance_usdc is not None else None
 
     def _risk_panel(self) -> Panel:
         lines: list[str] = []

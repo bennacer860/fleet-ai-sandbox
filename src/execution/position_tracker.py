@@ -112,6 +112,16 @@ class PositionTracker:
             total += pos.unrealized_pnl(price)
         return total
 
+    def get_total_position_value(self) -> float:
+        """Return mark-to-market value of all open positions."""
+        total = 0.0
+        for pos in self._positions.values():
+            if pos.quantity <= 0:
+                continue
+            price = self._best_prices.get(pos.token_id, pos.avg_entry_price)
+            total += pos.quantity * price
+        return total
+
     def register_order(
         self,
         order_id: str,
