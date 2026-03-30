@@ -20,13 +20,14 @@ from dataclasses import dataclass, field
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
-from ..markets.fifteen_min import extract_market_end_ts
+from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug, detect_duration_from_slug
 from ..config import (
     AGGRESSIVE_MAX_RETRIES,
     AGGRESSIVE_PHASE1_PRICE,
     AGGRESSIVE_PHASE2_PRICE,
     AGGRESSIVE_POLL_INTERVAL_S,
     DEFAULT_TRADE_SIZE,
+    TRADE_SIZE_60M,
     POST_EXPIRY_MULTIPLIER,
 )
 
@@ -214,7 +215,10 @@ class AggressivePostExpirySweepStrategy(Strategy):
             order_price = min(order_price, 0.99)
 
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
-        order_size = max(DEFAULT_TRADE_SIZE, min_size) * POST_EXPIRY_MULTIPLIER
+        
+        market_duration = detect_duration_from_slug(slug) or 15
+        base_trade_size = TRADE_SIZE_60M if market_duration == 60 else DEFAULT_TRADE_SIZE
+        order_size = max(base_trade_size, min_size) * POST_EXPIRY_MULTIPLIER
 
         state.attempts += 1
         state.last_attempt_time = time.time()

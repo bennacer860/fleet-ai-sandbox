@@ -231,6 +231,25 @@ class Dashboard:
 
         if self._market_ws:
             active = [s for s, a in self._market_ws.market_active.items() if a]
+            
+            # Count active markets by duration
+            duration_counts = {}
+            for slug in active:
+                dur = detect_duration_from_slug(slug)
+                if dur:
+                    duration_counts[dur] = duration_counts.get(dur, 0) + 1
+                    
+            # Build title string with breakdown
+            count = len(active)
+            breakdown_parts = []
+            for dur in sorted(duration_counts.keys()):
+                breakdown_parts.append(f"{dur}m: {duration_counts[dur]}")
+            breakdown_str = " | ".join(breakdown_parts)
+            title = f"MARKETS ({count} active"
+            if breakdown_str:
+                title += f" - {breakdown_str}"
+            title += ")"
+            
             # Show started markets oldest-first; future windows last.
             now_ts = int(time.time())
             now_mono = time.monotonic()
@@ -254,8 +273,9 @@ class Dashboard:
             count = len(active)
         else:
             count = 0
+            title = "MARKETS (0 active)"
 
-        return Panel(table, title=f"MARKETS ({count} active)", border_style="cyan")
+        return Panel(table, title=title, border_style="cyan")
 
     def _orders_panel(self) -> Panel:
         lines: list[str] = []

@@ -17,8 +17,8 @@ import asyncio
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
-from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug
-from ..config import DEFAULT_TRADE_SIZE, AGGRESSIVE_POLL_INTERVAL_S
+from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug, detect_duration_from_slug
+from ..config import DEFAULT_TRADE_SIZE, TRADE_SIZE_60M, AGGRESSIVE_POLL_INTERVAL_S
 
 from .base import Strategy, StrategyContext
 
@@ -194,7 +194,10 @@ class PostExpirySweepStrategy(Strategy):
 
         from ..config import POST_EXPIRY_MULTIPLIER
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
-        order_size = max(DEFAULT_TRADE_SIZE, min_size) * POST_EXPIRY_MULTIPLIER
+        
+        market_duration = detect_duration_from_slug(slug) or 15
+        base_trade_size = TRADE_SIZE_60M if market_duration == 60 else DEFAULT_TRADE_SIZE
+        order_size = max(base_trade_size, min_size) * POST_EXPIRY_MULTIPLIER
 
         all_tids = eval_data.get("token_ids", (best_token,))
         tick_sizes = [ctx.tick_sizes.get(t, 0.01) for t in all_tids]
