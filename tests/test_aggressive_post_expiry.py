@@ -96,6 +96,7 @@ def test_phase2_escalation_on_tick_change(ctx, strategy):
     strategy.notify_order_result(slug, filled=False)
 
     # Now tick changes to 0.001
+    ctx.tick_sizes["token_no"] = 0.001
     with patch(
         "src.strategy.aggressive_post_expiry.extract_market_end_ts",
         return_value=time.time() - 5,
@@ -235,8 +236,8 @@ def test_market_resolved_cleanup(ctx, strategy):
 
 def test_low_best_price_still_orders(ctx, strategy):
     slug = "btc-updown-15m-1773541800"
-    ctx.eval_cache[slug]["best_price"] = 0.5
-    ctx.eval_cache[slug]["prices"] = [0.5, 0.5]
+    ctx.eval_cache[slug]["best_price"] = 0.96
+    ctx.eval_cache[slug]["prices"] = [0.04, 0.96]
 
     with patch(
         "src.strategy.aggressive_post_expiry.extract_market_end_ts",

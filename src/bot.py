@@ -18,6 +18,7 @@ from .core.events import (
     OrderFill,
     OrderLive,
     OrderStatus,
+    OrderSubmitted,
     OrderTerminal,
     TickSizeChange,
 )
@@ -38,8 +39,10 @@ from .monitoring.metrics import Metrics
 from .storage.database import init_db
 from .storage.persistence import AsyncPersistence
 from .utils.market_data import fetch_strike_price, get_market_evaluation
-from .clob_client import precache_token_data, get_cached_min_order_size
+from .clob_client import precache_token_data, get_cached_min_order_size, BookSnapshot
+from .gamma_client import get_winning_token_id, is_market_ended
 from .execution.auto_claimer import AutoClaimer
+from .execution.fill_simulator import FillSimulator
 from .markets.fifteen_min import (
     MarketSelection,
     SUPPORTED_DURATIONS,
@@ -71,6 +74,8 @@ from .config import (
     TELEGRAM_CHAT_ID,
     TELEGRAM_NOTIFICATIONS_ENABLED,
     TELEGRAM_ENABLED,
+    STARTUP_CANCEL_OPEN_ORDERS,
+    STARTUP_RECONCILE_POSITIONS,
 
 )
 
@@ -105,8 +110,10 @@ class Bot:
         claim_min_value: float | None = None,
         claim_interval: float = 60.0,
         persist: bool = True,
+        fill_mode: str = "book",
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
+        self._fill_mode = fill_mode
         self.db_path = db_path or DB_PATH
         self.dashboard_enabled = dashboard_enabled
         self._persist = persist
@@ -155,21 +162,10 @@ class Bot:
         if conn is not None:
             self.order_manager.load_dedup_from_db(conn)
 
-        # Wire stale-order Telegram alert
+        # Wire stale-order callback (dashboard/logging only, no Telegram)
         def _on_stale_order(slug: str, order_id: str, age_s: float) -> None:
-            if not self.telegram.enabled:
-                return
             display = format_slug_with_est_time(slug)
-            body = (
-                f"📍 <b>Market:</b> <code>{display}</code>\n"
-                f"🆔 <b>Order:</b> <code>{order_id[:16]}…</code>\n"
-                f"⏱ <b>Pending for:</b> {age_s:.0f}s before force-expired\n"
-                f"💸 <b>Exposure released</b>"
-            )
-            asyncio.run_coroutine_threadsafe(
-                self.telegram.push_message(self._telegram_msg("🕐", "STALE ORDER EXPIRED", body)),
-                self.loop,
-            )
+            logger.info("[STALE] %s order=%s pending %.0fs — force-expired", display, order_id[:16], age_s)
         self.order_manager.on_stale_order = _on_stale_order
 
         self.position_tracker = PositionTracker(
@@ -185,10 +181,15 @@ class Bot:
         # time-critical short-duration events.
         self._hot_tokens: set[str] = set()
 
+        # Gabagool needs book updates from all markets to function (it
+        # activates from book data, not tick-size changes).  Disable the
+        # filter so BookUpdate events reach the strategy immediately.
+        use_book_filter = strategy_name != "gabagool"
+
         self.market_ws = MarketWebSocket(
             event_bus=self.event_bus,
             initial_slugs=list(self._slugs),
-            book_event_filter=self._hot_tokens,
+            book_event_filter=self._hot_tokens if use_book_filter else None,
         )
         self.user_ws = UserWebSocket(event_bus=self.event_bus)
 
@@ -212,6 +213,11 @@ class Bot:
                         hot_tokens=self._hot_tokens,
                     )
                 ]
+            elif strategy_name == "gabagool":
+                from .strategy.gabagool_adapter import GabagoolStrategy
+                self.strategies = [
+                    GabagoolStrategy(hot_tokens=self._hot_tokens)
+                ]
             else:
                 self.strategies = [
                     SweepStrategy(
@@ -229,6 +235,13 @@ class Bot:
 
         self._strategy_ctx = StrategyContext(dry_run=self.dry_run)
         self._eval_cache: dict[str, dict[str, Any]] = {}
+
+        self._fill_simulator: FillSimulator | None = None
+        if self.dry_run:
+            self._fill_simulator = FillSimulator(
+                event_bus=self.event_bus,
+                mode=self._fill_mode,
+            )
 
         self.dashboard: Dashboard | None = None
         if dashboard_enabled:
@@ -251,7 +264,8 @@ class Bot:
         self.telegram = TelegramNotifier(
             token=TELEGRAM_BOT_TOKEN,
             chat_id=TELEGRAM_CHAT_ID,
-            enabled=TELEGRAM_ENABLED,
+            # Never send Telegram notifications while running in dry-run mode.
+            enabled=TELEGRAM_ENABLED and not self.dry_run,
         )
         self._profile = os.environ.get("ACTIVE_PROFILE") or "0"
 
@@ -410,12 +424,31 @@ class Bot:
 
         # Pre-cache neg_risk + fee_rate in the ClobClient for all token IDs
         # so the library won't need HTTP calls during order placement.
+        # Also seed market_ws.best_prices from the REST book response so
+        # strategies see initial prices before the WebSocket sends deltas.
         token_ids = list(self.market_ws.token_ids.get(slug, []))
         if token_ids:
             try:
-                await asyncio.get_event_loop().run_in_executor(
+                books = await asyncio.get_event_loop().run_in_executor(
                     None, precache_token_data, token_ids
                 )
+                if books:
+                    for tid, snap in books.items():
+                        self.market_ws.best_prices[tid] = {
+                            "bid": snap.best_bid, "ask": snap.best_ask,
+                        }
+                        cond = self.market_ws.condition_by_token.get(tid, "")
+                        self.event_bus.publish_nowait(BookUpdate(
+                            token_id=tid,
+                            condition_id=cond,
+                            slug=slug,
+                            bids=snap.bids,
+                            asks=snap.asks,
+                            best_bid=snap.best_bid,
+                            best_ask=snap.best_ask,
+                        ))
+                        logger.info("[CACHE] Seeded book for %s…: bid=%.4f ask=%.4f",
+                                    tid[:20], snap.best_bid, snap.best_ask)
             except Exception:
                 logger.warning("[CACHE] precache_token_data failed for %s", slug)
 
@@ -493,6 +526,10 @@ class Bot:
         bus.subscribe(TickSizeChange, self._metrics_tick_size)
         bus.subscribe(BookUpdate, self._metrics_book_update)
 
+        if self._fill_simulator is not None:
+            bus.subscribe(OrderSubmitted, self._fill_simulator.on_order_submitted)
+            bus.subscribe(BookUpdate, self._fill_simulator.on_book_update)
+
     # ── Strategy dispatchers ──────────────────────────────────────────────
 
     async def _on_tick_size_change(self, event: TickSizeChange) -> None:
@@ -551,6 +588,12 @@ class Bot:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
                     await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
+                    if self.dashboard:
+                        for intent in intents:
+                            display_slug = format_slug_with_est_time(event.slug)
+                            self.dashboard.push_event(
+                                f"📊 [green]GABAGOOL[/green]  {display_slug}  BUY {intent.token_id[:12]}… @ {intent.price:.4f} x {intent.size:.2f}"
+                            )
             except Exception:
                 logger.exception("Strategy %s error on book_update", strategy.name())
 
@@ -580,6 +623,13 @@ class Bot:
         handler_start_ns: int | None = None,
         strategy: Strategy | None = None,
     ) -> None:
+        if isinstance(event, TickSizeChange):
+            submission_source = "tick_size_change"
+        elif isinstance(event, BookUpdate):
+            submission_source = "book_update"
+        else:
+            submission_source = "poll"
+
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
             display_slug = format_slug_with_est_time(intent.slug)
@@ -590,6 +640,7 @@ class Bot:
                 state.handler_start_ns = handler_start_ns
                 state.market_end_ts = extract_market_end_ts(intent.slug)
                 state.market = extract_market_from_slug(intent.slug)
+                state.submission_source = submission_source
                 bp = self._strategy_ctx.best_prices.get(intent.token_id, {})
                 state.best_bid = bp.get("bid")
                 state.best_ask = bp.get("ask")
@@ -725,6 +776,12 @@ class Bot:
         for strategy in self.strategies:
             if hasattr(strategy, "notify_order_result"):
                 strategy.notify_order_result(slug, filled=is_filled)
+            if hasattr(strategy, "on_fill_event"):
+                strategy.on_fill_event(
+                    token_id=state.intent.token_id,
+                    fill_size=event.fill_size,
+                    fill_price=event.fill_price,
+                )
 
     async def _on_order_terminal_notify_strategy(self, event: OrderTerminal) -> None:
         """Notify strategies when an order terminates so they can retry."""
@@ -750,6 +807,12 @@ class Bot:
             f"{emoji} [{color}]{label}[/{color}]  {display}  "
             f"@ {event.fill_price:.4f} x {event.fill_size:.2f}"
         )
+        if state:
+            self.dashboard.record_filled_submission_source(
+                event.order_id,
+                getattr(state, "submission_source", "unknown"),
+                is_final_fill=(label == "FILLED"),
+            )
 
         # Telegram notification
         body = (
@@ -776,7 +839,9 @@ class Bot:
             f"📍 <b>Market:</b> <code>{display}</code>\n"
             f"❌ <b>Reason:</b> <code>{reason}</code>"
         )
-        await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {event.status.value}", body))
+        # Suppress noisy alerts for force-expired stale orders.
+        if event.status != OrderStatus.EXPIRED_STALE:
+            await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {event.status.value}", body))
 
     # ── Context maintenance ───────────────────────────────────────────────
 
@@ -828,7 +893,7 @@ class Bot:
             active = sum(1 for v in self.market_ws.market_active.values() if v)
             self._metrics.set("active_markets", active)
             self._metrics.set("ws_market_connected", 1.0 if self.market_ws.connected else 0.0)
-            self._metrics.set("ws_market_msg_age_s", self.market_ws.last_message_age_s)
+            self._metrics.set("ws_market_msg_age_s", self.market_ws.last_data_message_age_s)
             self._metrics.set("persistence_pending", float(self.persistence.pending) if self.persistence else 0.0)
             self._metrics.set("orders_pending", float(self.order_manager.pending_count))
             self._metrics.set("books_filtered", float(self.market_ws._books_filtered))
@@ -966,6 +1031,92 @@ class Bot:
             for slug in slugs_to_remove:
                 self._eval_cache.pop(slug, None)
 
+    # ── Startup housekeeping ──────────────────────────────────────────────
+
+    async def _startup_housekeeping(self) -> None:
+        """Clean stale exchange/orders state after process restart."""
+        if self.dry_run:
+            if self.position_tracker.positions:
+                cleared_positions = 0
+                slugs = sorted({p.slug for p in self.position_tracker.positions.values() if p.slug})
+                for slug in slugs:
+                    try:
+                        event = await self.rest_client.fetch_event(slug)
+                        if not event:
+                            continue
+                        markets = event.get("markets", [])
+                        if not markets:
+                            continue
+                        market = markets[0]
+                        if is_market_ended(market):
+                            continue
+
+                        dropped = self.position_tracker.clear_positions_for_slug(slug)
+                        if dropped:
+                            cleared_positions += dropped
+                            logger.info(
+                                "[STARTUP][DRY_RUN] Cleared %d unresolved open position(s) for %s",
+                                dropped, slug,
+                            )
+                    except Exception:
+                        logger.exception("[STARTUP][DRY_RUN] Failed while clearing unresolved positions for %s", slug)
+
+                if cleared_positions:
+                    logger.info(
+                        "[STARTUP][DRY_RUN] Cleared %d unresolved open position(s) total",
+                        cleared_positions,
+                    )
+            return
+
+        if STARTUP_CANCEL_OPEN_ORDERS:
+            try:
+                open_orders = await self.rest_client.get_open_orders()
+                order_ids = [
+                    str(o.get("id", ""))
+                    for o in open_orders
+                    if isinstance(o, dict) and o.get("id")
+                ]
+                if order_ids:
+                    cancelled = await self.rest_client.cancel_orders(order_ids)
+                    logger.info(
+                        "[STARTUP] Cancelled %d/%d open exchange orders",
+                        cancelled, len(order_ids),
+                    )
+                else:
+                    logger.info("[STARTUP] No open exchange orders found")
+            except Exception:
+                logger.exception("[STARTUP] Failed while cancelling open orders")
+
+        if STARTUP_RECONCILE_POSITIONS and self.position_tracker.positions:
+            resolved_count = 0
+            for slug in sorted({p.slug for p in self.position_tracker.positions.values() if p.slug}):
+                try:
+                    event = await self.rest_client.fetch_event(slug)
+                    if not event:
+                        continue
+                    markets = event.get("markets", [])
+                    if not markets:
+                        continue
+                    market = markets[0]
+                    if not is_market_ended(market):
+                        continue
+
+                    winning = get_winning_token_id(market)
+                    if not winning:
+                        continue
+
+                    await self.position_tracker.on_market_resolved(MarketResolved(
+                        slug=slug,
+                        condition_id=str(market.get("conditionId", market.get("condition_id", ""))),
+                        winning_token_id=winning,
+                    ))
+                    resolved_count += 1
+                except Exception:
+                    logger.exception("[STARTUP] Position reconcile failed for %s", slug)
+
+            if resolved_count:
+                logger.info("[STARTUP] Reconciled %d resolved-position markets", resolved_count)
+
     # ── Health context ────────────────────────────────────────────────────
 
     def _health_context(self) -> dict[str, Any]:
@@ -1020,6 +1171,10 @@ class Bot:
         logger.info("=" * 60)
 
         self._wire_subscriptions()
+        await self._startup_housekeeping()
+        # Session metrics should always be per-process-run, independent of
+        # any startup reconciliation of historical positions.
+        self.position_tracker.reset_session_metrics()
         self._seed_monitored_timestamps()
         self._launch_prefetch(self._slugs)
 
@@ -1047,6 +1202,14 @@ class Bot:
             )
             self._tasks.append(
                 asyncio.create_task(self._supervised_task("order_reconciler", self.order_manager.reconcile_orders))
+            )
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("order_reaper", self.order_manager.reap_stale_orders))
+            )
+
+        if self._fill_simulator is not None:
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("fill_simulator", self._fill_simulator.run))
             )
 
         if self.dashboard:

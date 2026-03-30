@@ -80,6 +80,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         claim_min_value=args.claim,
         claim_interval=args.claim_interval,
         persist=persist,
+        fill_mode=args.fill_mode,
     )
 
     bot.run_sync()
@@ -248,7 +249,8 @@ def main() -> int:
     # ── run ────────────────────────────────────────────────────────────────
     run_parser = sub.add_parser("run", help="Start the trading bot")
     run_parser.add_argument(
-        "--strategy", type=str, default="sweep", choices=["sweep", "post_expiry", "aggressive_post_expiry"],
+        "--strategy", type=str, default="sweep",
+        choices=["sweep", "post_expiry", "aggressive_post_expiry", "gabagool"],
         help="Trading strategy to use (default: sweep)",
     )
     run_parser.add_argument(
@@ -294,6 +296,10 @@ def main() -> int:
     run_parser.add_argument(
         "--claim-interval", type=float, default=60.0,
         help="How often to check for redeemable positions in seconds (default: 60)",
+    )
+    run_parser.add_argument(
+        "--fill-mode", type=str, default="book", choices=["book", "instant"],
+        help="Fill simulation mode for dry-run (default: book). Only used with --dry-run.",
     )
 
     # ── health ─────────────────────────────────────────────────────────────

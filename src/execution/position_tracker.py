@@ -69,6 +69,28 @@ class PositionTracker:
         else:
             logger.info("[POSITION] No open positions found in database")
 
+    def reset_session_metrics(self) -> None:
+        """Reset per-process session metrics while keeping open positions intact."""
+        self.session_pnl = 0.0
+        self.wins = 0
+        self.losses = 0
+        self.trades_closed = 0
+
+    def clear_positions_for_slug(self, slug: str) -> int:
+        """Drop open positions for a market slug from memory and DB."""
+        to_clear = [tid for tid, pos in self._positions.items() if pos.slug == slug and pos.quantity > 0]
+        if not to_clear:
+            return 0
+
+        for tid in to_clear:
+            pos = self._positions.pop(tid, None)
+            if pos and self._persistence:
+                self._persistence.enqueue(
+                    "DELETE FROM positions WHERE token_id = ? AND strategy = ?",
+                    (tid, pos.strategy),
+                )
+        return len(to_clear)
+
     # ── Public API ────────────────────────────────────────────────────────
 
     @property
@@ -179,6 +201,11 @@ class PositionTracker:
                         pos.avg_entry_price, exit_price, pos.quantity,
                         pnl, pnl, 0.0, time.time(), pos.spot_price, 0,
                     ),
+                )
+                # Mark position closed in DB so startup won't reload/reconcile it again.
+                self._persistence.enqueue(
+                    "DELETE FROM positions WHERE token_id = ? AND strategy = ?",
+                    (tid, pos.strategy),
                 )
 
             to_close.append(tid)

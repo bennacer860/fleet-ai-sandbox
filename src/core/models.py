@@ -68,6 +68,7 @@ class OrderState:
     strike_price: float | None = None
     proximity: float | None = None
     spot_price_age_ms: float | None = None
+    submission_source: str = "unknown"
 
     @property
     def is_terminal(self) -> bool:

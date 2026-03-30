@@ -53,6 +53,8 @@ def test_tick_size_change_before_expiry(base_ctx, post_expiry_strategy):
 
 def test_tick_size_change_after_expiry(base_ctx, post_expiry_strategy):
     slug = "btc-updown-15m-1773541800"
+    base_ctx.tick_sizes["token_yes"] = 0.001
+    base_ctx.tick_sizes["token_no"] = 0.001
     
     # Expiry is in the past
     with patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10):
@@ -79,6 +81,8 @@ def test_tick_size_change_after_expiry(base_ctx, post_expiry_strategy):
 
 def test_book_update_after_expiry(base_ctx, post_expiry_strategy):
     slug = "btc-updown-15m-1773541800"
+    base_ctx.tick_sizes["token_yes"] = 0.001
+    base_ctx.tick_sizes["token_no"] = 0.001
     import asyncio
     
     # First, simulate tick size change before expiry to start watching
@@ -122,6 +126,8 @@ def test_book_update_after_expiry(base_ctx, post_expiry_strategy):
 
 def test_poll_triggers_order_after_expiry(base_ctx, post_expiry_strategy):
     slug = "btc-updown-15m-1773541800"
+    base_ctx.tick_sizes["token_yes"] = 0.001
+    base_ctx.tick_sizes["token_no"] = 0.001
     import asyncio
 
     # Start watching before expiry
@@ -147,10 +153,12 @@ def test_poll_triggers_order_after_expiry(base_ctx, post_expiry_strategy):
     assert intents[0].price == 0.999
 
 def test_no_proximity_filter_on_post_expiry(base_ctx, post_expiry_strategy):
-    """Post-expiry orders should submit regardless of best_price level."""
+    """Post-expiry orders should submit regardless of proximity to 1.0."""
     slug = "btc-updown-15m-1773541800"
-    base_ctx.eval_cache[slug]["best_price"] = 0.50
-    base_ctx.eval_cache[slug]["prices"] = [0.50, 0.50]
+    base_ctx.eval_cache[slug]["best_price"] = 0.96
+    base_ctx.eval_cache[slug]["prices"] = [0.04, 0.96]
+    base_ctx.tick_sizes["token_yes"] = 0.001
+    base_ctx.tick_sizes["token_no"] = 0.001
 
     with patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10):
         event = TickSizeChange(

@@ -354,8 +354,10 @@ You do not need SSH keys. Connect securely using AWS SSM:
 # Get the instance ID from terraform output
 aws ssm start-session --target <instance-id> --region eu-west-1
 
-# Once connected, attach to the tmux session:
-tmux attach -t bot
+# Once connected, attach to a profile session:
+tmux attach -t bot-p2   # post_expiry (profile 2)
+# or
+tmux attach -t bot-p1   # gabagool (profile 1)
 ```
 
 *To detach and leave the bot running, press `Ctrl+B`, then `D`.*
@@ -368,7 +370,7 @@ When you make changes to the code locally, push them to GitHub, then run the dep
 ./deploy/deploy.sh
 ```
 
-This script will connect to the EC2 instance, pull the latest code, update dependencies, and restart the bot service automatically.
+This script will connect to the EC2 instance, pull the latest code, update dependencies, and restart both bot profile services automatically.
 
 ## Logging
 

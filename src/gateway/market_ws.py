@@ -1,8 +1,8 @@
 """Market-data WebSocket gateway.
 
 Connects to the Polymarket CLOB market WebSocket, subscribes to token
-IDs, and publishes typed events (BookUpdate, TickSizeChange,
-LastTradePrice) onto the EventBus.
+IDs, and publishes typed events (BookUpdate, TickSizeChange) onto the
+EventBus.
 
 Refactored from the original ``MultiEventMonitor``, keeping the
 connection management and subscription logic but removing all CSV I/O,
@@ -21,7 +21,7 @@ import orjson
 import websockets
 
 from ..core.event_bus import EventBus
-from ..core.events import BookUpdate, LastTradePrice, MarketMeta, MarketResolved, TickSizeChange
+from ..core.events import BookUpdate, MarketMeta, MarketResolved, TickSizeChange
 from ..gamma_client import (
     fetch_event_by_slug,
     get_market_token_ids,
@@ -50,7 +50,10 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
-HEARTBEAT_TIMEOUT_S = 60
+HEARTBEAT_CHECK_INTERVAL_S = 2
+HEARTBEAT_RESUBSCRIBE_AFTER_S = 4
+HEARTBEAT_RECONNECT_AFTER_S = 6
+_DATA_CHANNELS: tuple[str, ...] = ("book", "price_change", "tick_size_change")
 
 
 class MarketWebSocket:
@@ -87,10 +90,17 @@ class MarketWebSocket:
         self._websocket: Optional[websockets.WebSocketClientProtocol] = None
         self._running = False
         self._last_message_time: float = 0.0
+        self._last_data_message_time: float = 0.0
+        self._connected_since: float = 0.0
+        self._last_channel_message_time: dict[str, float] = {c: 0.0 for c in _DATA_CHANNELS}
         self._msg_count = 0
         self._reconnect_count = 0
+        self._resubscribe_count = 0
+        self._resubscribe_attempted_for_stale = False
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
         self._books_filtered = 0  # counter for filtered-out book updates
+        self._books_processed = 0  # counter for successfully processed book updates
+        self._last_top_by_token: dict[str, tuple[float, float]] = {}
 
     # ── Public read-only state ────────────────────────────────────────────
 
@@ -107,16 +117,58 @@ class MarketWebSocket:
         return self._reconnect_count
 
     @property
+    def resubscribe_count(self) -> int:
+        return self._resubscribe_count
+
+    @property
     def last_message_age_s(self) -> float:
         if self._last_message_time == 0:
             return -1
         return time.monotonic() - self._last_message_time
+
+    @property
+    def last_data_message_age_s(self) -> float:
+        """Seconds since last market-data event (book/price_change/tick_size)."""
+        if self._last_data_message_time == 0:
+            return -1
+        return time.monotonic() - self._last_data_message_time
+
+    def channel_message_ages_s(self) -> dict[str, float]:
+        """Per-channel message age in seconds (-1 means never seen)."""
+        now = time.monotonic()
+        ages: dict[str, float] = {}
+        for channel, ts in self._last_channel_message_time.items():
+            ages[channel] = -1 if ts == 0 else (now - ts)
+        return ages
 
     def get_realtime_price(self, asset_id: str) -> float | None:
         prices = self.best_prices.get(asset_id)
         if prices and prices["bid"] > 0:
             return prices["bid"]
         return None
+
+    def _mark_data_message(self, channel: str) -> None:
+        """Record market-data activity timestamps for watchdog/diagnostics."""
+        now = time.monotonic()
+        self._last_data_message_time = now
+        self._resubscribe_attempted_for_stale = False
+        if channel in self._last_channel_message_time:
+            self._last_channel_message_time[channel] = now
+
+    def _all_token_ids(self) -> list[str]:
+        all_tids: list[str] = []
+        for tids in self.token_ids.values():
+            all_tids.extend(tids)
+        return all_tids
+
+    @staticmethod
+    def _build_subscribe_message(asset_ids: list[str]) -> str:
+        return orjson.dumps({
+            "type": "subscribe",
+            "assets_ids": asset_ids,
+            "channels": ["book", "price_change", "tick_size_change"],
+            "custom_feature_enabled": False,
+        }).decode("utf-8")
 
     # ── Market initialisation ─────────────────────────────────────────────
 
@@ -202,14 +254,20 @@ class MarketWebSocket:
             except Exception:
                 logger.exception("Error adding %s", slug)
 
-        if new_tids and self._websocket:
-            msg = orjson.dumps({
-                "type": "subscribe",
-                "assets_ids": new_tids,
-                "channels": ["book", "tick_size_change"],
-                "custom_feature_enabled": False,
-            }).decode("utf-8")
-            await self._websocket.send(msg)
+        if new_tids:
+            if self._websocket:
+                all_tids: list[str] = []
+                all_tids = self._all_token_ids()
+                msg = self._build_subscribe_message(all_tids)
+                await self._websocket.send(msg)
+                logger.info(
+                    "[MARKET_WS_SUB] Re-subscribed ALL %d tokens (%d new) on live WS "
+                    "(channels: book, price_change, tick_size_change)",
+                    len(all_tids),
+                    len(new_tids),
+                )
+            else:
+                logger.warning("[MARKET_WS_SUB] No active WS connection — %d tokens NOT subscribed", len(new_tids))
 
     async def remove_markets(self, slugs: list[str]) -> None:
         tids_to_unsub: list[str] = []
@@ -237,6 +295,13 @@ class MarketWebSocket:
             return
         slug = self.slug_by_token.get(asset_id)
         if not slug or not self.market_active.get(slug, False):
+            if self._msg_count % 500 == 0:
+                logger.debug(
+                    "[BOOK_DROP] asset=%s… slug=%s active=%s known_slugs=%d",
+                    str(asset_id)[:20], slug,
+                    self.market_active.get(slug) if slug else "N/A",
+                    len(self.slug_by_token),
+                )
             return
 
         raw_bids = data.get("bids") or []
@@ -273,6 +338,7 @@ class MarketWebSocket:
         )
 
         cond = self.condition_by_token.get(asset_id, "")
+        self._books_processed += 1
         self.event_bus.publish_nowait(BookUpdate(
             token_id=asset_id,
             condition_id=cond,
@@ -329,29 +395,62 @@ class MarketWebSocket:
             latency_ms=latency_ms,
         ))
 
-    def _process_last_trade(self, data: dict[str, Any]) -> None:
-        asset_id = data.get("asset_id")
-        if not asset_id:
-            return
-        slug = self.slug_by_token.get(asset_id)
-        if not slug or not self.market_active.get(slug, False):
-            return
+    def _process_price_change(self, data: dict[str, Any]) -> None:
+        """Handle price_change batches and keep best_prices fresh.
 
-        try:
-            price = float(data.get("price", 0))
-            size = float(data.get("size", 0))
-        except (ValueError, TypeError):
+        Polymarket emits frequent top-of-book updates via ``price_change``
+        events. These include ``best_bid`` / ``best_ask`` per asset_id.
+        """
+        changes = data.get("price_changes") or []
+        if not isinstance(changes, list):
             return
 
-        side = str(data.get("side", "")).upper()
+        for ch in changes:
+            if not isinstance(ch, dict):
+                continue
+            asset_id = ch.get("asset_id")
+            if not asset_id:
+                continue
 
-        self.event_bus.publish_nowait(LastTradePrice(
-            token_id=asset_id,
-            slug=slug,
-            price=price,
-            size=size,
-            side=side,
-        ))
+            slug = self.slug_by_token.get(asset_id)
+            if not slug or not self.market_active.get(slug, False):
+                continue
+
+            try:
+                best_bid = float(ch.get("best_bid", 0) or 0)
+                best_ask = float(ch.get("best_ask", 0) or 0)
+            except (ValueError, TypeError):
+                continue
+
+            if best_bid <= 0 and best_ask <= 0:
+                continue
+
+            prev = self._last_top_by_token.get(asset_id)
+            cur = (best_bid, best_ask)
+            if prev == cur:
+                continue
+
+            self._last_top_by_token[asset_id] = cur
+            self.best_prices[asset_id] = {"bid": best_bid, "ask": best_ask}
+
+            if self.book_event_filter is not None and asset_id not in self.book_event_filter:
+                self._books_filtered += 1
+                continue
+
+            # Emit a lightweight BookUpdate so strategies react to live top-of-book changes.
+            cond = self.condition_by_token.get(asset_id, "")
+            bids = ((best_bid, 0.0),) if best_bid > 0 else tuple()
+            asks = ((best_ask, 0.0),) if best_ask > 0 else tuple()
+            self._books_processed += 1
+            self.event_bus.publish_nowait(BookUpdate(
+                token_id=asset_id,
+                condition_id=cond,
+                slug=slug,
+                bids=bids,
+                asks=asks,
+                best_bid=best_bid,
+                best_ask=best_ask,
+            ))
 
     # ── Market status checker ─────────────────────────────────────────────
 
@@ -386,15 +485,63 @@ class MarketWebSocket:
 
     # ── Heartbeat watchdog ────────────────────────────────────────────────
 
+    async def _attempt_inplace_resubscribe_recovery(
+        self,
+        ws: websockets.WebSocketClientProtocol,
+        reason: str,
+        silence: float,
+    ) -> None:
+        """Try one in-place re-subscribe during a stale episode."""
+        try:
+            if self._websocket is not ws:
+                return
+
+            all_tids = self._all_token_ids()
+            if not all_tids:
+                return
+
+            await ws.send(self._build_subscribe_message(all_tids))
+            self._resubscribe_count += 1
+            logger.warning(
+                "[HEARTBEAT] %s for %.0fs — attempting in-place re-subscribe (%d tokens) [count=%d]",
+                reason,
+                silence,
+                len(all_tids),
+                self._resubscribe_count,
+            )
+            self._resubscribe_attempted_for_stale = True
+        except Exception:
+            logger.warning("[HEARTBEAT] In-place re-subscribe attempt failed", exc_info=True)
+
     async def _heartbeat_watchdog(self) -> None:
         while self._running:
-            await asyncio.sleep(HEARTBEAT_TIMEOUT_S / 2)
-            if self._last_message_time == 0:
+            await asyncio.sleep(HEARTBEAT_CHECK_INTERVAL_S)
+            if not self._websocket:
                 continue
-            silence = time.monotonic() - self._last_message_time
-            if silence > HEARTBEAT_TIMEOUT_S and self._websocket:
+
+            # Reconnect when market-data stalls even if control frames (PONG)
+            # continue to arrive. This avoids half-open "connected but frozen"
+            # sessions that only recover on manual restart.
+            if self._last_data_message_time == 0:
+                if self._connected_since == 0:
+                    continue
+                silence = time.monotonic() - self._connected_since
+                reason = "No market-data messages since connect"
+            else:
+                silence = time.monotonic() - self._last_data_message_time
+                reason = "No market-data message"
+
+            if (
+                silence > HEARTBEAT_RESUBSCRIBE_AFTER_S
+                and not self._resubscribe_attempted_for_stale
+            ):
+                ws = self._websocket
+                if ws:
+                    await self._attempt_inplace_resubscribe_recovery(ws, reason, silence)
+
+            if silence > HEARTBEAT_RECONNECT_AFTER_S:
                 logger.warning(
-                    "[HEARTBEAT] No message for %.0fs — forcing reconnect", silence
+                    "[HEARTBEAT] %s for %.0fs — forcing reconnect", reason, silence
                 )
                 try:
                     await self._websocket.close()
@@ -426,9 +573,7 @@ class MarketWebSocket:
         backoff = _BASE_BACKOFF
         try:
             while self._running:
-                all_tids: list[str] = []
-                for tids in self.token_ids.values():
-                    all_tids.extend(tids)
+                all_tids = self._all_token_ids()
 
                 if not all_tids:
                     await asyncio.sleep(backoff)
@@ -442,16 +587,19 @@ class MarketWebSocket:
                         extra_headers=_BROWSER_HEADERS,
                     ) as ws:
                         self._websocket = ws
+                        self._connected_since = time.monotonic()
+                        self._last_data_message_time = 0.0
+                        self._resubscribe_attempted_for_stale = False
+                        self._last_channel_message_time = {c: 0.0 for c in _DATA_CHANNELS}
                         backoff = _BASE_BACKOFF
 
-                        sub_msg = orjson.dumps({
-                            "type": "subscribe",
-                            "assets_ids": all_tids,
-                            "channels": ["book", "tick_size_change"],
-                            "custom_feature_enabled": False,
-                        }).decode("utf-8")
+                        sub_msg = self._build_subscribe_message(all_tids)
                         await ws.send(sub_msg)
-                        logger.info("[WS_MARKET] Connected, subscribed to %d tokens (channels: book, tick_size_change)", len(all_tids))
+                        logger.info(
+                            "[WS_MARKET] Connected, subscribed to %d tokens "
+                            "(channels: book, price_change, tick_size_change)",
+                            len(all_tids),
+                        )
 
                         ping_task = asyncio.create_task(self._send_app_pings(ws))
                         try:
@@ -475,19 +623,22 @@ class MarketWebSocket:
                                 for item in items:
                                     if not isinstance(item, dict):
                                         continue
-                                        
+
                                     msg_type = item.get("event_type", item.get("type", ""))
+                                    if msg_type in _DATA_CHANNELS:
+                                        self._mark_data_message(msg_type)
 
                                     if msg_type == "book":
                                         self._process_book(item)
+                                    elif msg_type == "price_change":
+                                        self._process_price_change(item)
                                     elif msg_type == "tick_size_change":
                                         self._process_tick_size(item)
-                                    elif msg_type == "last_trade_price":
-                                        self._process_last_trade(item)
                         finally:
                             ping_task.cancel()
                             await asyncio.gather(ping_task, return_exceptions=True)
                             self._websocket = None
+                            self._connected_since = 0.0
 
                 except (
                     websockets.exceptions.ConnectionClosed,

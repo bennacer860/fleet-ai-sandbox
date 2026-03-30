@@ -8,6 +8,7 @@ Activated via ``--dashboard`` flag.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import deque
 from datetime import datetime
@@ -20,6 +21,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..logging_config import get_logger
+from ..markets.fifteen_min import detect_duration_from_slug
 from ..utils.timestamps import format_slug_with_est_time
 from .metrics import Metrics
 from ..utils.telegram_notifier import TelegramNotifier
@@ -41,6 +43,8 @@ logger = get_logger(__name__)
 
 MAX_EVENTS = 35
 REFRESH_INTERVAL = 1.0
+MARKET_PRICE_FLASH_S = 1.5
+PRICE_EPSILON = 1e-9
 
 
 class Dashboard:
@@ -83,6 +87,12 @@ class Dashboard:
         self._expiry_times: deque[float] = deque(maxlen=100)
         self._running = False
         self._slug_display_cache: dict[str, str] = {}
+        self._started_at_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # token_id -> (last_price, changed_at_monotonic, direction)
+        # direction: +1 up, -1 down, 0 unchanged/unknown
+        self._market_price_state: dict[str, tuple[float, float, int]] = {}
+        self._filled_by_source: dict[str, int] = {}
+        self._counted_filled_order_ids: set[str] = set()
         
         # Telegram integration
         self._telegram = TelegramNotifier(
@@ -96,6 +106,31 @@ class Dashboard:
         if slug not in self._slug_display_cache:
             self._slug_display_cache[slug] = format_slug_with_est_time(slug)
         return self._slug_display_cache[slug]
+
+    @staticmethod
+    def _market_end_ts(slug: str) -> int:
+        """Extract unix end timestamp from market slug if present."""
+        m = re.search(r"-(\d{10})$", slug)
+        if not m:
+            return 0
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return 0
+
+    def _market_sort_key(self, slug: str, now_ts: int) -> tuple[int, int, str]:
+        """Sort started markets oldest-first, future markets last."""
+        end_ts = self._market_end_ts(slug)
+        duration_m = detect_duration_from_slug(slug)
+        if end_ts > 0 and duration_m:
+            start_ts = end_ts - (duration_m * 60)
+            if start_ts <= now_ts:
+                # Started/live markets first, oldest start first.
+                return (0, start_ts, slug)
+            # Future markets always last, nearest upcoming first.
+            return (1, start_ts, slug)
+        # Unknown timestamp/duration: keep near the end.
+        return (2, 10**12, slug)
 
     def push_latency(self, latency_ms: float) -> None:
         self._exchange_latencies.append(latency_ms)
@@ -123,6 +158,20 @@ class Dashboard:
         # Note: We don't push general events to Telegram from here to avoid noise. 
         # Important trading events are handled with specialized formatting in bot.py.
 
+    def record_filled_submission_source(
+        self,
+        order_id: str,
+        submission_source: str | None,
+        *,
+        is_final_fill: bool,
+    ) -> None:
+        """Track session filled-order attribution by submission source."""
+        if not is_final_fill or not order_id or order_id in self._counted_filled_order_ids:
+            return
+        source = submission_source or "unknown"
+        self._filled_by_source[source] = self._filled_by_source.get(source, 0) + 1
+        self._counted_filled_order_ids.add(order_id)
+
     # ── Panel builders ────────────────────────────────────────────────────
 
     def _header(self) -> Text:
@@ -132,8 +181,9 @@ class Dashboard:
         tag = "  [DRY-RUN]" if self._dry_run else ""
         profile_tag = f"  Profile {self._profile}" if self._profile else ""
         strategy_tag = f"  Strategy: {self._strategy_name.upper()}"
+        started_tag = f"  Started: {self._started_at_local}"
         return Text(
-            f"  POLYMARKET HFT BOT v1{profile_tag}{strategy_tag}          Uptime: {h}h {m:02d}m{tag}",
+            f"  POLYMARKET HFT BOT v1{profile_tag}{strategy_tag}          Uptime: {h}h {m:02d}m{started_tag}{tag}",
             style="bold white on blue",
         )
 
@@ -145,6 +195,33 @@ class Dashboard:
             return f"${price:.4f}"
         return f"${price:.6f}"
 
+    def _fmt_market_price(self, token_id: str, outcome: str, price: float, now_mono: float) -> str:
+        """Format market price with a short directional highlight pulse."""
+        direction = 0
+        last = self._market_price_state.get(token_id)
+        if last is None:
+            self._market_price_state[token_id] = (price, now_mono, 0)
+        else:
+            last_price, changed_at, last_direction = last
+            if abs(price - last_price) > PRICE_EPSILON:
+                direction = 1 if price > last_price else -1
+                self._market_price_state[token_id] = (price, now_mono, direction)
+                changed_at = now_mono
+            else:
+                direction = last_direction
+
+            # If the pulse window elapsed, clear highlight direction.
+            if now_mono - changed_at > MARKET_PRICE_FLASH_S and direction != 0:
+                self._market_price_state[token_id] = (price, changed_at, 0)
+                direction = 0
+
+        label = f"{outcome}:{price:.2f}"
+        if direction > 0:
+            return f"[bold green]{label}^[/bold green]"
+        if direction < 0:
+            return f"[bold red]{label}v[/bold red]"
+        return label
+
     def _markets_panel(self) -> Panel:
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Market", min_width=12)
@@ -154,6 +231,10 @@ class Dashboard:
 
         if self._market_ws:
             active = [s for s, a in self._market_ws.market_active.items() if a]
+            # Show started markets oldest-first; future windows last.
+            now_ts = int(time.time())
+            now_mono = time.monotonic()
+            active.sort(key=lambda s: self._market_sort_key(s, now_ts))
             for slug in active[:12]:
                 tids = self._market_ws.token_ids.get(slug, [])
                 parts: list[str] = []
@@ -161,7 +242,7 @@ class Dashboard:
                     outcome = self._market_ws.token_outcomes.get(tid, "?")
                     bp = self._market_ws.best_prices.get(tid, {})
                     price = bp.get("bid", 0.0)
-                    parts.append(f"{outcome}:{price:.2f}")
+                    parts.append(self._fmt_market_price(tid, outcome, price, now_mono))
                 price_str = "  ".join(parts)
                 display = self._format_slug(slug)
 
@@ -188,6 +269,24 @@ class Dashboard:
             rate = (filled / total * 100) if total > 0 else 0
             lines.append(f"Fill Rate: {rate:.1f}%")
             lines.append(f"Dedup Skips: {s.get('dedup_skips', 0)}")
+            if self._filled_by_source:
+                filled_total = sum(self._filled_by_source.values())
+                if filled_total > 0:
+                    source_parts = []
+                    preferred = ("poll", "tick_size_change", "book_update", "unknown")
+                    for source in preferred:
+                        cnt = self._filled_by_source.get(source, 0)
+                        if cnt <= 0:
+                            continue
+                        pct = (cnt / filled_total) * 100
+                        source_parts.append(f"{source} {pct:.0f}%")
+                    for source, cnt in self._filled_by_source.items():
+                        if source in preferred or cnt <= 0:
+                            continue
+                        pct = (cnt / filled_total) * 100
+                        source_parts.append(f"{source} {pct:.0f}%")
+                    if source_parts:
+                        lines.append("Source Fill %: " + " | ".join(source_parts))
 
             if self._tick_latencies:
                 t_lats = list(self._tick_latencies)
@@ -222,13 +321,15 @@ class Dashboard:
         lines: list[str] = []
         if self._pos_tracker:
             pt = self._pos_tracker
-            lines.append(f"Session:   ${pt.session_pnl:.4f}")
+            tag = " [SIMULATED]" if self._dry_run else ""
+            lines.append(f"Session:   ${pt.session_pnl:.4f}{tag}")
             lines.append(f"Win Rate:  {pt.win_rate:.1%} ({pt.wins}/{pt.trades_closed})")
             lines.append(f"EV/Trade:  ${pt.ev_per_trade:.4f}")
-            lines.append(f"Unrealised: ${pt.get_total_unrealized_pnl():.4f}")
+            lines.append(f"Unrealised: ${pt.get_total_unrealized_pnl():.4f}{tag}")
         else:
             lines.append("No data")
-        return Panel("\n".join(lines), title="P&L", border_style="green")
+        title = "P&L [SIMULATED]" if self._dry_run else "P&L"
+        return Panel("\n".join(lines), title=title, border_style="green")
 
     def _risk_panel(self) -> Panel:
         lines: list[str] = []
@@ -277,7 +378,12 @@ class Dashboard:
             ws_market = "Disconnected"
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
         market_reconnects = self._market_ws.reconnect_count if self._market_ws else 0
-        msg_age = f"{self._market_ws.last_message_age_s:.0f}s ago" if self._market_ws and self._market_ws.last_message_age_s >= 0 else "N/A"
+        market_resubs = self._market_ws.resubscribe_count if self._market_ws else 0
+        msg_age = (
+            f"{self._market_ws.last_data_message_age_s:.0f}s ago"
+            if self._market_ws and self._market_ws.last_data_message_age_s >= 0
+            else "N/A"
+        )
 
         if self._user_ws:
             user_reconnects = self._user_ws.reconnect_count
@@ -319,7 +425,20 @@ class Dashboard:
             ws_crypto = "[dim]N/A[/dim]"
             ws_crypto_prices = ""
 
-        lines.append(f"WS Market: {ws_market} ({token_count} tokens)  (reconnects: {market_reconnects})   Last msg: {msg_age}")
+        lines.append(
+            f"WS Market: {ws_market} ({token_count} tokens)  "
+            f"(reconnects: {market_reconnects} resubs: {market_resubs})   Last msg: {msg_age}"
+        )
+        if self._market_ws:
+            ages = self._market_ws.channel_message_ages_s()
+            def _age(v: float) -> str:
+                return "N/A" if v < 0 else f"{v:.0f}s"
+            lines.append(
+                "  Market channels: "
+                f"book={_age(ages.get('book', -1))}  "
+                f"price_change={_age(ages.get('price_change', -1))}  "
+                f"tick_size={_age(ages.get('tick_size_change', -1))}"
+            )
         lines.append(f"WS User:   {ws_user}")
         lines.append(f"WS Crypto: {ws_crypto}")
         if ws_crypto_prices:
@@ -336,16 +455,20 @@ class Dashboard:
     def _positions_panel(self) -> Panel:
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Market", min_width=16)
-        table.add_column("Side", width=4)
+        table.add_column("Side", width=10)
         table.add_column("Qty", width=6, justify="right")
         table.add_column("Entry", width=7, justify="right")
         table.add_column("Current", width=7, justify="right")
         table.add_column("uPnL", width=8, justify="right")
 
         if self._pos_tracker:
-            positions = self._pos_tracker.positions
-            if positions:
-                for tid, pos in list(positions.items())[:8]:
+            all_positions = self._pos_tracker.positions
+            filtered = {
+                tid: pos for tid, pos in all_positions.items()
+                if pos.strategy == self._strategy_name
+            }
+            if filtered:
+                for tid, pos in list(filtered.items())[:8]:
                     display = self._format_slug(pos.slug) if pos.slug else tid[:16]
                     current = 0.0
                     if self._market_ws:
@@ -353,9 +476,16 @@ class Dashboard:
                         current = bp.get("bid", 0.0)
                     upnl = pos.unrealized_pnl(current) if current > 0 else 0.0
                     pnl_style = "green" if upnl >= 0 else "red"
+                    outcome = "?"
+                    if self._market_ws:
+                        raw_outcome = self._market_ws.token_outcomes.get(tid)
+                        if raw_outcome:
+                            outcome = str(raw_outcome).upper()
+                    side_label = f"BUY {outcome}" if outcome != "?" else "BUY"
+
                     table.add_row(
                         display,
-                        "BUY",
+                        side_label,
                         f"{pos.quantity:.1f}",
                         f"{pos.avg_entry_price:.4f}",
                         f"{current:.4f}" if current > 0 else "[dim]--[/dim]",
@@ -375,7 +505,7 @@ class Dashboard:
         else:
             table.add_row("[dim]No data[/dim]", "", "", "", "", "")
 
-        count = len(self._pos_tracker.positions) if self._pos_tracker else 0
+        count = len(filtered) if self._pos_tracker and filtered else 0
         return Panel(table, title=f"POSITIONS ({count} open)", border_style="green")
 
     def _events_panel(self) -> Panel:
