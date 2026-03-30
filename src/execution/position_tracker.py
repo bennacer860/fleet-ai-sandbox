@@ -76,6 +76,21 @@ class PositionTracker:
         self.losses = 0
         self.trades_closed = 0
 
+    def clear_positions_for_slug(self, slug: str) -> int:
+        """Drop open positions for a market slug from memory and DB."""
+        to_clear = [tid for tid, pos in self._positions.items() if pos.slug == slug and pos.quantity > 0]
+        if not to_clear:
+            return 0
+
+        for tid in to_clear:
+            pos = self._positions.pop(tid, None)
+            if pos and self._persistence:
+                self._persistence.enqueue(
+                    "DELETE FROM positions WHERE token_id = ? AND strategy = ?",
+                    (tid, pos.strategy),
+                )
+        return len(to_clear)
+
     # ── Public API ────────────────────────────────────────────────────────
 
     @property

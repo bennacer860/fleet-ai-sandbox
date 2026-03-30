@@ -1036,6 +1036,36 @@ class Bot:
     async def _startup_housekeeping(self) -> None:
         """Clean stale exchange/orders state after process restart."""
         if self.dry_run:
+            if self.position_tracker.positions:
+                cleared_positions = 0
+                slugs = sorted({p.slug for p in self.position_tracker.positions.values() if p.slug})
+                for slug in slugs:
+                    try:
+                        event = await self.rest_client.fetch_event(slug)
+                        if not event:
+                            continue
+                        markets = event.get("markets", [])
+                        if not markets:
+                            continue
+                        market = markets[0]
+                        if is_market_ended(market):
+                            continue
+
+                        dropped = self.position_tracker.clear_positions_for_slug(slug)
+                        if dropped:
+                            cleared_positions += dropped
+                            logger.info(
+                                "[STARTUP][DRY_RUN] Cleared %d unresolved open position(s) for %s",
+                                dropped, slug,
+                            )
+                    except Exception:
+                        logger.exception("[STARTUP][DRY_RUN] Failed while clearing unresolved positions for %s", slug)
+
+                if cleared_positions:
+                    logger.info(
+                        "[STARTUP][DRY_RUN] Cleared %d unresolved open position(s) total",
+                        cleared_positions,
+                    )
             return
 
         if STARTUP_CANCEL_OPEN_ORDERS:
