@@ -625,15 +625,24 @@ class Bot:
         handler_start_ns: int | None = None,
         strategy: Strategy | None = None,
     ) -> None:
-        if isinstance(event, TickSizeChange):
-            submission_source = "tick_size_change"
-        elif isinstance(event, BookUpdate):
-            submission_source = "book_update"
-        else:
-            submission_source = "poll"
-
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
+            if intent.strategy == "post_expiry":
+                # Taxonomy focused on whether we fired immediately on a tick
+                # vs. watched until expiry and then submitted.
+                if isinstance(event, TickSizeChange):
+                    submission_source = "immediate_tick"
+                else:
+                    submission_source = "watched_expiry"
+            else:
+                # Generic transport-oriented labels for other strategies.
+                if isinstance(event, TickSizeChange):
+                    submission_source = "tick_size_change"
+                elif isinstance(event, BookUpdate):
+                    submission_source = "book_update"
+                else:
+                    submission_source = "poll"
+
             display_slug = format_slug_with_est_time(intent.slug)
             state = await self.order_manager.submit(intent)
 

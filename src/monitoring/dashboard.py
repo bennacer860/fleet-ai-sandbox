@@ -295,7 +295,14 @@ class Dashboard:
                 filled_total = sum(self._filled_by_source.values())
                 if filled_total > 0:
                     source_parts = []
-                    preferred = ("poll", "tick_size_change", "book_update", "unknown")
+                    preferred = (
+                        "watched_expiry",
+                        "immediate_tick",
+                        "poll",
+                        "tick_size_change",
+                        "book_update",
+                        "unknown",
+                    )
                     for source in preferred:
                         cnt = self._filled_by_source.get(source, 0)
                         if cnt <= 0:
