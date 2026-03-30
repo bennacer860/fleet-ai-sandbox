@@ -11,7 +11,7 @@ WorkingDirectory=/opt/polymarket-bot
 EnvironmentFile=/opt/polymarket-bot/.env
 
 ExecStart=/usr/bin/tmux new-session -d -s bot-p2 -e "HOME=/home/ec2-user" \
-  '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP DOGE HYPE BNB --durations 5 15 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 60 --dashboard; exec bash'
+  '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP DOGE HYPE BNB --durations 5 15 60 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 60 --dashboard; exec bash'
 ExecStop=/usr/bin/tmux kill-session -t bot-p2
 
 Restart=always
