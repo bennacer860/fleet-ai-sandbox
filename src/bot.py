@@ -296,7 +296,8 @@ class Bot:
                         bal_tele = f"\n💰 <b>Balance: ${balance:.2f}</b>" if balance is not None else ""
                         body = (
                             f"📦 <b>Market:</b> <code>{title}</code>\n"
-                            f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>{bal_tele}"
+                            f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>"
+                            f"{bal_tele}"
                         )
                         msg = self._telegram_msg("🟢", "WINNINGS COLLECTED", body)
                         logger.debug("[BOT] Sending claim notification to Telegram")
