@@ -25,7 +25,7 @@ from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 
-PENDING_ORDER_TIMEOUT_S = 300
+PENDING_ORDER_TIMEOUT_S = 600
 
 
 @dataclass
