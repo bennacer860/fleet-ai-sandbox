@@ -591,7 +591,8 @@ class Bot:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
                     await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
-                    if self.dashboard:
+                    # Keep the extra strategy-specific dashboard event only for gabagool.
+                    if self.dashboard and strategy.name() == "gabagool":
                         for intent in intents:
                             display_slug = format_slug_with_est_time(event.slug)
                             self.dashboard.push_event(
