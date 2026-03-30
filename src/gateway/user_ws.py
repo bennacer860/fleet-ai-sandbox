@@ -11,6 +11,7 @@ in-process order tracking (now handled by OrderManager).
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Any, Optional
 
@@ -28,6 +29,7 @@ USER_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/user"
 
 _BASE_BACKOFF = 5
 _MAX_BACKOFF = 60
+_LOG_TRADE_EVENTS = os.environ.get("USER_WS_LOG_TRADE_EVENTS", "").lower() in ("1", "true", "yes")
 
 
 class UserWebSocket:
@@ -103,6 +105,20 @@ class UserWebSocket:
             pass
 
         if evt_type in ("TRADE", "MATCH") or status == "MATCHED":
+            if _LOG_TRADE_EVENTS:
+                logger.info(
+                    "[WS_USER][TRADE_EVT] type=%s status=%s id=%s order_id=%s orderId=%s orderID=%s "
+                    "size=%s match_price=%s price=%s",
+                    evt_type,
+                    status,
+                    event.get("id"),
+                    event.get("order_id"),
+                    event.get("orderId"),
+                    event.get("orderID"),
+                    event.get("size"),
+                    event.get("match_price"),
+                    event.get("price"),
+                )
             self.event_bus.publish_nowait(OrderFill(
                 order_id=order_id,
                 fill_price=fill_price or 0.0,
