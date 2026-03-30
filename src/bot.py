@@ -907,14 +907,25 @@ class Bot:
     # ── Subscription management (market rolling) ───────────────────────────
 
     def _seed_monitored_timestamps(self) -> None:
-        """Populate _monitored_ts from the initial slugs so the subscription
-        manager knows which windows are already tracked."""
+        """Populate _monitored_ts and _deferred_ts from the initial state so the 
+        subscription manager knows which windows are already tracked."""
+        now = int(time.time())
         for dur in self._durations:
             cur_ts = get_current_interval_utc(dur)
             nxt_ts = get_next_interval_utc(dur)
+            
+            use_lazy = dur >= LAZY_SUB_MIN_DURATION
+            interval_s = dur * 60
+            
             for sel in self._market_selections:
-                self._monitored_ts[dur][sel].add(cur_ts)
-                self._monitored_ts[dur][sel].add(nxt_ts)
+                for ts in (cur_ts, nxt_ts):
+                    end_time = ts + interval_s
+                    time_to_expiry = end_time - now
+                    
+                    if use_lazy and time_to_expiry > LAZY_SUB_LEAD_S:
+                        self._deferred_ts[dur][sel].add(ts)
+                    else:
+                        self._monitored_ts[dur][sel].add(ts)
 
     async def _manage_subscriptions(self) -> None:
         """Periodically add new market windows and prune expired ones."""
