@@ -31,10 +31,11 @@ logger = get_logger(__name__)
 # Per market-duration cancel timeouts (seconds after placement)
 # Format: {duration_minutes: cancel_after_seconds}
 _CANCEL_TIMEOUT_BY_DURATION: dict[int, float] = {
-    5:  6 * 60,    # 6 min for 5-min markets
-    15: 14 * 60,   # 14 min for 15-min markets
-    60: 30 * 60,   # 30 min for 60-min markets
-    240: 120 * 60, # 120 min for 4-hour markets
+    5:  6 * 60,     # 6 min for 5-min markets
+    15: 14 * 60,    # 14 min for 15-min markets
+    60: 30 * 60,    # 30 min for 60-min markets
+    240: 120 * 60,  # 120 min for 4-hour markets
+    1440: 720 * 60, # 12 hours for daily markets
 }
 _DEFAULT_CANCEL_TIMEOUT_S: float = 10 * 60  # fallback: 10 min
 STALE_ORDER_TIMEOUT_S = 180  # post-expiry fills are nearly instant; free exposure quickly

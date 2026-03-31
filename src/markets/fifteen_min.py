@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 # ── Supported durations ──────────────────────────────────────────────────────
 
-SUPPORTED_DURATIONS: set[int] = {5, 15, 60, 240}
+SUPPORTED_DURATIONS: set[int] = {5, 15, 60, 240, 1440}
 
 # Polymarket API slug fragment for each duration (e.g. "5m", "15m")
 _DURATION_SLUG: dict[int, str] = {
@@ -17,6 +17,7 @@ _DURATION_SLUG: dict[int, str] = {
     15: "15m",
     60: "1h",
     240: "4h",
+    1440: "1d",
 }
 
 # Human-readable label used in formatted slugs (e.g. "5min", "15min")
@@ -25,6 +26,7 @@ _DURATION_LABEL: dict[int, str] = {
     15: "15min",
     60: "1hour",
     240: "4hour",
+    1440: "daily",
 }
 
 MarketSelection = Literal["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"]
@@ -97,8 +99,14 @@ def detect_duration_from_slug(slug: str) -> Optional[int]:
     """
     slug_lower = slug.lower()
 
+    # 1h: ends with "-et" (e.g. bitcoin-up-or-down-march-9-2026-10pm-et)
     if "-up-or-down-" in slug_lower and slug_lower.endswith("-et"):
         return 60
+
+    # Daily: has "-up-or-down-on-" (e.g. bitcoin-up-or-down-on-march31-2026)
+    # Must be checked before the generic "-up-or-down-" fallback.
+    if "-up-or-down-on-" in slug_lower:
+        return 1440
 
     # Check longer/more-specific patterns first to avoid substring false matches
     if "-4h-" in slug_lower or slug_lower.endswith("-4h"):
@@ -107,10 +115,11 @@ def detect_duration_from_slug(slug: str) -> Optional[int]:
         return 15
     if "-5m-" in slug_lower or slug_lower.endswith("-5m"):
         return 5
-        
+
+    # Generic 1h fallback (human-readable without -et suffix)
     if "-up-or-down-" in slug_lower:
         return 60
-        
+
     return None
 
 
@@ -192,6 +201,20 @@ def get_market_slug(
     if timestamp is None:
         timestamp = get_current_interval_utc(duration_minutes)
 
+    # Daily markets: {asset}-up-or-down-on-{month}{day}-{year}
+    if duration_minutes == 1440:
+        import pytz
+        from datetime import datetime
+
+        asset = _ASSET_NAME_MAP.get(market_selection.upper(), market_selection.lower())
+        est_tz = pytz.timezone("US/Eastern")
+        dt = datetime.fromtimestamp(timestamp, tz=pytz.utc).astimezone(est_tz)
+
+        month = dt.strftime("%B").lower()
+        day = dt.day
+        year = dt.year
+        return f"{asset}-up-or-down-on-{month}{day}-{year}"
+
     # 1-hour markets use a human-readable slug format
     if duration_minutes == 60:
         import pytz
@@ -220,7 +243,7 @@ def get_market_slug(
             
         return f"{asset}-up-or-down-{month}-{day}-{year}-{hour_str}-et"
 
-    # Default to legacy format for 5m/15m
+    # Default to numeric-timestamp format for 5m/15m/4h
     base = _market_base(market_selection, duration_minutes)
     slug = f"{base}-{timestamp}"
     logger.debug("Generated market slug: %s", slug)
@@ -295,12 +318,60 @@ def _parse_1h_slug_start_ts(slug: str) -> int | None:
     return int(local_dt.timestamp())
 
 
+def _parse_daily_slug_start_ts(slug: str) -> int | None:
+    """Parse start timestamp from a daily human-readable slug.
+
+    Expected format: ``{asset}-up-or-down-on-{month}{day}-{year}``
+    Example: ``bitcoin-up-or-down-on-march31-2026``
+
+    The market day starts at midnight US/Eastern.
+
+    Returns:
+        Start Unix timestamp (midnight ET), or None if parsing fails.
+    """
+    import re
+    import calendar
+    from datetime import datetime
+
+    import pytz
+
+    slug_lower = slug.lower()
+
+    m = re.search(
+        r"-up-or-down-on-([a-z]+)(\d{1,2})-(\d{4})$",
+        slug_lower,
+    )
+    if not m:
+        return None
+
+    month_name, day_str, year_str = m.groups()
+
+    month_abbrevs = {v.lower(): k for k, v in enumerate(calendar.month_name) if k}
+    month_full = {v.lower(): k for k, v in enumerate(calendar.month_abbr) if k}
+    month_num = month_abbrevs.get(month_name) or month_full.get(month_name)
+    if month_num is None:
+        return None
+
+    day = int(day_str)
+    year = int(year_str)
+
+    est = pytz.timezone("US/Eastern")
+    try:
+        naive = datetime(year, month_num, day, 0, 0, 0)
+        local_dt = est.localize(naive)
+    except Exception:
+        return None
+
+    return int(local_dt.timestamp())
+
+
 def extract_market_end_ts(slug: str) -> int | None:
     """Extract the market end unix timestamp from a slug.
 
-    Handles both formats:
-    - 5m/15m: ``{crypto}-updown-{5m|15m}-{start_ts}``
-    - 1h: ``{asset}-up-or-down-{month}-{day}-{hour}{am|pm}-et``
+    Handles all formats:
+    - 5m/15m/4h: ``{crypto}-updown-{5m|15m|4h}-{start_ts}``
+    - 1h: ``{asset}-up-or-down-{month}-{day}-{year}-{hour}{am|pm}-et``
+    - daily: ``{asset}-up-or-down-on-{month}{day}-{year}``
 
     Market end = start_ts + duration_seconds.
 
@@ -311,16 +382,21 @@ def extract_market_end_ts(slug: str) -> int | None:
     if duration is None:
         return None
 
+    # Daily human-readable slugs
+    if duration == 1440:
+        start_ts = _parse_daily_slug_start_ts(slug)
+        if start_ts is None:
+            return None
+        return start_ts + 24 * 60 * 60
+
     # 1-hour human-readable slugs
     if duration == 60:
         start_ts = _parse_1h_slug_start_ts(slug)
         if start_ts is None:
-            # Fallback for 1h markets if parsing fails - we can't determine end_ts
-            # but we shouldn't crash
             return None
         return start_ts + 60 * 60
 
-    # 5m / 15m numeric-timestamp slugs
+    # 5m / 15m / 4h numeric-timestamp slugs
     parts = slug.rsplit("-", 1)
     if len(parts) != 2:
         return None

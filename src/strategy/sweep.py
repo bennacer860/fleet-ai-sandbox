@@ -25,6 +25,7 @@ from ..config import (
     DEFAULT_TRADE_SIZE,
     TRADE_SIZE_60M,
     TRADE_SIZE_240M,
+    TRADE_SIZE_1440M,
     POST_EXPIRY_MULTIPLIER,
     PROXIMITY_FILTER_ENABLED,
     PROXIMITY_MIN_DISTANCE,
@@ -213,7 +214,7 @@ class SweepStrategy(Strategy):
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
         
         market_duration = detect_duration_from_slug(slug) or 15
-        _SIZE_BY_DURATION = {60: TRADE_SIZE_60M, 240: TRADE_SIZE_240M}
+        _SIZE_BY_DURATION = {60: TRADE_SIZE_60M, 240: TRADE_SIZE_240M, 1440: TRADE_SIZE_1440M}
         base_trade_size = _SIZE_BY_DURATION.get(market_duration, DEFAULT_TRADE_SIZE)
         order_size = max(base_trade_size, min_size)
 
