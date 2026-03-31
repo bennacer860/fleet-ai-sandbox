@@ -431,6 +431,7 @@ class Dashboard:
         token_count = sum(len(t) for t in self._market_ws.token_ids.values()) if self._market_ws else 0
         market_reconnects = self._market_ws.reconnect_count if self._market_ws else 0
         market_resubs = self._market_ws.resubscribe_count if self._market_ws else 0
+        market_keepalives = self._market_ws.keepalive_count if self._market_ws else 0
         msg_age = (
             f"{self._market_ws.last_data_message_age_s:.0f}s ago"
             if self._market_ws and self._market_ws.last_data_message_age_s >= 0
@@ -479,7 +480,7 @@ class Dashboard:
 
         lines.append(
             f"WS Market: {ws_market} ({token_count} tokens)  "
-            f"(reconnects: {market_reconnects} resubs: {market_resubs})   Last msg: {msg_age}"
+            f"(reconnects: {market_reconnects} resubs: {market_resubs} keepalives: {market_keepalives})   Last msg: {msg_age}"
         )
         if self._market_ws:
             ages = self._market_ws.channel_message_ages_s()

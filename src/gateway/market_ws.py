@@ -55,6 +55,7 @@ HEARTBEAT_RESUBSCRIBE_AFTER_S = float(os.environ.get("MARKET_WS_RESUBSCRIBE_AFTE
 HEARTBEAT_RESUBSCRIBE_EVERY_S = float(os.environ.get("MARKET_WS_RESUBSCRIBE_EVERY_S", "1.5"))
 HEARTBEAT_MAX_RESUBSCRIBE_ATTEMPTS = int(os.environ.get("MARKET_WS_MAX_RESUBSCRIBE_ATTEMPTS", "3"))
 HEARTBEAT_RECONNECT_AFTER_S = float(os.environ.get("MARKET_WS_RECONNECT_AFTER_S", "7.0"))
+SUBSCRIPTION_KEEPALIVE_S = float(os.environ.get("MARKET_WS_KEEPALIVE_S", "60"))
 _DATA_CHANNELS: tuple[str, ...] = ("book", "price_change", "tick_size_change")
 
 
@@ -101,6 +102,7 @@ class MarketWebSocket:
         self._stale_resubscribe_attempts = 0
         self._last_stale_resubscribe_ts = 0.0
         self._last_tick_size: dict[str, tuple[str, str]] = {}  # slug -> (slug, new_ts)
+        self._keepalive_count = 0
         self._books_filtered = 0  # counter for filtered-out book updates
         self._books_processed = 0  # counter for successfully processed book updates
         self._last_top_by_token: dict[str, tuple[float, float]] = {}
@@ -122,6 +124,10 @@ class MarketWebSocket:
     @property
     def resubscribe_count(self) -> int:
         return self._resubscribe_count
+
+    @property
+    def keepalive_count(self) -> int:
+        return self._keepalive_count
 
     @property
     def last_message_age_s(self) -> float:
@@ -567,6 +573,34 @@ class MarketWebSocket:
             except Exception:
                 break
 
+    async def _subscription_keepalive(self, ws: websockets.WebSocketClientProtocol) -> None:
+        """Proactively re-send subscribe messages to prevent server-side subscription decay.
+
+        Polymarket's WS server silently drops subscriptions after an
+        internal TTL.  The connection stays alive (PING/PONG works) but
+        data stops flowing until the client re-subscribes.  This loop
+        prevents that by refreshing subscriptions on a fixed cadence,
+        keeping the reactive heartbeat resub as a backup for genuine
+        network-level stalls.
+        """
+        while self._running and self._websocket is ws:
+            try:
+                await asyncio.sleep(SUBSCRIPTION_KEEPALIVE_S)
+                if self._websocket is not ws:
+                    break
+                all_tids = self._all_token_ids()
+                if not all_tids:
+                    continue
+                await ws.send(self._build_subscribe_message(all_tids))
+                self._keepalive_count += 1
+                logger.debug(
+                    "[KEEPALIVE] Refreshed subscriptions for %d tokens [count=%d]",
+                    len(all_tids),
+                    self._keepalive_count,
+                )
+            except Exception:
+                break
+
     async def run(self) -> None:
         success = await self._init_markets()
         if not success:
@@ -610,6 +644,7 @@ class MarketWebSocket:
                         )
 
                         ping_task = asyncio.create_task(self._send_app_pings(ws))
+                        keepalive_task = asyncio.create_task(self._subscription_keepalive(ws))
                         try:
                             async for raw in ws:
                                 if not self._running:
@@ -644,7 +679,8 @@ class MarketWebSocket:
                                         self._process_tick_size(item)
                         finally:
                             ping_task.cancel()
-                            await asyncio.gather(ping_task, return_exceptions=True)
+                            keepalive_task.cancel()
+                            await asyncio.gather(ping_task, keepalive_task, return_exceptions=True)
                             self._websocket = None
                             self._connected_since = 0.0
 
