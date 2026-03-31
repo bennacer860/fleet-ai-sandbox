@@ -148,6 +148,12 @@ class AutoClaimer:
             if resp and resp.transaction_id:
                 tx_hash = resp.transaction_hash or "pending"
                 summary = f"{len(claims)} position(s): " + ", ".join(titles)
+                # Refresh balance right after claim so callbacks/notifications
+                # receive the current post-claim value.
+                try:
+                    self.last_balance = get_usdc_balance()
+                except Exception:
+                    pass
                 logger.info(
                     "[AutoClaimer] ✅ Batch Claimed %s — tx_id=%s hash=%s",
                     summary, resp.transaction_id, tx_hash,

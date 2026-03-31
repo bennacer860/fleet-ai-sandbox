@@ -93,6 +93,8 @@ class Dashboard:
         self._market_price_state: dict[str, tuple[float, float, int]] = {}
         self._filled_by_source: dict[str, int] = {}
         self._counted_filled_order_ids: set[str] = set()
+        self._cash_balance_usdc: float | None = None
+        self._cash_balance_updated_mono: float | None = None
         
         # Telegram integration
         self._telegram = TelegramNotifier(
@@ -231,6 +233,25 @@ class Dashboard:
 
         if self._market_ws:
             active = [s for s, a in self._market_ws.market_active.items() if a]
+            
+            # Count active markets by duration
+            duration_counts = {}
+            for slug in active:
+                dur = detect_duration_from_slug(slug)
+                if dur:
+                    duration_counts[dur] = duration_counts.get(dur, 0) + 1
+                    
+            # Build title string with breakdown
+            count = len(active)
+            breakdown_parts = []
+            for dur in sorted(duration_counts.keys()):
+                breakdown_parts.append(f"{dur}m: {duration_counts[dur]}")
+            breakdown_str = " | ".join(breakdown_parts)
+            title = f"MARKETS ({count} active"
+            if breakdown_str:
+                title += f" - {breakdown_str}"
+            title += ")"
+            
             # Show started markets oldest-first; future windows last.
             now_ts = int(time.time())
             now_mono = time.monotonic()
@@ -254,8 +275,9 @@ class Dashboard:
             count = len(active)
         else:
             count = 0
+            title = "MARKETS (0 active)"
 
-        return Panel(table, title=f"MARKETS ({count} active)", border_style="cyan")
+        return Panel(table, title=title, border_style="cyan")
 
     def _orders_panel(self) -> Panel:
         lines: list[str] = []
@@ -273,7 +295,14 @@ class Dashboard:
                 filled_total = sum(self._filled_by_source.values())
                 if filled_total > 0:
                     source_parts = []
-                    preferred = ("poll", "tick_size_change", "book_update", "unknown")
+                    preferred = (
+                        "watched_expiry",
+                        "immediate_tick",
+                        "poll",
+                        "tick_size_change",
+                        "book_update",
+                        "unknown",
+                    )
                     for source in preferred:
                         cnt = self._filled_by_source.get(source, 0)
                         if cnt <= 0:
@@ -322,14 +351,37 @@ class Dashboard:
         if self._pos_tracker:
             pt = self._pos_tracker
             tag = " [SIMULATED]" if self._dry_run else ""
+            open_positions = [p for p in pt.positions.values() if p.quantity > 0]
+            position_count = len(open_positions)
+            cost_basis = sum(p.cost_basis for p in open_positions)
+            position_value = pt.get_total_position_value()
             lines.append(f"Session:   ${pt.session_pnl:.4f}{tag}")
             lines.append(f"Win Rate:  {pt.win_rate:.1%} ({pt.wins}/{pt.trades_closed})")
             lines.append(f"EV/Trade:  ${pt.ev_per_trade:.4f}")
             lines.append(f"Unrealised: ${pt.get_total_unrealized_pnl():.4f}{tag}")
+            lines.append(f"Open Pos:  {position_count}  Cost: ${cost_basis:.4f}")
+            lines.append(f"Pos Value: ${position_value:.4f}")
+            if self._cash_balance_usdc is not None:
+                age = (
+                    f" ({int(time.monotonic() - self._cash_balance_updated_mono)}s old)"
+                    if self._cash_balance_updated_mono is not None
+                    else ""
+                )
+                portfolio_total = self._cash_balance_usdc + position_value
+                lines.append(f"Cash:      ${self._cash_balance_usdc:.4f}{age}")
+                lines.append(f"Portfolio: ${portfolio_total:.4f}")
+            else:
+                lines.append("Cash:      [dim]N/A[/dim]")
+                lines.append("Portfolio: [dim]N/A (waiting for balance)[/dim]")
         else:
             lines.append("No data")
         title = "P&L [SIMULATED]" if self._dry_run else "P&L"
         return Panel("\n".join(lines), title=title, border_style="green")
+
+    def set_cash_balance(self, balance_usdc: float | None) -> None:
+        """Set latest fetched USDC collateral balance for portfolio display."""
+        self._cash_balance_usdc = balance_usdc
+        self._cash_balance_updated_mono = time.monotonic() if balance_usdc is not None else None
 
     def _risk_panel(self) -> Panel:
         lines: list[str] = []
@@ -522,7 +574,9 @@ class Dashboard:
         layout.split_column(
             Layout(name="header", size=1),
             Layout(name="top", size=12),
-            Layout(name="middle", size=5),
+            # P&L now includes cash and portfolio rows; reserve more height
+            # so those lines are not clipped in the terminal.
+            Layout(name="middle", size=10),
             Layout(name="positions", size=8),
             Layout(name="bottom"),
         )

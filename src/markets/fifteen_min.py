@@ -9,13 +9,14 @@ logger = get_logger(__name__)
 
 # ── Supported durations ──────────────────────────────────────────────────────
 
-SUPPORTED_DURATIONS: set[int] = {5, 15, 60}
+SUPPORTED_DURATIONS: set[int] = {5, 15, 60, 240}
 
 # Polymarket API slug fragment for each duration (e.g. "5m", "15m")
 _DURATION_SLUG: dict[int, str] = {
     5: "5m",
     15: "15m",
     60: "1h",
+    240: "4h",
 }
 
 # Human-readable label used in formatted slugs (e.g. "5min", "15min")
@@ -23,6 +24,7 @@ _DURATION_LABEL: dict[int, str] = {
     5: "5min",
     15: "15min",
     60: "1hour",
+    240: "4hour",
 }
 
 MarketSelection = Literal["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"]
@@ -98,11 +100,17 @@ def detect_duration_from_slug(slug: str) -> Optional[int]:
     if "-up-or-down-" in slug_lower and slug_lower.endswith("-et"):
         return 60
 
-    # Check longer pattern first to avoid "-15m-" matching "-5m-" substring
+    # Check longer/more-specific patterns first to avoid substring false matches
+    if "-4h-" in slug_lower or slug_lower.endswith("-4h"):
+        return 240
     if "-15m-" in slug_lower or slug_lower.endswith("-15m"):
         return 15
     if "-5m-" in slug_lower or slug_lower.endswith("-5m"):
         return 5
+        
+    if "-up-or-down-" in slug_lower:
+        return 60
+        
     return None
 
 
@@ -197,6 +205,7 @@ def get_market_slug(
         
         month = dt.strftime("%B").lower()
         day = dt.day
+        year = dt.year
         hour_int = dt.hour
         
         # Hour formatting: 11am, 12pm, 1pm, etc.
@@ -209,7 +218,7 @@ def get_market_slug(
         else:
             hour_str = f"{hour_int - 12}pm"
             
-        return f"{asset}-up-or-down-{month}-{day}-{hour_str}-et"
+        return f"{asset}-up-or-down-{month}-{day}-{year}-{hour_str}-et"
 
     # Default to legacy format for 5m/15m
     base = _market_base(market_selection, duration_minutes)
@@ -221,8 +230,8 @@ def get_market_slug(
 def _parse_1h_slug_start_ts(slug: str) -> int | None:
     """Parse start timestamp from a 1-hour human-readable slug.
 
-    Expected format: ``{asset}-up-or-down-{month}-{day}-{hour}{am|pm}-et``
-    Example: ``bitcoin-up-or-down-march-4-3pm-et``
+    Expected format: ``{asset}-up-or-down-{month}-{day}-{year}-{hour}{am|pm}-et``
+    Example: ``bitcoin-up-or-down-march-9-2026-10pm-et``
 
     Returns:
         Start Unix timestamp, or None if parsing fails.
@@ -234,15 +243,28 @@ def _parse_1h_slug_start_ts(slug: str) -> int | None:
     import pytz
 
     slug_lower = slug.lower()
-    # Match: anything-up-or-down-{month}-{day}-{hour}{am/pm}-et
+    
+    # Try the new format with year: anything-up-or-down-{month}-{day}-{year}-{hour}{am/pm}-et
     m = re.search(
-        r"-up-or-down-([a-z]+)-(\d+)-(\d{1,2})(am|pm)-et$",
+        r"-up-or-down-([a-z]+)-(\d+)-(\d{4})-(\d{1,2})(am|pm)-et$",
         slug_lower,
     )
-    if not m:
-        return None
-
-    month_name, day_str, hour_str, ampm = m.groups()
+    
+    if m:
+        month_name, day_str, year_str, hour_str, ampm = m.groups()
+        year = int(year_str)
+    else:
+        # Fallback to old format without year
+        m = re.search(
+            r"-up-or-down-([a-z]+)-(\d+)-(\d{1,2})(am|pm)-et$",
+            slug_lower,
+        )
+        if not m:
+            return None
+        month_name, day_str, hour_str, ampm = m.groups()
+        est = pytz.timezone("US/Eastern")
+        now_est = datetime.now(est)
+        year = now_est.year
 
     # Resolve month name → number
     month_abbrevs = {v.lower(): k for k, v in enumerate(calendar.month_name) if k}
@@ -263,9 +285,6 @@ def _parse_1h_slug_start_ts(slug: str) -> int | None:
             hour += 12
 
     est = pytz.timezone("US/Eastern")
-    now_est = datetime.now(est)
-    # Use current year; if month is far in the future, assume last year
-    year = now_est.year
 
     try:
         naive = datetime(year, month_num, day, hour, 0, 0)
@@ -296,6 +315,8 @@ def extract_market_end_ts(slug: str) -> int | None:
     if duration == 60:
         start_ts = _parse_1h_slug_start_ts(slug)
         if start_ts is None:
+            # Fallback for 1h markets if parsing fails - we can't determine end_ts
+            # but we shouldn't crash
             return None
         return start_ts + 60 * 60
 

@@ -85,6 +85,7 @@ MAX_RETRIES = 10
 RETRY_BASE_DELAY = 5
 SUB_CHECK_INTERVAL = 30
 GRACE_PERIOD_SECONDS = 5 * 60
+BALANCE_REFRESH_INTERVAL_S = 30
 
 # Lazy subscription: only subscribe to markets with duration >= this
 # threshold when they are within LAZY_SUB_LEAD_S of expiry.
@@ -295,7 +296,8 @@ class Bot:
                         bal_tele = f"\n💰 <b>Balance: ${balance:.2f}</b>" if balance is not None else ""
                         body = (
                             f"📦 <b>Market:</b> <code>{title}</code>\n"
-                            f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>{bal_tele}"
+                            f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>"
+                            f"{bal_tele}"
                         )
                         msg = self._telegram_msg("🟢", "WINNINGS COLLECTED", body)
                         logger.debug("[BOT] Sending claim notification to Telegram")
@@ -305,6 +307,7 @@ class Bot:
                 self.auto_claimer.on_claim = _on_claim
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
+        self._last_balance_refresh_mono: float = 0.0
 
     def _telegram_msg(self, color_emoji: str, title: str, body: str) -> str:
         """Build a Telegram message with profile and color indicator."""
@@ -588,7 +591,8 @@ class Bot:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
                     await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
-                    if self.dashboard:
+                    # Keep the extra strategy-specific dashboard event only for gabagool.
+                    if self.dashboard and strategy.name() == "gabagool":
                         for intent in intents:
                             display_slug = format_slug_with_est_time(event.slug)
                             self.dashboard.push_event(
@@ -623,15 +627,24 @@ class Bot:
         handler_start_ns: int | None = None,
         strategy: Strategy | None = None,
     ) -> None:
-        if isinstance(event, TickSizeChange):
-            submission_source = "tick_size_change"
-        elif isinstance(event, BookUpdate):
-            submission_source = "book_update"
-        else:
-            submission_source = "poll"
-
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
+            if intent.strategy == "post_expiry":
+                # Taxonomy focused on whether we fired immediately on a tick
+                # vs. watched until expiry and then submitted.
+                if isinstance(event, TickSizeChange):
+                    submission_source = "immediate_tick"
+                else:
+                    submission_source = "watched_expiry"
+            else:
+                # Generic transport-oriented labels for other strategies.
+                if isinstance(event, TickSizeChange):
+                    submission_source = "tick_size_change"
+                elif isinstance(event, BookUpdate):
+                    submission_source = "book_update"
+                else:
+                    submission_source = "poll"
+
             display_slug = format_slug_with_est_time(intent.slug)
             state = await self.order_manager.submit(intent)
 
@@ -904,17 +917,41 @@ class Bot:
                 if bid is not None:
                     self.position_tracker._best_prices[tid] = bid
 
+            if self.dashboard and not self.dry_run:
+                now_mono = time.monotonic()
+                if (
+                    self._last_balance_refresh_mono <= 0
+                    or (now_mono - self._last_balance_refresh_mono) >= BALANCE_REFRESH_INTERVAL_S
+                ):
+                    try:
+                        balance = await self.rest_client.fetch_balance()
+                        self.dashboard.set_cash_balance(balance)
+                        self._last_balance_refresh_mono = now_mono
+                    except Exception:
+                        logger.warning("[METRICS] Failed to refresh account balance", exc_info=True)
+
     # ── Subscription management (market rolling) ───────────────────────────
 
     def _seed_monitored_timestamps(self) -> None:
-        """Populate _monitored_ts from the initial slugs so the subscription
-        manager knows which windows are already tracked."""
+        """Populate _monitored_ts and _deferred_ts from the initial state so the 
+        subscription manager knows which windows are already tracked."""
+        now = int(time.time())
         for dur in self._durations:
             cur_ts = get_current_interval_utc(dur)
             nxt_ts = get_next_interval_utc(dur)
+            
+            use_lazy = dur >= LAZY_SUB_MIN_DURATION
+            interval_s = dur * 60
+            
             for sel in self._market_selections:
-                self._monitored_ts[dur][sel].add(cur_ts)
-                self._monitored_ts[dur][sel].add(nxt_ts)
+                for ts in (cur_ts, nxt_ts):
+                    end_time = ts + interval_s
+                    time_to_expiry = end_time - now
+                    
+                    if use_lazy and time_to_expiry > LAZY_SUB_LEAD_S:
+                        self._deferred_ts[dur][sel].add(ts)
+                    else:
+                        self._monitored_ts[dur][sel].add(ts)
 
     async def _manage_subscriptions(self) -> None:
         """Periodically add new market windows and prune expired ones."""

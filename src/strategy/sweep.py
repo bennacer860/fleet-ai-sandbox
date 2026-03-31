@@ -23,6 +23,8 @@ from ..markets.fifteen_min import (
 from ..utils.market_data import fetch_strike_price
 from ..config import (
     DEFAULT_TRADE_SIZE,
+    TRADE_SIZE_60M,
+    TRADE_SIZE_240M,
     POST_EXPIRY_MULTIPLIER,
     PROXIMITY_FILTER_ENABLED,
     PROXIMITY_MIN_DISTANCE,
@@ -209,12 +211,16 @@ class SweepStrategy(Strategy):
         best_outcome = eval_data["best_outcome"]
         
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
-        order_size = max(DEFAULT_TRADE_SIZE, min_size)
+        
+        market_duration = detect_duration_from_slug(slug) or 15
+        _SIZE_BY_DURATION = {60: TRADE_SIZE_60M, 240: TRADE_SIZE_240M}
+        base_trade_size = _SIZE_BY_DURATION.get(market_duration, DEFAULT_TRADE_SIZE)
+        order_size = max(base_trade_size, min_size)
 
         end_ts = extract_market_end_ts(slug)
         tte = (end_ts - time.time()) if end_ts is not None else None
         if tte is not None:
-            duration_s = (detect_duration_from_slug(slug) or 15) * 60
+            duration_s = market_duration * 60
             window_s = duration_s / 10
             if tte > window_s:
                 logger.debug(
