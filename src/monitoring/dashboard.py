@@ -573,7 +573,7 @@ class Dashboard:
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=1),
-            Layout(name="top", size=12),
+            Layout(name="top", size=15),
             # P&L now includes cash and portfolio rows; reserve more height
             # so those lines are not clipped in the terminal.
             Layout(name="middle", size=10),
