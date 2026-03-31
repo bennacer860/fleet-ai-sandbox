@@ -9,13 +9,14 @@ logger = get_logger(__name__)
 
 # ── Supported durations ──────────────────────────────────────────────────────
 
-SUPPORTED_DURATIONS: set[int] = {5, 15, 60}
+SUPPORTED_DURATIONS: set[int] = {5, 15, 60, 240}
 
 # Polymarket API slug fragment for each duration (e.g. "5m", "15m")
 _DURATION_SLUG: dict[int, str] = {
     5: "5m",
     15: "15m",
     60: "1h",
+    240: "4h",
 }
 
 # Human-readable label used in formatted slugs (e.g. "5min", "15min")
@@ -23,6 +24,7 @@ _DURATION_LABEL: dict[int, str] = {
     5: "5min",
     15: "15min",
     60: "1hour",
+    240: "4hour",
 }
 
 MarketSelection = Literal["BTC", "ETH", "SOL", "XRP", "DOGE", "HYPE", "BNB"]
@@ -98,14 +100,14 @@ def detect_duration_from_slug(slug: str) -> Optional[int]:
     if "-up-or-down-" in slug_lower and slug_lower.endswith("-et"):
         return 60
 
-    # Check longer pattern first to avoid "-15m-" matching "-5m-" substring
+    # Check longer/more-specific patterns first to avoid substring false matches
+    if "-4h-" in slug_lower or slug_lower.endswith("-4h"):
+        return 240
     if "-15m-" in slug_lower or slug_lower.endswith("-15m"):
         return 15
     if "-5m-" in slug_lower or slug_lower.endswith("-5m"):
         return 5
         
-    # Also check if it's a 1h market that doesn't have "-et" at the end
-    # e.g., if the slug format changes slightly
     if "-up-or-down-" in slug_lower:
         return 60
         

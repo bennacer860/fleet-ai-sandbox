@@ -28,6 +28,7 @@ from ..config import (
     AGGRESSIVE_POLL_INTERVAL_S,
     DEFAULT_TRADE_SIZE,
     TRADE_SIZE_60M,
+    TRADE_SIZE_240M,
     POST_EXPIRY_MULTIPLIER,
 )
 
@@ -217,7 +218,8 @@ class AggressivePostExpirySweepStrategy(Strategy):
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
         
         market_duration = detect_duration_from_slug(slug) or 15
-        base_trade_size = TRADE_SIZE_60M if market_duration == 60 else DEFAULT_TRADE_SIZE
+        _SIZE_BY_DURATION = {60: TRADE_SIZE_60M, 240: TRADE_SIZE_240M}
+        base_trade_size = _SIZE_BY_DURATION.get(market_duration, DEFAULT_TRADE_SIZE)
         order_size = max(base_trade_size, min_size) * POST_EXPIRY_MULTIPLIER
 
         state.attempts += 1

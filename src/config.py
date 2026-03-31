@@ -66,6 +66,7 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
 # Risk limits
 DEFAULT_TRADE_SIZE = float(os.getenv("DEFAULT_TRADE_SIZE", "10.0"))
 TRADE_SIZE_60M = float(os.getenv("TRADE_SIZE_60M", "30.0"))
+TRADE_SIZE_240M = float(os.getenv("TRADE_SIZE_240M", "30.0"))
 POST_EXPIRY_MULTIPLIER = float(os.getenv("POST_EXPIRY_MULTIPLIER", "2.0"))
 MAX_POSITION_PER_MARKET = float(os.getenv("MAX_POSITION_PER_MARKET", "50.0"))
 MAX_TOTAL_EXPOSURE = float(os.getenv("MAX_TOTAL_EXPOSURE", "500.0"))

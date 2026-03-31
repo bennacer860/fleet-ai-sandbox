@@ -31,9 +31,10 @@ logger = get_logger(__name__)
 # Per market-duration cancel timeouts (seconds after placement)
 # Format: {duration_minutes: cancel_after_seconds}
 _CANCEL_TIMEOUT_BY_DURATION: dict[int, float] = {
-    5:  6 * 60,   # 6 min for 5-min markets
-    15: 14 * 60,  # 14 min for 15-min markets
-    60: 30 * 60,  # 30 min for 60-min markets
+    5:  6 * 60,    # 6 min for 5-min markets
+    15: 14 * 60,   # 14 min for 15-min markets
+    60: 30 * 60,   # 30 min for 60-min markets
+    240: 120 * 60, # 120 min for 4-hour markets
 }
 _DEFAULT_CANCEL_TIMEOUT_S: float = 10 * 60  # fallback: 10 min
 STALE_ORDER_TIMEOUT_S = 180  # post-expiry fills are nearly instant; free exposure quickly
@@ -228,10 +229,9 @@ class OrderManager:
     @staticmethod
     def _cancel_timeout_for_slug(slug: str) -> float:
         """Return the cancel-after-N-seconds timeout for the given market slug."""
-        import re
-        m = re.search(r"-(\d+)m(?:in)?-", slug)
-        if m:
-            dur = int(m.group(1))
+        from ..markets.fifteen_min import detect_duration_from_slug
+        dur = detect_duration_from_slug(slug)
+        if dur is not None:
             return _CANCEL_TIMEOUT_BY_DURATION.get(dur, _DEFAULT_CANCEL_TIMEOUT_S)
         return _DEFAULT_CANCEL_TIMEOUT_S
 
