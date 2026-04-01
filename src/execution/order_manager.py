@@ -191,6 +191,7 @@ class OrderManager:
             state.status = OrderStatus.FILLED
             state.resolved_at_ns = time.time_ns()
             self._stats["filled"] += 1
+            self._release_dedup_on_filled(state.intent, state.status)
             logger.info(
                 "[ORDER] FILLED %s: %s @ %.4f x %.2f",
                 event.order_id[:16], state.intent.slug,
@@ -510,6 +511,31 @@ class OrderManager:
                 intent.slug,
                 intent.token_id[:16],
                 status.value,
+            )
+            if self._persistence:
+                self._persistence.enqueue(
+                    "DELETE FROM dedup WHERE slug = ? AND token_id = ? AND strategy = ? AND session_date = ?",
+                    (intent.slug, intent.token_id, intent.strategy, date.today().isoformat()),
+                )
+
+    def _release_dedup_on_filled(self, intent: OrderIntent, status: OrderStatus) -> None:
+        """Allow gabagool to rebalance after one leg is fully filled.
+
+        Min-notional resizing and venue lot rounding can leave slight leg-size
+        mismatches (for example 3.15 vs 2.5). Releasing dedup after FILLED lets
+        the strategy place a later balancing order on the lighter side.
+        """
+        if intent.strategy != "gabagool":
+            return
+        if status != OrderStatus.FILLED:
+            return
+        key = (intent.slug, intent.token_id, intent.strategy)
+        if key in self._dedup:
+            self._dedup.discard(key)
+            logger.info(
+                "[ORDER] Released dedup for post-fill rebalance: %s/%s",
+                intent.slug,
+                intent.token_id[:16],
             )
             if self._persistence:
                 self._persistence.enqueue(

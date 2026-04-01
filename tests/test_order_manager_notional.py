@@ -289,3 +289,71 @@ def test_submit_does_not_resize_gabagool_sell() -> None:
     submitted = rest.intents[0]
     assert submitted.size == 2.5
     assert state.intent.size == 2.5
+
+
+def test_submit_allows_gabagool_retry_after_filled_order() -> None:
+    rest = _SequentialSubmitRestClient()
+    manager = _build_manager(rest)  # type: ignore[arg-type]
+    intent = OrderIntent(
+        token_id="tok-yes",
+        price=0.50,
+        size=2.5,
+        side=Side.BUY,
+        strategy="gabagool",
+        slug="btc-updown-15m-filled-rebalance",
+    )
+
+    first = asyncio.run(manager.submit(intent))
+    assert first is not None
+    assert first.order_id == "oid-1"
+
+    asyncio.run(
+        manager.on_order_fill(
+            OrderFill(
+                order_id=first.order_id,
+                fill_price=0.50,
+                fill_size=2.5,
+                status=OrderStatus.FILLED,
+            )
+        )
+    )
+
+    second = asyncio.run(manager.submit(intent))
+    assert second is not None
+    assert second.order_id == "oid-2"
+    assert rest.calls == 2
+
+
+def test_submit_allows_gabagool_retry_after_near_full_min_notional_fill() -> None:
+    rest = _SequentialSubmitRestClient()
+    manager = _build_manager(rest)  # type: ignore[arg-type]
+    intent = OrderIntent(
+        token_id="tok-down",
+        price=0.32,
+        size=2.5,
+        side=Side.BUY,
+        strategy="gabagool",
+        slug="btc-updown-15m-near-full-rebalance",
+    )
+
+    first = asyncio.run(manager.submit(intent))
+    assert first is not None
+    # Submit path should upsize to meet buffered min-notional.
+    assert first.intent.size == 3.15625
+
+    # Venue-style lot rounding: near-full fill should still mark FILLED (>=99%).
+    asyncio.run(
+        manager.on_order_fill(
+            OrderFill(
+                order_id=first.order_id,
+                fill_price=0.32,
+                fill_size=3.15,
+                status=OrderStatus.PARTIAL,
+            )
+        )
+    )
+
+    second = asyncio.run(manager.submit(intent))
+    assert second is not None
+    assert second.order_id == "oid-2"
+    assert rest.calls == 2
