@@ -8,7 +8,9 @@ submission through terminal state.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
@@ -98,6 +100,7 @@ class OrderManager:
     async def submit(self, intent: OrderIntent) -> OrderState | None:
         """Full pipeline: dedup -> risk -> submit -> track."""
         signal_ns = time.time_ns()
+        intent = self._normalize_intent(intent)
 
         if not intent.skip_dedup and self._is_duplicate(intent):
             self._stats["dedup_skips"] += 1
@@ -536,3 +539,35 @@ class OrderManager:
                 1 if self.dry_run else 0,
             ),
         )
+
+    @staticmethod
+    def _normalize_intent(intent: OrderIntent) -> OrderIntent:
+        """Apply defensive guards to intent before risk and submit.
+
+        Gabagool is expected to enforce minimum marketable BUY notional, but a
+        second safety net here prevents exchange-side rejections from turning
+        into orphan legs if strategy-side config drifts.
+        """
+        if intent.strategy != "gabagool":
+            return intent
+        if intent.side.value != "BUY":
+            return intent
+        if intent.price <= 0 or intent.size <= 0:
+            return intent
+
+        order_notional = intent.price * intent.size
+        if order_notional >= 1.0:
+            return intent
+
+        required_size = 1.0 / intent.price
+        adjusted_size = math.ceil(required_size * 1_000_000) / 1_000_000
+        logger.info(
+            "[ORDER] Resize gabagool BUY for min notional: %s %.4f x %.4f -> %.4f ($%.4f -> $%.4f)",
+            intent.slug,
+            intent.price,
+            intent.size,
+            adjusted_size,
+            order_notional,
+            intent.price * adjusted_size,
+        )
+        return replace(intent, size=adjusted_size)
