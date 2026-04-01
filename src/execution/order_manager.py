@@ -164,6 +164,7 @@ class OrderManager:
                 self._stats["rejected"] += 1
             else:
                 self._stats["failed"] += 1
+            self._release_dedup_on_rejection(intent, result.status)
 
             self._persist_order(state)
             self._log_decision(intent, "REJECTED", result.reason, result.order_id)
@@ -215,6 +216,7 @@ class OrderManager:
         state.status = event.status
         state.rejection_reason = event.reason
         state.resolved_at_ns = time.time_ns()
+        self._release_dedup_on_rejection(state.intent, event.status)
 
         if event.status == OrderStatus.CANCELLED:
             self._stats["cancelled"] += 1
@@ -448,6 +450,27 @@ class OrderManager:
                 "INSERT OR IGNORE INTO dedup (slug, token_id, strategy, session_date, created_at) VALUES (?, ?, ?, ?, ?)",
                 (intent.slug, intent.token_id, intent.strategy, date.today().isoformat(), time.time()),
             )
+
+    def _release_dedup_on_rejection(self, intent: OrderIntent, status: OrderStatus) -> None:
+        """Allow gabagool to retry a rejected/failed missing leg later."""
+        if intent.strategy != "gabagool":
+            return
+        if status not in (OrderStatus.REJECTED, OrderStatus.FAILED):
+            return
+        key = (intent.slug, intent.token_id, intent.strategy)
+        if key in self._dedup:
+            self._dedup.discard(key)
+            logger.info(
+                "[ORDER] Released dedup for retry after %s: %s/%s",
+                status.value,
+                intent.slug,
+                intent.token_id[:16],
+            )
+            if self._persistence:
+                self._persistence.enqueue(
+                    "DELETE FROM dedup WHERE slug = ? AND token_id = ? AND strategy = ? AND session_date = ?",
+                    (intent.slug, intent.token_id, intent.strategy, date.today().isoformat()),
+                )
 
     def load_dedup_from_db(self, conn: Any) -> None:
         """Load today's dedup set from SQLite on startup."""
