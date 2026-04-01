@@ -43,6 +43,9 @@ _DEFAULT_CANCEL_TIMEOUT_S: float = 10 * 60  # fallback: 10 min
 STALE_ORDER_TIMEOUT_S = 180  # post-expiry fills are nearly instant; free exposure quickly
 RECONCILE_INTERVAL_S = 15
 TERMINAL_RETENTION_S = 600
+# Polymarket min marketable BUY notional is $1.00, but keep a small buffer to
+# avoid boundary rounding rejections (e.g. venue evaluating as $0.9996).
+_MIN_MARKETABLE_BUY_NOTIONAL_USD = 1.01
 
 
 class OrderManager:
@@ -556,13 +559,13 @@ class OrderManager:
             return intent
 
         order_notional = intent.price * intent.size
-        if order_notional >= 1.0:
+        if order_notional >= _MIN_MARKETABLE_BUY_NOTIONAL_USD:
             return intent
 
-        required_size = 1.0 / intent.price
+        required_size = _MIN_MARKETABLE_BUY_NOTIONAL_USD / intent.price
         adjusted_size = math.ceil(required_size * 1_000_000) / 1_000_000
         logger.info(
-            "[ORDER] Resize gabagool BUY for min notional: %s %.4f x %.4f -> %.4f ($%.4f -> $%.4f)",
+            "[ORDER] Resize gabagool BUY for buffered min notional: %s %.4f x %.4f -> %.4f ($%.4f -> $%.4f)",
             intent.slug,
             intent.price,
             intent.size,

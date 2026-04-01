@@ -52,9 +52,30 @@ def test_submit_resizes_gabagool_buy_under_min_notional() -> None:
     assert state is not None
     assert rest.intents, "Expected place_order to be called"
     submitted = rest.intents[0]
-    assert submitted.size == 3.125  # $1.00 / 0.32
-    assert submitted.price * submitted.size >= 1.0
+    assert submitted.size == 3.15625  # $1.01 / 0.32
+    assert submitted.price * submitted.size >= 1.01
     assert state.intent.size == submitted.size
+
+
+def test_submit_resizes_with_buffer_for_boundary_case() -> None:
+    rest = _CapturingRestClient()
+    manager = _build_manager(rest)
+    # This order would be rejected at the venue as ~$0.9996 marketable notional.
+    intent = OrderIntent(
+        token_id="tok-yes",
+        price=0.4165,
+        size=2.4,
+        side=Side.BUY,
+        strategy="gabagool",
+        slug="btc-updown-15m-boundary",
+    )
+
+    state = asyncio.run(manager.submit(intent))
+
+    assert state is not None
+    submitted = rest.intents[0]
+    assert submitted.size > 2.4
+    assert submitted.price * submitted.size >= 1.01
 
 
 def test_submit_does_not_resize_non_gabagool_strategy() -> None:
