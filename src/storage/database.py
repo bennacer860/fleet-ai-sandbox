@@ -128,9 +128,12 @@ CREATE INDEX IF NOT EXISTS idx_fills_order ON fills(order_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_slug ON decisions(slug);
 CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
 CREATE INDEX IF NOT EXISTS idx_dedup_session ON dedup(session_date);
-CREATE INDEX IF NOT EXISTS idx_orders_tag ON orders(tag);
-CREATE INDEX IF NOT EXISTS idx_trades_tag ON trades(tag);
 """
+
+_POST_MIGRATION_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_orders_tag ON orders(tag)",
+    "CREATE INDEX IF NOT EXISTS idx_trades_tag ON trades(tag)",
+]
 
 
 _MIGRATIONS = [
@@ -191,6 +194,8 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(SCHEMA_SQL)
     _run_migrations(conn)
+    for idx_sql in _POST_MIGRATION_INDEXES:
+        conn.execute(idx_sql)
     conn.commit()
 
     logger.info("[DB] Initialised database at %s", db_path)
