@@ -318,6 +318,18 @@ python main.py run --markets BTC --durations 5 15
 python main.py run --markets BTC ETH --price-threshold 0.98
 ```
 
+### Strategy Selection
+
+```bash
+# Existing single-leg gabagool
+python main.py run --strategy gabagool --profile 1 --markets BTC --durations 15
+
+# New dual-sided variant (isolated from gabagool/sweep/post_expiry)
+python main.py run --strategy gabagool_dual --profile 1 --markets BTC --durations 15
+```
+
+Use `gabagool_dual` only after validating its risk controls (`max_notional_per_slug`, imbalance limits, and fee assumptions) in dry-run.
+
 ## Configuration
 
 See `.env.example` for required variables. You need a Polymarket account with funded USDC and the appropriate wallet setup (EOA, email/Magic, or browser proxy).

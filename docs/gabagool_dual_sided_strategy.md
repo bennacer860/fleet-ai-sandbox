@@ -268,14 +268,57 @@ Your own orders can move the book. Posting large BUYs on both sides narrows the 
 
 ---
 
-## Implementation Considerations
+## Implemented Design in This Repo
 
-If moving toward dual-sided accumulation, the following components would need changes:
+The dual-sided implementation now exists as a separate strategy so current `gabagool` remains unchanged:
 
-1. **`pick_side` → `pick_sides`**: Return both sides when both are viable, not just the best one.
-2. **Remove one-sided-first guard**: Allow buying both sides from the start.
-3. **Remove profit-locked stop**: Replace with a cooldown when the spread tightens, but resume if it widens.
-4. **`OrderManager` dedup**: Disable or rework the per-day `(slug, token_id)` dedup for gabagool to allow repeated submissions.
-5. **Resting order tracking**: Add state to track which orders are currently resting per side, and cancel/replace stale ones instead of posting duplicates.
-6. **Imbalance soft cap**: Keep a `max_imbalance` but as a throttle (reduce size on the heavy side) rather than a hard block.
-7. **Per-market capital budget**: Add a max notional per slug to prevent unbounded accumulation.
+- `main.py` includes `--strategy gabagool_dual`
+- `src/bot.py` wires `gabagool_dual` separately and keeps existing strategies intact
+- `src/strategy/gabagool_dual.py` contains pure dual-side sizing logic
+- `src/strategy/gabagool_dual_adapter.py` contains the event-driven adapter and config
+- `src/execution/order_manager.py` has strategy-scoped guardrails for `gabagool_dual`
+
+### Strategy behavior implemented
+
+1. Emits up to **two BUY intents per cycle** (YES and NO).
+2. Applies **cooldown/resume** using combined ask thresholds.
+3. Applies **imbalance throttle** and **hard imbalance cap**.
+4. Enforces **per-slug notional budget**.
+5. Enforces **minimum marketable BUY notional**.
+6. Uses strategy-scoped dedup behavior (`skip_dedup`) so repeated reposts are allowed for dual-sided flow.
+
+### Environment variables
+
+`gabagool_dual` reads:
+
+- `P1_GABAGOOL_DUAL_MAX_PAIR_COST` (default `0.98`)
+- `P1_GABAGOOL_DUAL_COOLDOWN_PAIR_COST` (default `0.995`)
+- `P1_GABAGOOL_DUAL_RESUME_PAIR_COST` (default `0.985`)
+- `P1_GABAGOOL_DUAL_MAX_IMBALANCE` (default `3.0`)
+- `P1_GABAGOOL_DUAL_IMBALANCE_THROTTLE_START` (default `1.5`)
+- `P1_GABAGOOL_DUAL_IMBALANCE_THROTTLE_FACTOR` (default `0.35`)
+- `P1_GABAGOOL_DUAL_BASE_ORDER_SIZE` (fallback `P1_DEFAULT_TRADE_SIZE`, default `5.0`)
+- `P1_GABAGOOL_DUAL_MAX_NOTIONAL_PER_SLUG` (default `250.0`)
+- `P1_GABAGOOL_DUAL_TREND_MIN_REVERSALS` (default `0`)
+- `P1_GABAGOOL_DUAL_TREND_MIN_AMPLITUDE` (default `0.03`)
+- `P1_GABAGOOL_DUAL_OBSERVATION_TICKS` (default `5`)
+- `P1_GABAGOOL_DUAL_FEE_BPS` (default `100`)
+- `P1_GABAGOOL_DUAL_MIN_ORDER_NOTIONAL_USD` (default `1.0`)
+
+## Local Test Commands
+
+Use these commands to validate all scenarios and no-regression guarantees:
+
+```bash
+python3 -m pytest tests/test_gabagool_dual_adapter.py -q
+python3 -m pytest tests/test_gabagool_dual_scenarios.py -q
+python3 -m pytest tests/test_gabagool_dual_dry_run_e2e.py -q
+python3 -m pytest tests/test_order_manager_notional.py -q
+```
+
+Full gabagool + non-gabagool regression:
+
+```bash
+python3 -m pytest tests/test_gabagool_pair_state.py tests/test_gabagool_adapter.py tests/test_gabagool_scenarios.py tests/test_gabagool_dry_run_e2e.py tests/test_gabagool_dual_adapter.py tests/test_gabagool_dual_scenarios.py tests/test_gabagool_dual_dry_run_e2e.py tests/test_order_manager_notional.py -q
+python3 -m pytest tests/test_sweep*.py tests/test_post_expiry*.py tests/test_aggressive_post_expiry.py -q
+```

@@ -183,10 +183,10 @@ class Bot:
         # time-critical short-duration events.
         self._hot_tokens: set[str] = set()
 
-        # Gabagool needs book updates from all markets to function (it
+        # Gabagool variants need book updates from all markets to function (they
         # activates from book data, not tick-size changes).  Disable the
         # filter so BookUpdate events reach the strategy immediately.
-        use_book_filter = strategy_name != "gabagool"
+        use_book_filter = strategy_name not in {"gabagool", "gabagool_dual"}
 
         self.market_ws = MarketWebSocket(
             event_bus=self.event_bus,
@@ -219,6 +219,11 @@ class Bot:
                 from .strategy.gabagool_adapter import GabagoolStrategy
                 self.strategies = [
                     GabagoolStrategy(hot_tokens=self._hot_tokens)
+                ]
+            elif strategy_name == "gabagool_dual":
+                from .strategy.gabagool_dual_adapter import GabagoolDualStrategy
+                self.strategies = [
+                    GabagoolDualStrategy(hot_tokens=self._hot_tokens)
                 ]
             else:
                 self.strategies = [
@@ -592,12 +597,12 @@ class Bot:
                 intents = await strategy.on_book_update(event, self._strategy_ctx)
                 if intents:
                     await self._submit_intents(intents, event, handler_start_ns, strategy=strategy)
-                    # Keep the extra strategy-specific dashboard event only for gabagool.
-                    if self.dashboard and strategy.name() == "gabagool":
+                    # Keep the extra strategy-specific dashboard event only for gabagool variants.
+                    if self.dashboard and strategy.name() in {"gabagool", "gabagool_dual"}:
                         for intent in intents:
                             display_slug = format_slug_with_est_time(event.slug)
                             self.dashboard.push_event(
-                                f"📊 [green]GABAGOOL[/green]  {display_slug}  BUY {intent.token_id[:12]}… @ {intent.price:.4f} x {intent.size:.2f}"
+                                f"📊 [green]{strategy.name().upper()}[/green]  {display_slug}  BUY {intent.token_id[:12]}… @ {intent.price:.4f} x {intent.size:.2f}"
                             )
             except Exception:
                 logger.exception("Strategy %s error on book_update", strategy.name())

@@ -461,8 +461,8 @@ class OrderManager:
             )
 
     def _release_dedup_on_rejection(self, intent: OrderIntent, status: OrderStatus) -> None:
-        """Allow gabagool to retry a rejected/failed missing leg later."""
-        if intent.strategy != "gabagool":
+        """Allow gabagool variants to retry a rejected/failed missing leg later."""
+        if intent.strategy not in {"gabagool", "gabagool_dual"}:
             return
         if status not in (OrderStatus.REJECTED, OrderStatus.FAILED):
             return
@@ -487,13 +487,13 @@ class OrderManager:
         status: OrderStatus,
         was_partial_fill: bool,
     ) -> None:
-        """Allow gabagool to retry after a partial order terminates.
+        """Allow gabagool variants to retry after a partial order terminates.
 
         This covers cases where an order got a partial fill and then ended
         (expired/cancelled), leaving a dangling one-sided position that may
         still be hedgeable on later ticks.
         """
-        if intent.strategy != "gabagool":
+        if intent.strategy not in {"gabagool", "gabagool_dual"}:
             return
         if not was_partial_fill:
             return
@@ -641,16 +641,19 @@ class OrderManager:
     def _normalize_intent(intent: OrderIntent) -> OrderIntent:
         """Apply defensive guards to intent before risk and submit.
 
-        Gabagool is expected to enforce minimum marketable BUY notional, but a
+        Gabagool variants are expected to enforce minimum marketable BUY notional, but a
         second safety net here prevents exchange-side rejections from turning
         into orphan legs if strategy-side config drifts.
         """
-        if intent.strategy != "gabagool":
+        if intent.strategy not in {"gabagool", "gabagool_dual"}:
             return intent
         if intent.side.value != "BUY":
             return intent
         if intent.price <= 0 or intent.size <= 0:
             return intent
+
+        if intent.strategy == "gabagool_dual" and not intent.skip_dedup:
+            intent = replace(intent, skip_dedup=True)
 
         order_notional = intent.price * intent.size
         if order_notional >= _MIN_MARKETABLE_BUY_NOTIONAL_USD:
@@ -659,7 +662,8 @@ class OrderManager:
         required_size = _MIN_MARKETABLE_BUY_NOTIONAL_USD / intent.price
         adjusted_size = math.ceil(required_size * 1_000_000) / 1_000_000
         logger.info(
-            "[ORDER] Resize gabagool BUY for buffered min notional: %s %.4f x %.4f -> %.4f ($%.4f -> $%.4f)",
+            "[ORDER] Resize %s BUY for buffered min notional: %s %.4f x %.4f -> %.4f ($%.4f -> $%.4f)",
+            intent.strategy,
             intent.slug,
             intent.price,
             intent.size,

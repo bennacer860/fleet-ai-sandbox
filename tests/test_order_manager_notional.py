@@ -357,3 +357,44 @@ def test_submit_allows_gabagool_retry_after_near_full_min_notional_fill() -> Non
     assert second is not None
     assert second.order_id == "oid-2"
     assert rest.calls == 2
+
+
+def test_submit_resizes_gabagool_dual_buy_under_min_notional() -> None:
+    rest = _CapturingRestClient()
+    manager = _build_manager(rest)
+    intent = OrderIntent(
+        token_id="tok-yes-dual",
+        price=0.32,
+        size=2.5,
+        side=Side.BUY,
+        strategy="gabagool_dual",
+        slug="btc-updown-15m-dual",
+    )
+
+    state = asyncio.run(manager.submit(intent))
+
+    assert state is not None
+    submitted = rest.intents[0]
+    assert submitted.size == 3.15625  # $1.01 / 0.32
+    assert submitted.price * submitted.size >= 1.01
+    assert submitted.skip_dedup is True
+
+
+def test_submit_forces_skip_dedup_for_gabagool_dual() -> None:
+    rest = _CapturingRestClient()
+    manager = _build_manager(rest)
+    intent = OrderIntent(
+        token_id="tok-yes-dual",
+        price=0.50,
+        size=3.0,
+        side=Side.BUY,
+        strategy="gabagool_dual",
+        slug="btc-updown-15m-dual",
+        skip_dedup=False,
+    )
+
+    state = asyncio.run(manager.submit(intent))
+
+    assert state is not None
+    submitted = rest.intents[0]
+    assert submitted.skip_dedup is True
