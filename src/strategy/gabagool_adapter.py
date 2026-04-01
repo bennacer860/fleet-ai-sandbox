@@ -8,6 +8,8 @@ events, maintains per-slug ``PairState`` / ``TrendDetector`` /
 
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,21 +17,28 @@ from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
 from .base import Strategy, StrategyContext
-from .gabagool import PairState, PhaseManager, TrendDetector, pick_side
+from .gabagool import PairState, PhaseManager, TrendDetector, pick_side, should_buy
 
 logger = get_logger(__name__)
 
 
 @dataclass
 class GabagoolConfig:
-    max_pair_cost: float = 0.98
-    max_imbalance: float = 2.0
-    base_order_size: float = 10.0
-    probe_size_factor: float = 0.25
-    trend_min_reversals: int = 0
-    trend_min_amplitude: float = 0.03
-    observation_ticks: int = 5
-    fee_bps: int = 0
+    max_pair_cost: float = field(default_factory=lambda: float(os.getenv("P1_GABAGOOL_MAX_PAIR_COST", "0.98")))
+    max_imbalance: float = field(default_factory=lambda: float(os.getenv("P1_GABAGOOL_MAX_IMBALANCE", "2.0")))
+    base_order_size: float = field(
+        default_factory=lambda: float(
+            os.getenv("P1_GABAGOOL_BASE_ORDER_SIZE", os.getenv("P1_DEFAULT_TRADE_SIZE", "5.0"))
+        )
+    )
+    probe_size_factor: float = field(default_factory=lambda: float(os.getenv("P1_GABAGOOL_PROBE_SIZE_FACTOR", "0.25")))
+    trend_min_reversals: int = field(default_factory=lambda: int(os.getenv("P1_GABAGOOL_TREND_MIN_REVERSALS", "0")))
+    trend_min_amplitude: float = field(default_factory=lambda: float(os.getenv("P1_GABAGOOL_TREND_MIN_AMPLITUDE", "0.03")))
+    observation_ticks: int = field(default_factory=lambda: int(os.getenv("P1_GABAGOOL_OBSERVATION_TICKS", "5")))
+    fee_bps: int = field(default_factory=lambda: int(os.getenv("P1_GABAGOOL_FEE_BPS", "100")))
+    min_order_notional_usd: float = field(
+        default_factory=lambda: float(os.getenv("P1_GABAGOOL_MIN_ORDER_NOTIONAL_USD", "1.0"))
+    )
 
 
 @dataclass
@@ -141,10 +150,28 @@ class GabagoolStrategy(Strategy):
 
         token_id = state.yes_token_id if side == "YES" else state.no_token_id
         tick_size = ctx.tick_sizes.get(token_id, 0.01)
+        adjusted_order_size = self._size_for_min_notional(order_size, price, cfg.min_order_notional_usd)
+
+        if adjusted_order_size > order_size + 1e-9:
+            allowed, block_reason = should_buy(
+                state.pair,
+                side,
+                adjusted_order_size,
+                price,
+                cfg.max_pair_cost,
+                cfg.max_imbalance,
+                cfg.fee_bps,
+            )
+            if not allowed:
+                logger.info(
+                    "[GABAGOOL] %s skip after min-notional resize (%.2f -> %.2f @ %.4f): %s",
+                    slug, order_size, adjusted_order_size, price, block_reason,
+                )
+                return None
 
         logger.info(
             "[GABAGOOL] %s BUY %s @ %.4f x %.2f (phase=%s, pair_cost=%.4f, ratio=%.2f)",
-            slug, side, price, order_size, state.phase.phase,
+            slug, side, price, adjusted_order_size, state.phase.phase,
             state.pair.pair_cost if state.pair.qty_yes > 0 and state.pair.qty_no > 0 else float("inf"),
             state.pair.balance_ratio,
         )
@@ -152,7 +179,7 @@ class GabagoolStrategy(Strategy):
         return [OrderIntent(
             token_id=token_id,
             price=price,
-            size=order_size,
+            size=adjusted_order_size,
             side=Side.BUY,
             strategy=self.name(),
             slug=slug,
@@ -263,6 +290,16 @@ class GabagoolStrategy(Strategy):
         if bid is not None and bid > 0:
             return bid
         return None
+
+    @staticmethod
+    def _size_for_min_notional(size: float, price: float, min_notional_usd: float) -> float:
+        """Return order size adjusted to satisfy minimum USD notional."""
+        if size <= 0 or price <= 0 or min_notional_usd <= 0:
+            return size
+        required = min_notional_usd / price
+        adjusted = max(size, required)
+        # Round up slightly to avoid floating-point edge rejections at the venue.
+        return math.ceil(adjusted * 1_000_000) / 1_000_000
 
     def get_slug_state(self, slug: str) -> SlugState | None:
         """Read-only access for testing / monitoring."""

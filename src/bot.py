@@ -171,6 +171,7 @@ class Bot:
 
         self.position_tracker = PositionTracker(
             persistence=self.persistence,
+            risk_manager=self.risk_manager,
         )
         if conn is not None:
             self.position_tracker.load_positions_from_db(conn)

@@ -14,6 +14,7 @@ from typing import Any
 from ..core.events import BookUpdate, MarketResolved, OrderFill, OrderStatus
 from ..core.models import Position, Side, TradeRecord
 from ..logging_config import get_logger
+from .risk_manager import RiskManager
 from ..storage.persistence import AsyncPersistence
 
 logger = get_logger(__name__)
@@ -22,9 +23,14 @@ logger = get_logger(__name__)
 class PositionTracker:
     """Tracks live positions and computes P&L from events."""
 
-    def __init__(self, persistence: AsyncPersistence | None = None) -> None:
+    def __init__(
+        self,
+        persistence: AsyncPersistence | None = None,
+        risk_manager: RiskManager | None = None,
+    ) -> None:
         self._positions: dict[str, Position] = {}
         self._persistence = persistence
+        self._risk_manager = risk_manager
 
         self._order_meta: dict[str, dict[str, Any]] = {}
         self._best_prices: dict[str, float] = {}
@@ -205,6 +211,8 @@ class PositionTracker:
                 "[POSITION] Closed %s/%s: %.2f shares @ entry=%.4f exit=%.4f pnl=$%.4f",
                 pos.slug, pos.strategy, pos.quantity, pos.avg_entry_price, exit_price, pnl,
             )
+            if self._risk_manager is not None:
+                self._risk_manager.record_fill(pos.slug, pnl)
 
             if self._persistence:
                 self._persistence.enqueue(

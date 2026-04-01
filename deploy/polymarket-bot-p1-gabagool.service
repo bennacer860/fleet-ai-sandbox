@@ -10,7 +10,7 @@ Group=ec2-user
 WorkingDirectory=/opt/polymarket-bot
 EnvironmentFile=/opt/polymarket-bot/.env
 
-ExecStart=/usr/bin/bash -lc '/usr/bin/tmux has-session -t bot-p1 2>/dev/null || /usr/bin/tmux new-session -d -s bot-p1 -e "HOME=/home/ec2-user" '\''/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC --durations 15 --profile 1 --strategy gabagool --dry-run --fill-mode book --dashboard; exec bash'\'''
+ExecStart=/usr/bin/bash -lc '/usr/bin/tmux has-session -t bot-p1 2>/dev/null || /usr/bin/tmux new-session -d -s bot-p1 -e "HOME=/home/ec2-user" '\''/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC --durations 15 --profile 1 --strategy gabagool --dashboard; exec bash'\'''
 ExecStop=/usr/bin/bash -lc '/usr/bin/tmux kill-session -t bot-p1 || true'
 RemainAfterExit=yes
 

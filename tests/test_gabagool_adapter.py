@@ -165,6 +165,7 @@ class TestBookToIntent:
             trend_min_amplitude=0.10,
             base_order_size=10.0,
             probe_size_factor=0.25,
+            min_order_notional_usd=0.0,
         )
         s = strategy or GabagoolStrategy(config=cfg)
 
@@ -207,10 +208,33 @@ class TestBookToIntent:
             trend_min_amplitude=0.10,
             base_order_size=10.0,
             probe_size_factor=0.25,
+            min_order_notional_usd=0.0,
         )
         s, intents = self._run_through_activation(config=cfg)
         assert len(intents) > 0
         assert intents[0].size == 10.0 * 0.25
+
+    def test_min_notional_resizes_probe_order(self):
+        import asyncio
+        cfg = GabagoolConfig(
+            observation_ticks=0,
+            trend_min_reversals=0,
+            trend_min_amplitude=0.0,
+            base_order_size=10.0,
+            probe_size_factor=0.25,
+            min_order_notional_usd=1.0,
+        )
+        s = GabagoolStrategy(config=cfg)
+        ctx = _make_ctx(prices={
+            TOKEN_YES_A: {"ask": 0.25},
+            TOKEN_NO_A: {"ask": 0.80},
+        })
+        result = asyncio.run(s.on_book_update(
+            _book_update(TOKEN_YES_A, SLUG_A, best_ask=0.25), ctx
+        ))
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].size == pytest.approx(4.0)  # $1 / $0.25
 
     def test_no_intent_during_observation(self):
         import asyncio
@@ -264,7 +288,7 @@ class TestFillSync:
 
     def test_fill_updates_pair_state(self):
         import asyncio
-        cfg = GabagoolConfig(observation_ticks=3, trend_min_amplitude=0.05)
+        cfg = GabagoolConfig(observation_ticks=3, trend_min_amplitude=0.05, fee_bps=0)
         s = GabagoolStrategy(config=cfg)
         ctx = _make_ctx(prices={
             TOKEN_YES_A: {"ask": 0.40},
@@ -283,7 +307,7 @@ class TestFillSync:
 
     def test_fill_records_phase_transition(self):
         import asyncio
-        cfg = GabagoolConfig(observation_ticks=3, trend_min_amplitude=0.05)
+        cfg = GabagoolConfig(observation_ticks=3, trend_min_amplitude=0.05, fee_bps=0)
         s = GabagoolStrategy(config=cfg)
         ctx = _make_ctx(prices={
             TOKEN_YES_A: {"ask": 0.55},
@@ -308,7 +332,7 @@ class TestFillSync:
 
     def test_profit_lock_detected(self):
         import asyncio
-        cfg = GabagoolConfig(observation_ticks=3, trend_min_amplitude=0.05)
+        cfg = GabagoolConfig(observation_ticks=3, trend_min_amplitude=0.05, fee_bps=0)
         s = GabagoolStrategy(config=cfg)
         ctx = _make_ctx(prices={
             TOKEN_YES_A: {"ask": 0.40},
