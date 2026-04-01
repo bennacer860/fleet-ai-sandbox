@@ -1,7 +1,7 @@
 import asyncio
 
 from src.core.event_bus import EventBus
-from src.core.events import OrderStatus, OrderSubmitted, OrderTerminal
+from src.core.events import OrderFill, OrderStatus, OrderSubmitted, OrderTerminal
 from src.core.models import OrderIntent, Side
 from src.execution.order_manager import OrderManager
 from src.execution.risk_manager import RiskConfig, RiskManager
@@ -39,6 +39,26 @@ class _RejectThenSubmitRestClient:
                 status=OrderStatus.REJECTED,
                 reason="simulated reject",
             )
+        return OrderSubmitted(
+            order_id=f"oid-{self.calls}",
+            token_id=intent.token_id,
+            slug=intent.slug,
+            strategy=intent.strategy,
+            price=intent.price,
+            size=intent.size,
+            side=intent.side.value,
+            dry_run=dry_run,
+        )
+
+
+class _SequentialSubmitRestClient:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.intents: list[OrderIntent] = []
+
+    async def place_order(self, intent: OrderIntent, dry_run: bool = False) -> OrderSubmitted:
+        self.calls += 1
+        self.intents.append(intent)
         return OrderSubmitted(
             order_id=f"oid-{self.calls}",
             token_id=intent.token_id,
@@ -164,6 +184,89 @@ def test_submit_keeps_non_gabagool_dedup_after_rejection() -> None:
     assert first is not None
     assert first.status == OrderStatus.REJECTED
     # dedup still blocks immediate resubmit for non-gabagool
+    assert second is None
+    assert rest.calls == 1
+
+
+def test_submit_allows_gabagool_retry_after_partial_then_terminal() -> None:
+    rest = _SequentialSubmitRestClient()
+    manager = _build_manager(rest)  # type: ignore[arg-type]
+    intent = OrderIntent(
+        token_id="tok-yes",
+        price=0.50,
+        size=2.5,
+        side=Side.BUY,
+        strategy="gabagool",
+        slug="btc-updown-15m-partial-retry",
+    )
+
+    first = asyncio.run(manager.submit(intent))
+    assert first is not None
+    assert first.order_id == "oid-1"
+
+    # Simulate partial fill then terminal expiry.
+    asyncio.run(
+        manager.on_order_fill(
+            OrderFill(
+                order_id=first.order_id,
+                fill_price=0.50,
+                fill_size=0.5,
+                status=OrderStatus.PARTIAL,
+            )
+        )
+    )
+    asyncio.run(
+        manager.on_order_terminal(
+            OrderTerminal(
+                order_id=first.order_id,
+                status=OrderStatus.EXPIRED_STALE,
+                reason="simulated stale expiry",
+            )
+        )
+    )
+
+    second = asyncio.run(manager.submit(intent))
+    assert second is not None
+    assert second.order_id == "oid-2"
+    assert rest.calls == 2
+
+
+def test_submit_keeps_non_gabagool_dedup_after_partial_then_terminal() -> None:
+    rest = _SequentialSubmitRestClient()
+    manager = _build_manager(rest)  # type: ignore[arg-type]
+    intent = OrderIntent(
+        token_id="tok-yes",
+        price=0.50,
+        size=2.5,
+        side=Side.BUY,
+        strategy="sweep",
+        slug="btc-updown-15m-partial-no-retry",
+    )
+
+    first = asyncio.run(manager.submit(intent))
+    assert first is not None
+
+    asyncio.run(
+        manager.on_order_fill(
+            OrderFill(
+                order_id=first.order_id,
+                fill_price=0.50,
+                fill_size=0.5,
+                status=OrderStatus.PARTIAL,
+            )
+        )
+    )
+    asyncio.run(
+        manager.on_order_terminal(
+            OrderTerminal(
+                order_id=first.order_id,
+                status=OrderStatus.EXPIRED_STALE,
+                reason="simulated stale expiry",
+            )
+        )
+    )
+
+    second = asyncio.run(manager.submit(intent))
     assert second is None
     assert rest.calls == 1
 

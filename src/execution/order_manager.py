@@ -213,10 +213,12 @@ class OrderManager:
         if not state:
             return
 
+        was_partial_fill = 0 < state.filled_size < state.intent.size
         state.status = event.status
         state.rejection_reason = event.reason
         state.resolved_at_ns = time.time_ns()
         self._release_dedup_on_rejection(state.intent, event.status)
+        self._release_dedup_on_partial_terminal(state.intent, event.status, was_partial_fill)
 
         if event.status == OrderStatus.CANCELLED:
             self._stats["cancelled"] += 1
@@ -276,6 +278,12 @@ class OrderManager:
                 state.status = OrderStatus.EXPIRED_STALE
                 state.resolved_at_ns = time.time_ns()
                 self._stats["expired"] += 1
+                was_partial_fill = 0 < state.filled_size < state.intent.size
+                self._release_dedup_on_partial_terminal(
+                    state.intent,
+                    state.status,
+                    was_partial_fill,
+                )
                 self.risk_manager.release_exposure(
                     state.intent.slug, state.intent.price * state.intent.size
                 )
@@ -465,6 +473,43 @@ class OrderManager:
                 status.value,
                 intent.slug,
                 intent.token_id[:16],
+            )
+            if self._persistence:
+                self._persistence.enqueue(
+                    "DELETE FROM dedup WHERE slug = ? AND token_id = ? AND strategy = ? AND session_date = ?",
+                    (intent.slug, intent.token_id, intent.strategy, date.today().isoformat()),
+                )
+
+    def _release_dedup_on_partial_terminal(
+        self,
+        intent: OrderIntent,
+        status: OrderStatus,
+        was_partial_fill: bool,
+    ) -> None:
+        """Allow gabagool to retry after a partial order terminates.
+
+        This covers cases where an order got a partial fill and then ended
+        (expired/cancelled), leaving a dangling one-sided position that may
+        still be hedgeable on later ticks.
+        """
+        if intent.strategy != "gabagool":
+            return
+        if not was_partial_fill:
+            return
+        if status not in (
+            OrderStatus.CANCELLED,
+            OrderStatus.EXPIRED,
+            OrderStatus.EXPIRED_STALE,
+        ):
+            return
+        key = (intent.slug, intent.token_id, intent.strategy)
+        if key in self._dedup:
+            self._dedup.discard(key)
+            logger.info(
+                "[ORDER] Released dedup for partial-terminal retry: %s/%s (%s)",
+                intent.slug,
+                intent.token_id[:16],
+                status.value,
             )
             if self._persistence:
                 self._persistence.enqueue(
