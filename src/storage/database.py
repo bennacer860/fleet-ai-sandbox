@@ -148,14 +148,25 @@ _MIGRATIONS = [
 
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    """Add columns that may be missing from an older schema."""
+    """Add columns that may be missing from an older schema.
+
+    Each migration is applied and committed independently so that a
+    failure in one does not block subsequent migrations.
+    """
     for table, column, sql in _MIGRATIONS:
-        cursor = conn.execute(f"PRAGMA table_info({table})")
-        existing = {row[1] for row in cursor.fetchall()}
-        if column not in existing:
-            conn.execute(sql)
-            logger.info("[DB] Migration: added %s.%s", table, column)
-    conn.commit()
+        try:
+            cursor = conn.execute(f"PRAGMA table_info({table})")
+            existing = {row[1] for row in cursor.fetchall()}
+            if column not in existing:
+                conn.execute(sql)
+                conn.commit()
+                logger.info("[DB] Migration: added %s.%s", table, column)
+        except Exception:
+            logger.exception(
+                "[DB] Migration FAILED for %s.%s — will retry next startup",
+                table,
+                column,
+            )
 
 
 def init_db(db_path: str) -> sqlite3.Connection:
