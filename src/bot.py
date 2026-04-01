@@ -112,9 +112,11 @@ class Bot:
         claim_interval: float = 60.0,
         persist: bool = True,
         fill_mode: str = "book",
+        tag: str = "",
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self._fill_mode = fill_mode
+        self._tag = tag
         self.db_path = db_path or DB_PATH
         self.dashboard_enabled = dashboard_enabled
         self._persist = persist
@@ -159,6 +161,7 @@ class Bot:
             risk_manager=self.risk_manager,
             persistence=self.persistence,
             dry_run=self.dry_run,
+            tag=self._tag,
         )
         if conn is not None:
             self.order_manager.load_dedup_from_db(conn)
@@ -172,6 +175,7 @@ class Bot:
         self.position_tracker = PositionTracker(
             persistence=self.persistence,
             risk_manager=self.risk_manager,
+            tag=self._tag,
         )
         if conn is not None:
             self.position_tracker.load_positions_from_db(conn)
@@ -555,7 +559,7 @@ class Bot:
                     
                     if self.persistence and getattr(strategy, "last_skip_reason", None):
                         self.persistence.enqueue(
-                            "INSERT INTO decisions (timestamp, strategy, slug, trigger, decision, reason, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            "INSERT INTO decisions (timestamp, strategy, slug, trigger, decision, reason, dry_run, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 time.time(),
                                 strategy.name(),
@@ -564,6 +568,7 @@ class Bot:
                                 "SKIP",
                                 reason,
                                 1 if self.dry_run else 0,
+                                self._tag,
                             ),
                         )
                         
@@ -1209,6 +1214,8 @@ class Bot:
         logger.info("  Dry-run  : %s", self.dry_run)
         logger.info("  Dashboard: %s", self.dashboard_enabled)
         logger.info("  Persist  : %s", self._persist)
+        if self._tag:
+            logger.info("  Tag      : %s", self._tag)
         if self._persist:
             logger.info("  DB path  : %s", self.db_path)
         logger.info("=" * 60)

@@ -27,10 +27,12 @@ class PositionTracker:
         self,
         persistence: AsyncPersistence | None = None,
         risk_manager: RiskManager | None = None,
+        tag: str = "",
     ) -> None:
         self._positions: dict[str, Position] = {}
         self._persistence = persistence
         self._risk_manager = risk_manager
+        self._tag = tag
 
         self._order_meta: dict[str, dict[str, Any]] = {}
         self._best_prices: dict[str, float] = {}
@@ -216,12 +218,13 @@ class PositionTracker:
 
             if self._persistence:
                 self._persistence.enqueue(
-                    "INSERT INTO trades (trade_id, strategy, slug, token_id, side, entry_price, exit_price, size, gross_pnl, net_pnl, timestamp_entry, timestamp_exit, spot_price, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO trades (trade_id, strategy, slug, token_id, side, entry_price, exit_price, size, gross_pnl, net_pnl, timestamp_entry, timestamp_exit, spot_price, dry_run, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         f"{tid}_{int(time.time())}",
                         pos.strategy, pos.slug, tid, "BUY",
                         pos.avg_entry_price, exit_price, pos.quantity,
                         pnl, pnl, 0.0, time.time(), pos.spot_price, 0,
+                        self._tag,
                     ),
                 )
                 # Mark position closed in DB so startup won't reload/reconcile it again.
