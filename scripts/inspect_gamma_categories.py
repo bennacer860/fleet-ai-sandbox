@@ -29,6 +29,11 @@ def main() -> int:
     parser.add_argument("--max-print", type=int, default=40, help="Max matches to print (default: 40)")
     parser.add_argument("--slug-check", default=None, help="Exact slug to check across scanned pages")
     parser.add_argument(
+        "--include-inactive",
+        action="store_true",
+        help="Include inactive/upcoming entries in endpoint scans",
+    )
+    parser.add_argument(
         "--source",
         choices=["markets", "events"],
         default="markets",
@@ -44,8 +49,8 @@ def main() -> int:
             params={
                 "limit": args.page_size,
                 "offset": page * args.page_size,
-                "active": "true",
                 "closed": "false",
+                **({} if args.include_inactive else {"active": "true"}),
             },
             timeout=30,
         ).json()
