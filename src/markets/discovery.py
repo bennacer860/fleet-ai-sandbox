@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from ..gamma_client import (
+    discover_events_by_category,
     discover_markets_by_category,
     get_market_token_ids,
     get_outcomes,
@@ -35,6 +36,27 @@ def _is_binary_market(market: dict[str, Any]) -> bool:
     token_ids = get_market_token_ids(market)
     outcomes = get_outcomes(market)
     return len(token_ids) == 2 and len(outcomes) >= 2
+
+
+def _event_to_market_like(event: dict[str, Any]) -> dict[str, Any] | None:
+    markets = event.get("markets")
+    if not isinstance(markets, list) or not markets:
+        return None
+    first_market = markets[0] if isinstance(markets[0], dict) else None
+    if not first_market:
+        return None
+
+    merged = dict(first_market)
+    merged["slug"] = str(event.get("slug") or event.get("ticker") or merged.get("slug") or "")
+    merged["endDate"] = event.get("endDate", merged.get("endDate"))
+    merged["category"] = event.get("category", merged.get("category"))
+    merged["categorySlug"] = event.get("categorySlug", merged.get("categorySlug"))
+    merged["category_slug"] = event.get("category_slug", merged.get("category_slug"))
+    merged["tag"] = event.get("tag", merged.get("tag"))
+    merged["tagSlug"] = event.get("tagSlug", merged.get("tagSlug"))
+    merged["tag_slug"] = event.get("tag_slug", merged.get("tag_slug"))
+    merged["event"] = event
+    return merged
 
 
 def _extract_end_ts(market: dict[str, Any]) -> float | None:
@@ -69,6 +91,18 @@ def discover_slugs(
         max_pages=max_pages,
         page_size=page_size,
     )
+    if not rows:
+        event_rows = discover_events_by_category(
+            category_path=category_path,
+            only_active=only_active,
+            max_pages=max_pages,
+            page_size=page_size,
+        )
+        rows = [
+            converted
+            for converted in (_event_to_market_like(event) for event in event_rows)
+            if converted is not None
+        ]
     allowed_durations = set(durations or [])
 
     slugs: list[str] = []

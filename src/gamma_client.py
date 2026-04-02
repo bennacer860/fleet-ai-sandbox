@@ -69,6 +69,22 @@ def fetch_markets_page(params: dict[str, Any], timeout: float = 30.0) -> list[di
         return []
 
 
+def fetch_events_page(params: dict[str, Any], timeout: float = 30.0) -> list[dict[str, Any]]:
+    """Fetch one Gamma ``/events`` page with arbitrary query parameters."""
+    url = f"{GAMMA_API}/events"
+    try:
+        resp = requests.get(url, params=params, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return [row for row in data if isinstance(row, dict)]
+        logger.warning("Unexpected /events response type: %s", type(data).__name__)
+        return []
+    except Exception:
+        logger.exception("Failed to fetch /events page params=%s", params)
+        return []
+
+
 def _stringify_values(value: Any) -> list[str]:
     """Flatten nested values into lowercase strings for fuzzy matching."""
     out: list[str] = []
@@ -343,6 +359,78 @@ def discover_event_slugs_by_category(
         seen.add(slug)
         slugs.append(slug)
     return slugs
+
+
+def discover_events_by_category(
+    category_path: str,
+    *,
+    only_active: bool = True,
+    max_pages: int = 10,
+    page_size: int = 200,
+) -> list[dict[str, Any]]:
+    """Discover event payloads under a category/tag path."""
+    target = category_path.strip("/")
+    if not target:
+        return []
+
+    filter_key_candidates = ("tag_slug", "category_slug", "category", "tag")
+    results: list[dict[str, Any]] = []
+
+    for filter_key in filter_key_candidates:
+        server_rows: list[dict[str, Any]] = []
+        for page in range(max_pages):
+            params: dict[str, Any] = {
+                "limit": page_size,
+                "offset": page * page_size,
+                filter_key: target,
+            }
+            if only_active:
+                params.update({"active": "true", "closed": "false"})
+            rows = fetch_events_page(params)
+            if not rows:
+                break
+            server_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+        if server_rows:
+            filtered_server_rows = [
+                row for row in server_rows if _market_matches_category(row, target)
+            ]
+            if filtered_server_rows:
+                results = filtered_server_rows
+                break
+
+    if not results:
+        fallback_rows: list[dict[str, Any]] = []
+        for page in range(max_pages):
+            params = {"limit": page_size, "offset": page * page_size}
+            if only_active:
+                params.update({"active": "true", "closed": "false"})
+            rows = fetch_events_page(params)
+            if not rows:
+                break
+            fallback_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+        results = [row for row in fallback_rows if _market_matches_category(row, target)]
+
+    seen: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    for row in results:
+        slug = str(row.get("slug") or row.get("ticker") or "")
+        if not slug or slug in seen:
+            continue
+        if only_active and not _is_market_active(row):
+            continue
+        seen.add(slug)
+        normalized.append(row)
+
+    logger.info(
+        "Discovered %d events for category=%s",
+        len(normalized),
+        target,
+    )
+    return normalized
 
 
 def get_market_token_ids(market: dict[str, Any]) -> list[str]:
