@@ -28,12 +28,19 @@ def main() -> int:
     parser.add_argument("--max-pages", type=int, default=10, help="Max pages to scan (default: 10)")
     parser.add_argument("--max-print", type=int, default=40, help="Max matches to print (default: 40)")
     parser.add_argument("--slug-check", default=None, help="Exact slug to check across scanned pages")
+    parser.add_argument(
+        "--source",
+        choices=["markets", "events"],
+        default="markets",
+        help="Gamma endpoint to scan (default: markets)",
+    )
     args = parser.parse_args()
 
     rows = []
+    base_url = f"https://gamma-api.polymarket.com/{args.source}"
     for page in range(args.max_pages):
         page_rows = requests.get(
-            "https://gamma-api.polymarket.com/markets",
+            base_url,
             params={
                 "limit": args.page_size,
                 "offset": page * args.page_size,
@@ -67,7 +74,7 @@ def main() -> int:
             intersection.append(market)
 
     print(
-        f"needles={needles} scanned={len(rows)} "
+        f"source={args.source} needles={needles} scanned={len(rows)} "
         + " ".join([f"{n}={len(hits_by_needle[n])}" for n in needles])
         + f" intersection={len(intersection)}"
     )
@@ -78,9 +85,9 @@ def main() -> int:
         for market in rows:
             if not isinstance(market, dict):
                 continue
-            slug = (market.get("slug") or market.get("marketSlug") or market.get("event_slug") or "").lower()
+            slug = (market.get("slug") or market.get("marketSlug") or market.get("event_slug") or market.get("ticker") or "").lower()
             ev = market.get("event") if isinstance(market.get("event"), dict) else {}
-            event_slug = (ev.get("slug") or "").lower()
+            event_slug = (ev.get("slug") or ev.get("ticker") or "").lower()
             if target in {slug, event_slug}:
                 exact_hits.append(market)
         print(f"slug_check={args.slug_check} hits={len(exact_hits)}")
