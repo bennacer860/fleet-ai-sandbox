@@ -227,16 +227,16 @@ def _market_text_words(market: dict[str, Any]) -> set[str]:
 
 def _extract_market_slug(market: dict[str, Any]) -> str:
     """Extract best-available slug from a market/event payload."""
+    event_obj = market.get("event")
+    if isinstance(event_obj, dict):
+        for key in ("slug", "event_slug", "eventSlug", "ticker"):
+            raw = event_obj.get(key)
+            if isinstance(raw, str) and raw:
+                return raw
     for key in ("slug", "market_slug", "marketSlug", "event_slug", "eventSlug"):
         raw = market.get(key)
         if isinstance(raw, str) and raw:
             return raw
-    event_obj = market.get("event")
-    if isinstance(event_obj, dict):
-        for key in ("slug", "event_slug", "eventSlug"):
-            raw = event_obj.get(key)
-            if isinstance(raw, str) and raw:
-                return raw
     return ""
 
 
@@ -417,7 +417,7 @@ def discover_events_by_category(
     seen: set[str] = set()
     normalized: list[dict[str, Any]] = []
     for row in results:
-        slug = str(row.get("slug") or row.get("ticker") or "")
+        slug = _extract_market_slug(row)
         if not slug or slug in seen:
             continue
         if only_active and not _is_market_active(row):

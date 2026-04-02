@@ -19,16 +19,16 @@ logger = get_logger(__name__)
 
 
 def _extract_slug(market: dict[str, Any]) -> str:
+    event_obj = market.get("event")
+    if isinstance(event_obj, dict):
+        for key in ("slug", "event_slug", "eventSlug", "ticker"):
+            raw = event_obj.get(key)
+            if isinstance(raw, str) and raw:
+                return raw
     for key in ("slug", "market_slug", "marketSlug", "event_slug", "eventSlug"):
         raw = market.get(key)
         if isinstance(raw, str) and raw:
             return raw
-    event_obj = market.get("event")
-    if isinstance(event_obj, dict):
-        for key in ("slug", "event_slug", "eventSlug"):
-            raw = event_obj.get(key)
-            if isinstance(raw, str) and raw:
-                return raw
     return ""
 
 
@@ -47,7 +47,7 @@ def _event_to_market_like(event: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     merged = dict(first_market)
-    merged["slug"] = str(event.get("slug") or event.get("ticker") or merged.get("slug") or "")
+    merged["slug"] = str(event.get("slug") or merged.get("slug") or event.get("ticker") or "")
     merged["endDate"] = event.get("endDate", merged.get("endDate"))
     merged["category"] = event.get("category", merged.get("category"))
     merged["categorySlug"] = event.get("categorySlug", merged.get("categorySlug"))

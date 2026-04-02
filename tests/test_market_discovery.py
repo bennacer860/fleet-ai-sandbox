@@ -68,6 +68,7 @@ def test_discover_slugs_falls_back_to_events_when_markets_empty(monkeypatch):
     event_rows = [
         {
             "slug": "highest-temperature-in-seoul-on-april-2-2026",
+            "ticker": "highest-temperature-in-seoul-on-april-2-2026-market",
             "endDate": "2026-04-02T12:00:00Z",
             "markets": [
                 {
@@ -89,3 +90,22 @@ def test_discover_slugs_falls_back_to_events_when_markets_empty(monkeypatch):
     slugs = discover_slugs("weather/temperature", lead_time_seconds=None)
 
     assert slugs == ["highest-temperature-in-seoul-on-april-2-2026"]
+
+
+def test_discover_slugs_prefers_event_slug_over_market_slug(monkeypatch):
+    rows = [
+        {
+            "slug": "market-level-slug",
+            "event": {"slug": "event-level-slug"},
+            "clobTokenIds": '["yes","no"]',
+            "outcomes": '["Yes","No"]',
+        }
+    ]
+    monkeypatch.setattr(
+        "src.markets.discovery.discover_markets_by_category",
+        lambda *args, **kwargs: rows,
+    )
+
+    slugs = discover_slugs("weather/temperature", lead_time_seconds=None)
+
+    assert slugs == ["event-level-slug"]
