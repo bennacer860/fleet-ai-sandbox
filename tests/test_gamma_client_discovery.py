@@ -57,3 +57,20 @@ def test_discover_markets_keyword_fallback_uses_leaf_word_boundary(monkeypatch):
 
     found = discover_markets_by_category("weather/temperature", max_pages=1)
     assert [r.get("slug") for r in found] == ["nyc-high-temperature-april-2"]
+
+
+def test_discover_markets_supports_split_segment_tag_match(monkeypatch):
+    rows = [
+        {
+            "slug": "global-temp-rank-2026",
+            "tags": [
+                {"slug": "weather", "label": "Weather"},
+                {"slug": "global-temp", "label": "Global Temp"},
+            ],
+            "active": True,
+        }
+    ]
+    monkeypatch.setattr("src.gamma_client.fetch_markets_page", lambda params, timeout=30.0: rows)
+
+    found = discover_markets_by_category("weather/temperature", max_pages=1)
+    assert [r.get("slug") for r in found] == ["global-temp-rank-2026"]

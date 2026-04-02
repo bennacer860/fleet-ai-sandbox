@@ -143,14 +143,23 @@ def _market_matches_category(market: dict[str, Any], category_path: str) -> bool
                 haystack.extend(_stringify_values(event_obj.get(key)))
 
     found_category_metadata = False
+    metadata_terms: set[str] = set()
     for raw in haystack:
         candidate = _normalize_category_path(raw)
         if not candidate:
             continue
         found_category_metadata = True
+        metadata_terms.add(candidate)
+        metadata_terms.update(_path_segments(candidate))
+        metadata_terms.update(_keyword_tokens(candidate))
         candidate_segments = _path_segments(candidate)
         if _contains_path_segments(candidate_segments, target_segments):
             return True
+
+    if found_category_metadata and _metadata_matches_target_segments(
+        metadata_terms, target_segments
+    ):
+        return True
 
     # Gamma /markets often returns null category/tag fields. In that case,
     # fall back to keyword matching against human-facing text fields.
@@ -223,6 +232,40 @@ def _market_text_words(market: dict[str, Any]) -> set[str]:
     for text in candidates:
         words.update(re.findall(r"[a-z0-9]+", text))
     return words
+
+
+def _segment_aliases(segment: str) -> set[str]:
+    base = _normalize_category_path(segment)
+    aliases: dict[str, set[str]] = {
+        "temperature": {"temperature", "temp", "global-temp", "globaltemp"},
+        "weather": {"weather", "weather-science"},
+    }
+    out = {base}
+    out.update(aliases.get(base, set()))
+    normalized: set[str] = set()
+    for item in out:
+        norm = _normalize_category_path(item)
+        if not norm:
+            continue
+        normalized.add(norm)
+        normalized.update(_path_segments(norm))
+        normalized.update(_keyword_tokens(norm))
+    return normalized
+
+
+def _metadata_matches_target_segments(
+    metadata_terms: set[str], target_segments: list[str]
+) -> bool:
+    """Allow split matching across tag/category terms (e.g. weather + global-temp)."""
+    if not target_segments:
+        return False
+    if not metadata_terms:
+        return False
+    for segment in target_segments:
+        aliases = _segment_aliases(segment)
+        if not any(alias in metadata_terms for alias in aliases):
+            return False
+    return True
 
 
 def _extract_market_slug(market: dict[str, Any]) -> str:
