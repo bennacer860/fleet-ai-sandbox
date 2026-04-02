@@ -992,6 +992,7 @@ class Bot:
                     lambda c=category: discover_slugs(
                         c,
                         durations=self._durations,
+                        only_active=False,
                         lead_time_seconds=CATEGORY_DISCOVERY_LEAD_S,
                     ),
                 )

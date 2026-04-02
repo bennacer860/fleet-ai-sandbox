@@ -68,6 +68,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             discover_slugs(
                 category,
                 durations=durations,
+                only_active=False,
                 lead_time_seconds=CATEGORY_DISCOVERY_LEAD_S,
             )
         )

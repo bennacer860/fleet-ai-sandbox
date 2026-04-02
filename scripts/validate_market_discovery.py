@@ -106,13 +106,18 @@ def main() -> int:
         default="slugs",
         help="Discovery source mode (default: slugs)",
     )
+    parser.add_argument(
+        "--include-inactive",
+        action="store_true",
+        help="Include inactive/upcoming markets/events in discovery scans",
+    )
     args = parser.parse_args()
 
     rows: list[dict[str, Any]] = []
     if args.mode == "markets":
         markets = discover_markets_by_category(
             args.category,
-            only_active=args.only_active,
+            only_active=(False if args.include_inactive else args.only_active),
             max_pages=args.max_pages,
             page_size=args.page_size,
         )
@@ -128,7 +133,7 @@ def main() -> int:
         slugs = discover_slugs(
             args.category,
             durations=None,
-            only_active=args.only_active,
+            only_active=(False if args.include_inactive else args.only_active),
             lead_time_seconds=None,
             max_pages=args.max_pages,
             page_size=args.page_size,
