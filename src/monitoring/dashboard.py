@@ -227,7 +227,10 @@ class Dashboard:
     def _markets_panel(self) -> Panel:
         table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
         table.add_column("Market", min_width=12)
-        table.add_column("Prices", min_width=20)
+        table.add_column("Prices (bid/ask)", min_width=28)
+        show_pair_ask = self._strategy_name in {"gabagool", "gabagool_dual"}
+        if show_pair_ask:
+            table.add_column("YES+NO ask", width=11, justify="right")
         table.add_column("Strike", width=12, justify="right")
         table.add_column("", width=3)
 
@@ -259,11 +262,16 @@ class Dashboard:
             for slug in active[:12]:
                 tids = self._market_ws.token_ids.get(slug, [])
                 parts: list[str] = []
+                asks: list[float] = []
                 for tid in tids[:2]:
                     outcome = self._market_ws.token_outcomes.get(tid, "?")
                     bp = self._market_ws.best_prices.get(tid, {})
-                    price = bp.get("bid", 0.0)
-                    parts.append(self._fmt_market_price(tid, outcome, price, now_mono))
+                    bid = bp.get("bid", 0.0)
+                    ask = bp.get("ask", 0.0)
+                    parts.append(self._fmt_market_price(tid, outcome, bid, now_mono))
+                    parts.append(f"[dim]a:{ask:.2f}[/dim]" if ask > 0 else "[dim]a:--[/dim]")
+                    if ask > 0:
+                        asks.append(ask)
                 price_str = "  ".join(parts)
                 display = self._format_slug(slug)
 
@@ -271,7 +279,20 @@ class Dashboard:
                 ptb = eval_data.get("price_to_beat")
                 strike_str = self._fmt_strike(ptb) if ptb is not None else "[dim]--[/dim]"
 
-                table.add_row(display, price_str, strike_str, "[green]OK[/green]")
+                if show_pair_ask:
+                    if len(asks) >= 2:
+                        pair_sum = asks[0] + asks[1]
+                        if pair_sum < 1.0:
+                            pair_str = f"[green]{pair_sum:.2f}[/green]"
+                        elif pair_sum > 1.0:
+                            pair_str = f"[red]{pair_sum:.2f}[/red]"
+                        else:
+                            pair_str = f"[yellow]{pair_sum:.2f}[/yellow]"
+                    else:
+                        pair_str = "[dim]--[/dim]"
+                    table.add_row(display, price_str, pair_str, strike_str, "[green]OK[/green]")
+                else:
+                    table.add_row(display, price_str, strike_str, "[green]OK[/green]")
             count = len(active)
         else:
             count = 0
