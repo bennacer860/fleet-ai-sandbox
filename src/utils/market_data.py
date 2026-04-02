@@ -5,6 +5,7 @@ Provides functions that query the Gamma API / CLOB to evaluate markets
 back-tests, and ad-hoc scripts.
 """
 
+from datetime import datetime
 from typing import Any, Optional
 
 import requests
@@ -162,6 +163,16 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
         else:
             logger.info("[STRIKE] Binance kline fallback succeeded for %s: $%.6f", slug, price_to_beat)
 
+    end_ts: float | None = None
+    for obj in (market, event):
+        raw_end = obj.get("endDate") if isinstance(obj, dict) else None
+        if isinstance(raw_end, str) and raw_end:
+            try:
+                end_ts = datetime.fromisoformat(raw_end.replace("Z", "+00:00")).timestamp()
+                break
+            except ValueError:
+                pass
+
     return {
         "token_ids": token_ids,
         "prices": prices,
@@ -170,6 +181,7 @@ def get_market_evaluation(slug: str) -> Optional[dict[str, Any]]:
         "best_price": best_price,
         "best_outcome": best_outcome,
         "best_token_id": best_token_id,
+        "end_ts": end_ts,
         "price_to_beat": price_to_beat,
         "raw_prices_compact": "|".join([f"{o}:{p:.3f}" for o, p in zip(outcomes, prices)])
     }

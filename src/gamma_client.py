@@ -2,8 +2,9 @@
 
 import json
 import time
-import requests
 from typing import Any, Optional
+
+import requests
 
 from .config import GAMMA_API
 from .logging_config import get_logger
@@ -49,6 +50,203 @@ def fetch_event_by_slug(slug: str) -> Optional[dict[str, Any]]:
     except Exception:
         logger.exception("Failed to fetch event: slug=%s", slug)
         return None
+
+
+def fetch_markets_page(params: dict[str, Any], timeout: float = 30.0) -> list[dict[str, Any]]:
+    """Fetch one Gamma ``/markets`` page with arbitrary query parameters."""
+    url = f"{GAMMA_API}/markets"
+    try:
+        resp = requests.get(url, params=params, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return [row for row in data if isinstance(row, dict)]
+        logger.warning("Unexpected /markets response type: %s", type(data).__name__)
+        return []
+    except Exception:
+        logger.exception("Failed to fetch /markets page params=%s", params)
+        return []
+
+
+def _stringify_values(value: Any) -> list[str]:
+    """Flatten nested values into lowercase strings for fuzzy matching."""
+    out: list[str] = []
+    if value is None:
+        return out
+    if isinstance(value, str):
+        out.append(value.lower())
+        return out
+    if isinstance(value, (int, float, bool)):
+        out.append(str(value).lower())
+        return out
+    if isinstance(value, dict):
+        for v in value.values():
+            out.extend(_stringify_values(v))
+        return out
+    if isinstance(value, list):
+        for v in value:
+            out.extend(_stringify_values(v))
+        return out
+    return out
+
+
+def _market_matches_category(market: dict[str, Any], category_path: str) -> bool:
+    """Return True when any market category/tag field matches ``category_path``."""
+    target = category_path.strip("/").lower()
+    if not target:
+        return True
+
+    # Common Gamma fields observed across market/event payloads.
+    candidate_fields = [
+        "category",
+        "categorySlug",
+        "category_slug",
+        "tag",
+        "tagSlug",
+        "tag_slug",
+        "tags",
+        "event",
+        "eventCategory",
+        "eventTags",
+        "eventMetadata",
+    ]
+    haystack: list[str] = []
+    for key in candidate_fields:
+        if key in market:
+            haystack.extend(_stringify_values(market.get(key)))
+
+    if not haystack:
+        # Last-resort fallback: look through all values.
+        haystack = _stringify_values(market)
+
+    return any(target in s for s in haystack)
+
+
+def _extract_market_slug(market: dict[str, Any]) -> str:
+    """Extract best-available slug from a market/event payload."""
+    for key in ("slug", "market_slug", "marketSlug", "event_slug", "eventSlug"):
+        raw = market.get(key)
+        if isinstance(raw, str) and raw:
+            return raw
+    event_obj = market.get("event")
+    if isinstance(event_obj, dict):
+        for key in ("slug", "event_slug", "eventSlug"):
+            raw = event_obj.get(key)
+            if isinstance(raw, str) and raw:
+                return raw
+    return ""
+
+
+def _is_market_active(market: dict[str, Any]) -> bool:
+    """Best-effort active/open filter for discovery results."""
+    # explicit closed/ended/archived flags override active hints
+    for key in ("closed", "ended", "archived", "isArchived"):
+        if bool(market.get(key)):
+            return False
+    if "active" in market:
+        return bool(market.get("active"))
+    return True
+
+
+def discover_markets_by_category(
+    category_path: str,
+    *,
+    only_active: bool = True,
+    max_pages: int = 10,
+    page_size: int = 200,
+) -> list[dict[str, Any]]:
+    """Discover market payloads under a category/tag path.
+
+    Tries server-side filtering first (different Gamma deployments expose
+    different parameter names), then falls back to client-side filtering.
+    """
+    target = category_path.strip("/")
+    if not target:
+        return []
+
+    filter_key_candidates = ("tag_slug", "category_slug", "category", "tag")
+    results: list[dict[str, Any]] = []
+
+    # Try server-side category/tag filters first.
+    for filter_key in filter_key_candidates:
+        server_rows: list[dict[str, Any]] = []
+        for page in range(max_pages):
+            params: dict[str, Any] = {
+                "limit": page_size,
+                "offset": page * page_size,
+                filter_key: target,
+            }
+            if only_active:
+                params.update({"active": "true", "closed": "false"})
+            rows = fetch_markets_page(params)
+            if not rows:
+                break
+            server_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+        if server_rows:
+            results = server_rows
+            break
+
+    # Fallback: fetch active markets pages and filter client-side.
+    if not results:
+        fallback_rows: list[dict[str, Any]] = []
+        for page in range(max_pages):
+            params = {"limit": page_size, "offset": page * page_size}
+            if only_active:
+                params.update({"active": "true", "closed": "false"})
+            rows = fetch_markets_page(params)
+            if not rows:
+                break
+            fallback_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+        results = [row for row in fallback_rows if _market_matches_category(row, target)]
+
+    seen: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    for row in results:
+        if not isinstance(row, dict):
+            continue
+        slug = _extract_market_slug(row)
+        if not slug or slug in seen:
+            continue
+        if only_active and not _is_market_active(row):
+            continue
+        seen.add(slug)
+        normalized.append(row)
+
+    logger.info(
+        "Discovered %d markets for category=%s",
+        len(normalized),
+        target,
+    )
+    return normalized
+
+
+def discover_event_slugs_by_category(
+    category_path: str,
+    *,
+    only_active: bool = True,
+    max_pages: int = 10,
+    page_size: int = 200,
+) -> list[str]:
+    """Discover unique event/market slugs under a category/tag path."""
+    markets = discover_markets_by_category(
+        category_path,
+        only_active=only_active,
+        max_pages=max_pages,
+        page_size=page_size,
+    )
+    slugs: list[str] = []
+    seen: set[str] = set()
+    for market in markets:
+        slug = _extract_market_slug(market)
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        slugs.append(slug)
+    return slugs
 
 
 def get_market_token_ids(market: dict[str, Any]) -> list[str]:

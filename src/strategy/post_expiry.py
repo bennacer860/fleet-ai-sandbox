@@ -166,6 +166,10 @@ class PostExpirySweepStrategy(Strategy):
 
         end_ts = extract_market_end_ts(slug)
         if end_ts is None:
+            raw_end_ts = eval_data.get("end_ts")
+            if isinstance(raw_end_ts, (int, float)) and raw_end_ts > 0:
+                end_ts = float(raw_end_ts)
+        if end_ts is None:
             self.last_skip_reason = "cannot determine expiration time"
             return None
 

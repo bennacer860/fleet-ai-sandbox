@@ -59,6 +59,7 @@ from .strategy.sweep import SweepStrategy
 from .strategy.post_expiry import PostExpirySweepStrategy
 from .strategy.aggressive_post_expiry import AggressivePostExpirySweepStrategy
 from .utils.slug_helpers import slugs_for_timestamp
+from .markets.discovery import discover_slugs
 from .utils.telegram_notifier import TelegramNotifier
 from .config import (
     DB_PATH,
@@ -86,6 +87,7 @@ RETRY_BASE_DELAY = 5
 SUB_CHECK_INTERVAL = 30
 GRACE_PERIOD_SECONDS = 5 * 60
 BALANCE_REFRESH_INTERVAL_S = 30
+CATEGORY_DISCOVERY_LEAD_S = 30 * 60
 
 # Lazy subscription: only subscribe to markets with duration >= this
 # threshold when they are within LAZY_SUB_LEAD_S of expiry.
@@ -113,6 +115,8 @@ class Bot:
         persist: bool = True,
         fill_mode: str = "book",
         tag: str = "",
+        category_paths: list[str] | None = None,
+        discovery_refresh_s: float = 60.0,
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self._fill_mode = fill_mode
@@ -124,6 +128,9 @@ class Bot:
         self._slugs = slugs
         self._market_selections = market_selections or []
         self._durations = durations or sorted(SUPPORTED_DURATIONS)
+        self._category_paths: list[str] = [c.strip("/") for c in (category_paths or []) if c.strip("/")]
+        self._discovery_refresh_s = max(10.0, float(discovery_refresh_s))
+        self._discovered_category_slugs: set[str] = set()
 
         self._monitored_ts: dict[int, dict[str, set[int]]] = {
             dur: {sel: set() for sel in self._market_selections}
@@ -970,6 +977,67 @@ class Bot:
             await asyncio.sleep(SUB_CHECK_INTERVAL)
             for dur in self._durations:
                 await self._manage_subscriptions_for_duration(dur)
+            await self._refresh_discovered_categories()
+
+    async def _discover_category_slugs(self) -> set[str]:
+        """Resolve all configured category paths into a deduplicated slug set."""
+        if not self._category_paths:
+            return set()
+        loop = asyncio.get_event_loop()
+        discovered: set[str] = set()
+        for category in self._category_paths:
+            try:
+                slugs = await loop.run_in_executor(
+                    None,
+                    lambda c=category: discover_slugs(
+                        c,
+                        durations=self._durations,
+                        lead_time_seconds=CATEGORY_DISCOVERY_LEAD_S,
+                    ),
+                )
+                discovered.update(slugs)
+            except Exception:
+                logger.exception("[DISCOVERY] Failed category fetch: %s", category)
+        return discovered
+
+    async def _refresh_discovered_categories(self) -> None:
+        """Periodically sync category-discovered markets with live subscriptions."""
+        if not self._category_paths:
+            return
+        now = time.monotonic()
+        last = getattr(self, "_last_discovery_refresh_mono", 0.0)
+        if last > 0 and (now - last) < self._discovery_refresh_s:
+            return
+        self._last_discovery_refresh_mono = now
+
+        discovered = await self._discover_category_slugs()
+        to_add = sorted(discovered - self._discovered_category_slugs)
+        to_remove = sorted(self._discovered_category_slugs - discovered)
+
+        if to_add:
+            await self.market_ws.add_markets(to_add)
+            self._launch_prefetch(to_add)
+            if self.dashboard:
+                for slug in to_add:
+                    self.dashboard.push_event(f"📍 DISCOVERY_ADD  {format_slug_with_est_time(slug)}")
+
+        if to_remove:
+            await self.market_ws.remove_markets(to_remove)
+            for slug in to_remove:
+                self._eval_cache.pop(slug, None)
+            if self.dashboard:
+                for slug in to_remove:
+                    self.dashboard.push_event(f"🧹 DISCOVERY_REMOVE  {format_slug_with_est_time(slug)}")
+
+        if to_add or to_remove:
+            logger.info(
+                "[DISCOVERY] categories=%s add=%d remove=%d total=%d",
+                ",".join(self._category_paths),
+                len(to_add),
+                len(to_remove),
+                len(discovered),
+            )
+        self._discovered_category_slugs = discovered
 
     async def _manage_subscriptions_for_duration(self, duration: int) -> None:
         interval_seconds = duration * 60

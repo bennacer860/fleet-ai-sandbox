@@ -24,11 +24,14 @@ for i, arg in enumerate(sys.argv):
 
 from src.logging_config import setup_logging
 
+CATEGORY_DISCOVERY_LEAD_S = 30 * 60
+
 
 def cmd_run(args: argparse.Namespace) -> int:
     from src.bot import Bot, LAZY_SUB_MIN_DURATION, LAZY_SUB_LEAD_S
     from src.markets.fifteen_min import SUPPORTED_DURATIONS
     from src.utils.slug_helpers import slugs_for_timestamp
+    from src.markets.discovery import discover_slugs
     from src.markets.fifteen_min import (
         get_current_interval_utc,
         get_next_interval_utc,
@@ -38,25 +41,39 @@ def cmd_run(args: argparse.Namespace) -> int:
     setup_logging()
 
     durations = args.durations or sorted(SUPPORTED_DURATIONS)
-    markets = args.markets
+    categories = args.categories or []
+    markets = args.markets if args.markets is not None else ([] if categories else ["BTC"])
     now = int(_time.time())
 
     initial_slugs: list[str] = []
-    for dur in durations:
-        cur_ts = get_current_interval_utc(dur)
-        nxt_ts = get_next_interval_utc(dur)
+    if markets:
+        for dur in durations:
+            cur_ts = get_current_interval_utc(dur)
+            nxt_ts = get_next_interval_utc(dur)
 
-        # Apply lazy subscription: skip long-duration markets that are
-        # too far from expiry (they'll be added later by the sub manager).
-        if dur >= LAZY_SUB_MIN_DURATION:
-            interval_s = dur * 60
-            for ts in (cur_ts, nxt_ts):
-                end_time = ts + interval_s
-                if end_time - now <= LAZY_SUB_LEAD_S:
-                    initial_slugs.extend(slugs_for_timestamp(markets, dur, ts))
-        else:
-            initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
-            initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
+            # Apply lazy subscription: skip long-duration markets that are
+            # too far from expiry (they'll be added later by the sub manager).
+            if dur >= LAZY_SUB_MIN_DURATION:
+                interval_s = dur * 60
+                for ts in (cur_ts, nxt_ts):
+                    end_time = ts + interval_s
+                    if end_time - now <= LAZY_SUB_LEAD_S:
+                        initial_slugs.extend(slugs_for_timestamp(markets, dur, ts))
+            else:
+                initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
+                initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
+
+    for category in categories:
+        initial_slugs.extend(
+            discover_slugs(
+                category,
+                durations=durations,
+                lead_time_seconds=CATEGORY_DISCOVERY_LEAD_S,
+            )
+        )
+
+    # Deduplicate while preserving order.
+    initial_slugs = list(dict.fromkeys(initial_slugs))
 
     if not initial_slugs:
         print("ERROR: No initial slugs generated. Check market/duration settings.")
@@ -77,6 +94,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         early_tick_threshold=args.early_tick_threshold,
         market_selections=markets,
         durations=durations,
+        category_paths=categories,
+        discovery_refresh_s=args.discovery_refresh_s,
         claim_min_value=args.claim,
         claim_interval=args.claim_interval,
         persist=persist,
@@ -259,8 +278,16 @@ def main() -> int:
         help="Profile number to use (overrides .env defaults with P1_, P2_ etc.)",
     )
     run_parser.add_argument(
-        "--markets", nargs="+", default=["BTC"],
-        help="Crypto markets to monitor (default: BTC)",
+        "--markets", nargs="+", default=None,
+        help="Crypto markets to monitor (default: BTC unless --categories is set)",
+    )
+    run_parser.add_argument(
+        "--categories", nargs="+", default=None,
+        help="Category paths to auto-discover (example: weather/temperature)",
+    )
+    run_parser.add_argument(
+        "--discovery-refresh-s", type=float, default=60.0,
+        help="Category discovery refresh interval in seconds (default: 60)",
     )
     run_parser.add_argument(
         "--durations", nargs="+", type=int, default=None,
