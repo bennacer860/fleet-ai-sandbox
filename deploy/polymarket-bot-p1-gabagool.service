@@ -9,8 +9,11 @@ User=ec2-user
 Group=ec2-user
 WorkingDirectory=/opt/polymarket-bot
 EnvironmentFile=/opt/polymarket-bot/.env
+Environment=P1_GABAGOOL_DUAL_MAX_PAIR_COST=1.05
+Environment=P1_GABAGOOL_DUAL_COOLDOWN_PAIR_COST=1.06
+Environment=P1_GABAGOOL_DUAL_RESUME_PAIR_COST=1.04
 
-ExecStart=/usr/bin/bash -lc '/usr/bin/tmux has-session -t bot-p1 2>/dev/null || /usr/bin/tmux new-session -d -s bot-p1 -e "HOME=/home/ec2-user" '\''/opt/polymarket-bot/.venv/bin/python main.py run --markets HYPE BNB --durations 15 --profile 1 --strategy gabagool_dual --tag exp-1-dual-gabagol --dry-run --dashboard; exec bash'\'''
+ExecStart=/usr/bin/bash -lc '/usr/bin/tmux has-session -t bot-p1 2>/dev/null || /usr/bin/tmux new-session -d -s bot-p1 -e "HOME=/home/ec2-user" '\''/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC --durations 15 --profile 1 --strategy gabagool_dual --tag exp-1-dual-gabagol --dry-run --dashboard; exec bash'\'''
 ExecStop=/usr/bin/bash -lc '/usr/bin/tmux kill-session -t bot-p1 || true'
 RemainAfterExit=yes
 
