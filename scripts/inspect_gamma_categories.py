@@ -24,15 +24,29 @@ def main() -> int:
         action="store_true",
         help="Use whole-word matching instead of substring matching",
     )
-    parser.add_argument("--limit", type=int, default=400, help="Markets page limit (default: 400)")
+    parser.add_argument("--page-size", type=int, default=500, help="Markets page size (default: 500)")
+    parser.add_argument("--max-pages", type=int, default=10, help="Max pages to scan (default: 10)")
     parser.add_argument("--max-print", type=int, default=40, help="Max matches to print (default: 40)")
+    parser.add_argument("--slug-check", default=None, help="Exact slug to check across scanned pages")
     args = parser.parse_args()
 
-    rows = requests.get(
-        "https://gamma-api.polymarket.com/markets",
-        params={"limit": args.limit, "offset": 0, "active": "true", "closed": "false"},
-        timeout=30,
-    ).json()
+    rows = []
+    for page in range(args.max_pages):
+        page_rows = requests.get(
+            "https://gamma-api.polymarket.com/markets",
+            params={
+                "limit": args.page_size,
+                "offset": page * args.page_size,
+                "active": "true",
+                "closed": "false",
+            },
+            timeout=30,
+        ).json()
+        if not isinstance(page_rows, list) or not page_rows:
+            break
+        rows.extend(page_rows)
+        if len(page_rows) < args.page_size:
+            break
     needles = [n.lower() for n in (args.needles or ([] if args.needle is None else [args.needle]))]
     if not needles:
         needles = ["weather"]
@@ -57,6 +71,37 @@ def main() -> int:
         + " ".join([f"{n}={len(hits_by_needle[n])}" for n in needles])
         + f" intersection={len(intersection)}"
     )
+
+    if args.slug_check:
+        target = args.slug_check.strip().lower()
+        exact_hits = []
+        for market in rows:
+            if not isinstance(market, dict):
+                continue
+            slug = (market.get("slug") or market.get("marketSlug") or market.get("event_slug") or "").lower()
+            ev = market.get("event") if isinstance(market.get("event"), dict) else {}
+            event_slug = (ev.get("slug") or "").lower()
+            if target in {slug, event_slug}:
+                exact_hits.append(market)
+        print(f"slug_check={args.slug_check} hits={len(exact_hits)}")
+        for market in exact_hits[: args.max_print]:
+            event = market.get("event") if isinstance(market.get("event"), dict) else {}
+            payload = {
+                "slug": market.get("slug") or market.get("marketSlug") or market.get("event_slug"),
+                "question": market.get("question"),
+                "category": market.get("category"),
+                "categorySlug": market.get("categorySlug") or market.get("category_slug"),
+                "tag": market.get("tag"),
+                "tagSlug": market.get("tagSlug") or market.get("tag_slug"),
+                "active": market.get("active"),
+                "closed": market.get("closed"),
+                "endDate": market.get("endDate"),
+                "event.slug": event.get("slug"),
+                "event.category": event.get("category"),
+                "event.categorySlug": event.get("categorySlug") or event.get("category_slug"),
+                "event.endDate": event.get("endDate"),
+            }
+            print(json.dumps(payload, default=str))
 
     for market in intersection[: args.max_print]:
         event = market.get("event") if isinstance(market.get("event"), dict) else {}
