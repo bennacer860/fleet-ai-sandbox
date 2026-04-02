@@ -16,6 +16,8 @@ if REPO_ROOT not in sys.path:
 
 from src.gamma_client import discover_markets_by_category
 from src.markets.fifteen_min import extract_market_end_ts
+from src.markets.discovery import discover_slugs
+from src.gamma_client import fetch_event_by_slug
 from src.utils.market_data import get_market_evaluation
 
 
@@ -98,23 +100,46 @@ def main() -> int:
         action="store_true",
         help="Print JSON instead of table output",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["markets", "slugs"],
+        default="slugs",
+        help="Discovery source mode (default: slugs)",
+    )
     args = parser.parse_args()
 
-    markets = discover_markets_by_category(
-        args.category,
-        only_active=args.only_active,
-        max_pages=args.max_pages,
-        page_size=args.page_size,
-    )
-
     rows: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for market in markets:
-        slug = _extract_slug(market)
-        if not slug or slug in seen:
-            continue
-        seen.add(slug)
-        raw_end_date = _extract_raw_end_date(market)
+    if args.mode == "markets":
+        markets = discover_markets_by_category(
+            args.category,
+            only_active=args.only_active,
+            max_pages=args.max_pages,
+            page_size=args.page_size,
+        )
+        candidates = []
+        seen: set[str] = set()
+        for market in markets:
+            slug = _extract_slug(market)
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            candidates.append((slug, _extract_raw_end_date(market)))
+    else:
+        slugs = discover_slugs(
+            args.category,
+            durations=None,
+            only_active=args.only_active,
+            lead_time_seconds=None,
+            max_pages=args.max_pages,
+            page_size=args.page_size,
+        )
+        candidates = []
+        for slug in slugs:
+            event = fetch_event_by_slug(slug)
+            raw_end_date = event.get("endDate") if isinstance(event, dict) else None
+            candidates.append((slug, raw_end_date))
+
+    for slug, raw_end_date in candidates:
         gamma_end_ts = _parse_iso_end_ts(raw_end_date)
         slug_end_ts = extract_market_end_ts(slug)
         eval_data = get_market_evaluation(slug) or {}
@@ -145,7 +170,7 @@ def main() -> int:
         return 0
 
     print(
-        f"category={args.category} discovered={len(rows)} "
+        f"category={args.category} mode={args.mode} discovered={len(rows)} "
         f"(showing up to {args.limit})"
     )
     print(
