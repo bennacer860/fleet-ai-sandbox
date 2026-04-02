@@ -1,6 +1,7 @@
 """Gamma API client for fetching Polymarket events and markets."""
 
 import json
+import re
 import time
 from typing import Any, Optional
 
@@ -91,10 +92,14 @@ def _stringify_values(value: Any) -> list[str]:
 
 
 def _market_matches_category(market: dict[str, Any], category_path: str) -> bool:
-    """Return True when any market category/tag field matches ``category_path``."""
-    target = category_path.strip("/").lower()
+    """Return True when market category/tag fields match the target path."""
+    target = _normalize_category_path(category_path)
     if not target:
         return True
+
+    target_segments = _path_segments(target)
+    if not target_segments:
+        return False
 
     # Common Gamma fields observed across market/event payloads.
     candidate_fields = [
@@ -115,11 +120,44 @@ def _market_matches_category(market: dict[str, Any], category_path: str) -> bool
         if key in market:
             haystack.extend(_stringify_values(market.get(key)))
 
-    if not haystack:
-        # Last-resort fallback: look through all values.
-        haystack = _stringify_values(market)
+    event_obj = market.get("event")
+    if isinstance(event_obj, dict):
+        for key in candidate_fields:
+            if key in event_obj:
+                haystack.extend(_stringify_values(event_obj.get(key)))
 
-    return any(target in s for s in haystack)
+    for raw in haystack:
+        candidate = _normalize_category_path(raw)
+        if not candidate:
+            continue
+        candidate_segments = _path_segments(candidate)
+        if _contains_path_segments(candidate_segments, target_segments):
+            return True
+    return False
+
+
+def _normalize_category_path(raw: str) -> str:
+    """Normalize category-like strings for robust path comparisons."""
+    lowered = raw.strip().lower().replace("\\", "/")
+    lowered = re.sub(r"\s+", "-", lowered)
+    lowered = re.sub(r"/+", "/", lowered)
+    lowered = lowered.strip("/")
+    return lowered
+
+
+def _path_segments(path: str) -> list[str]:
+    return [segment for segment in path.split("/") if segment]
+
+
+def _contains_path_segments(candidate: list[str], target: list[str]) -> bool:
+    """Return True if target path segments appear contiguously in candidate."""
+    if len(candidate) < len(target):
+        return False
+    target_len = len(target)
+    for idx in range(len(candidate) - target_len + 1):
+        if candidate[idx : idx + target_len] == target:
+            return True
+    return False
 
 
 def _extract_market_slug(market: dict[str, Any]) -> str:
@@ -185,8 +223,17 @@ def discover_markets_by_category(
             if len(rows) < page_size:
                 break
         if server_rows:
-            results = server_rows
-            break
+            filtered_server_rows = [
+                row for row in server_rows if _market_matches_category(row, target)
+            ]
+            if filtered_server_rows:
+                results = filtered_server_rows
+                break
+            logger.warning(
+                "Server-side category filter %s=%s returned rows but none matched client validation; trying next strategy",
+                filter_key,
+                target,
+            )
 
     # Fallback: fetch active markets pages and filter client-side.
     if not results:
