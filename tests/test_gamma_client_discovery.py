@@ -36,3 +36,24 @@ def test_discover_markets_requires_full_category_path_not_partial(monkeypatch):
 
     found = discover_markets_by_category("weather/temperature", max_pages=1)
     assert [r.get("slug") for r in found] == ["weather-temp-market"]
+
+
+def test_discover_markets_keyword_fallback_uses_leaf_word_boundary(monkeypatch):
+    rows = [
+        {
+            "slug": "whether-the-flyers-win",
+            "question": "Whether the Flyers win tonight?",
+            "category": None,
+            "active": True,
+        },
+        {
+            "slug": "nyc-high-temperature-april-2",
+            "question": "What will NYC high temperature be on Apr 2?",
+            "category": None,
+            "active": True,
+        },
+    ]
+    monkeypatch.setattr("src.gamma_client.fetch_markets_page", lambda params, timeout=30.0: rows)
+
+    found = discover_markets_by_category("weather/temperature", max_pages=1)
+    assert [r.get("slug") for r in found] == ["nyc-high-temperature-april-2"]

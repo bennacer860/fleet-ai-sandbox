@@ -126,13 +126,21 @@ def _market_matches_category(market: dict[str, Any], category_path: str) -> bool
             if key in event_obj:
                 haystack.extend(_stringify_values(event_obj.get(key)))
 
+    found_category_metadata = False
     for raw in haystack:
         candidate = _normalize_category_path(raw)
         if not candidate:
             continue
+        found_category_metadata = True
         candidate_segments = _path_segments(candidate)
         if _contains_path_segments(candidate_segments, target_segments):
             return True
+
+    # Gamma /markets often returns null category/tag fields. In that case,
+    # fall back to keyword matching against human-facing text fields.
+    if not found_category_metadata:
+        return _market_matches_category_keywords(market, target_segments)
+
     return False
 
 
@@ -158,6 +166,47 @@ def _contains_path_segments(candidate: list[str], target: list[str]) -> bool:
         if candidate[idx : idx + target_len] == target:
             return True
     return False
+
+
+def _market_matches_category_keywords(
+    market: dict[str, Any], target_segments: list[str]
+) -> bool:
+    """Keyword fallback used when category metadata is missing from payload."""
+    if not target_segments:
+        return False
+
+    # Require the leaf segment keywords (e.g. "temperature" from weather/temperature).
+    leaf_keywords = _keyword_tokens(target_segments[-1])
+    if not leaf_keywords:
+        return False
+
+    text_words = _market_text_words(market)
+    if not text_words:
+        return False
+
+    return all(keyword in text_words for keyword in leaf_keywords)
+
+
+def _keyword_tokens(segment: str) -> set[str]:
+    return {tok for tok in re.findall(r"[a-z0-9]+", segment.lower()) if len(tok) >= 3}
+
+
+def _market_text_words(market: dict[str, Any]) -> set[str]:
+    candidates: list[str] = []
+    for key in ("slug", "marketSlug", "event_slug", "eventSlug", "question", "title", "description"):
+        value = market.get(key)
+        if isinstance(value, str) and value:
+            candidates.append(value.lower())
+    event_obj = market.get("event")
+    if isinstance(event_obj, dict):
+        for key in ("slug", "title", "question", "description"):
+            value = event_obj.get(key)
+            if isinstance(value, str) and value:
+                candidates.append(value.lower())
+    words: set[str] = set()
+    for text in candidates:
+        words.update(re.findall(r"[a-z0-9]+", text))
+    return words
 
 
 def _extract_market_slug(market: dict[str, Any]) -> str:
