@@ -5,13 +5,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 
 import requests
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect Gamma category taxonomy.")
-    parser.add_argument("--needle", default="weather", help="Substring to search (default: weather)")
+    parser.add_argument("--needle", default=None, help="Single substring to search (legacy flag)")
+    parser.add_argument(
+        "--needles",
+        nargs="+",
+        default=None,
+        help="Multiple keywords to inspect (example: weather temperature)",
+    )
+    parser.add_argument(
+        "--word-boundary",
+        action="store_true",
+        help="Use whole-word matching instead of substring matching",
+    )
     parser.add_argument("--limit", type=int, default=400, help="Markets page limit (default: 400)")
     parser.add_argument("--max-print", type=int, default=40, help="Max matches to print (default: 40)")
     args = parser.parse_args()
@@ -21,16 +33,32 @@ def main() -> int:
         params={"limit": args.limit, "offset": 0, "active": "true", "closed": "false"},
         timeout=30,
     ).json()
-    needle = args.needle.lower()
+    needles = [n.lower() for n in (args.needles or ([] if args.needle is None else [args.needle]))]
+    if not needles:
+        needles = ["weather"]
 
-    matches = []
+    def _match(blob: str, needle: str) -> bool:
+        if args.word_boundary:
+            return re.search(rf"\b{re.escape(needle)}\b", blob) is not None
+        return needle in blob
+
+    hits_by_needle: dict[str, list[dict]] = {n: [] for n in needles}
+    intersection: list[dict] = []
     for market in rows:
         blob = json.dumps(market, default=str).lower()
-        if needle in blob:
-            matches.append(market)
+        matched_needles = [n for n in needles if _match(blob, n)]
+        for n in matched_needles:
+            hits_by_needle[n].append(market)
+        if len(matched_needles) == len(needles):
+            intersection.append(market)
 
-    print(f"needle={args.needle} matches={len(matches)} scanned={len(rows)}")
-    for market in matches[: args.max_print]:
+    print(
+        f"needles={needles} scanned={len(rows)} "
+        + " ".join([f"{n}={len(hits_by_needle[n])}" for n in needles])
+        + f" intersection={len(intersection)}"
+    )
+
+    for market in intersection[: args.max_print]:
         event = market.get("event") if isinstance(market.get("event"), dict) else {}
         payload = {
             "slug": market.get("slug") or market.get("marketSlug") or market.get("event_slug"),
