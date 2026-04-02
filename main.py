@@ -81,6 +81,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         claim_interval=args.claim_interval,
         persist=persist,
         fill_mode=args.fill_mode,
+        tag=args.tag,
     )
 
     bot.run_sync()
@@ -300,6 +301,10 @@ def main() -> int:
     run_parser.add_argument(
         "--fill-mode", type=str, default="book", choices=["book", "instant"],
         help="Fill simulation mode for dry-run (default: book). Only used with --dry-run.",
+    )
+    run_parser.add_argument(
+        "--tag", type=str, default="",
+        help="Session tag applied to all orders, trades, and decisions for later filtering.",
     )
 
     # ── health ─────────────────────────────────────────────────────────────

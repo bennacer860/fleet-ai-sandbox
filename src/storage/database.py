@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS orders (
     submission_source TEXT DEFAULT 'unknown',
     sign_ms         REAL,
     post_ms         REAL,
-    dry_run         INTEGER NOT NULL DEFAULT 0
+    dry_run         INTEGER NOT NULL DEFAULT 0,
+    tag             TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS fills (
@@ -82,7 +83,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     order_id        TEXT DEFAULT '',
     price_source    TEXT DEFAULT '',
     raw_prices      TEXT DEFAULT '',
-    dry_run         INTEGER NOT NULL DEFAULT 0
+    dry_run         INTEGER NOT NULL DEFAULT 0,
+    tag             TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS trades (
@@ -101,7 +103,8 @@ CREATE TABLE IF NOT EXISTS trades (
     timestamp_entry REAL NOT NULL,
     timestamp_exit  REAL,
     spot_price       REAL,
-    dry_run         INTEGER NOT NULL DEFAULT 0
+    dry_run         INTEGER NOT NULL DEFAULT 0,
+    tag             TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS dedup (
@@ -127,6 +130,11 @@ CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
 CREATE INDEX IF NOT EXISTS idx_dedup_session ON dedup(session_date);
 """
 
+_POST_MIGRATION_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_orders_tag ON orders(tag)",
+    "CREATE INDEX IF NOT EXISTS idx_trades_tag ON trades(tag)",
+]
+
 
 _MIGRATIONS = [
     ("orders", "market", "ALTER TABLE orders ADD COLUMN market TEXT DEFAULT ''"),
@@ -144,6 +152,9 @@ _MIGRATIONS = [
     ("trades", "spot_price", "ALTER TABLE trades ADD COLUMN spot_price REAL"),
     ("orders", "sign_ms", "ALTER TABLE orders ADD COLUMN sign_ms REAL"),
     ("orders", "post_ms", "ALTER TABLE orders ADD COLUMN post_ms REAL"),
+    ("orders", "tag", "ALTER TABLE orders ADD COLUMN tag TEXT DEFAULT ''"),
+    ("trades", "tag", "ALTER TABLE trades ADD COLUMN tag TEXT DEFAULT ''"),
+    ("decisions", "tag", "ALTER TABLE decisions ADD COLUMN tag TEXT DEFAULT ''"),
 ]
 
 
@@ -183,6 +194,8 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(SCHEMA_SQL)
     _run_migrations(conn)
+    for idx_sql in _POST_MIGRATION_INDEXES:
+        conn.execute(idx_sql)
     conn.commit()
 
     logger.info("[DB] Initialised database at %s", db_path)

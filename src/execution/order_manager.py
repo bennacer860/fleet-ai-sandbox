@@ -58,12 +58,14 @@ class OrderManager:
         risk_manager: RiskManager,
         persistence: AsyncPersistence | None = None,
         dry_run: bool = False,
+        tag: str = "",
     ) -> None:
         self.event_bus = event_bus
         self.rest_client = rest_client
         self.risk_manager = risk_manager
         self._persistence = persistence
         self.dry_run = dry_run
+        self._tag = tag
 
         self._active_orders: dict[str, OrderState] = {}
         self._dedup: set[tuple[str, str, str]] = set()
@@ -582,7 +584,7 @@ class OrderManager:
         if not self._persistence:
             return
         self._persistence.enqueue(
-            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, tick_to_order_ms, time_to_expiry_s, market, best_bid, best_ask, spot_price, strike_price, proximity, spot_price_age_ms, submission_source, sign_ms, post_ms, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO orders (order_id, strategy, token_id, slug, side, price, size, initial_status, final_status, rejection_reason, placed_at, resolved_at, signal_to_rest_ms, signal_to_fill_ms, tick_to_order_ms, time_to_expiry_s, market, best_bid, best_ask, spot_price, strike_price, proximity, spot_price_age_ms, submission_source, sign_ms, post_ms, dry_run, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 state.order_id,
                 state.intent.strategy,
@@ -611,6 +613,7 @@ class OrderManager:
                 state.sign_ms,
                 state.post_ms,
                 1 if state.dry_run else 0,
+                self._tag,
             ),
         )
 
@@ -624,7 +627,7 @@ class OrderManager:
         if not self._persistence:
             return
         self._persistence.enqueue(
-            "INSERT INTO decisions (timestamp, strategy, slug, trigger, decision, reason, order_id, dry_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO decisions (timestamp, strategy, slug, trigger, decision, reason, order_id, dry_run, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 time.time(),
                 intent.strategy,
@@ -634,6 +637,7 @@ class OrderManager:
                 reason,
                 order_id,
                 1 if self.dry_run else 0,
+                self._tag,
             ),
         )
 
