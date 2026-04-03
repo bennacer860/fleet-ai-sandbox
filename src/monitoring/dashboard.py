@@ -101,8 +101,13 @@ class Dashboard:
         self._durations: list[int] = []
         self._market_selections: list[str] = []
         self._bot_started_mono: float = time.monotonic()
-        self._coverage_orders_placed: int = 0
-        self._coverage_fills: int = 0
+
+        # DB-seeded recent orders (populated on startup, then merged with live)
+        self._db_recent_filled: list[dict] = []
+        self._db_recent_submitted: list[dict] = []
+        # Cumulative coverage from DB (slugs seen per duration today)
+        self._db_coverage: dict[str, dict] = {}
+        self._db_seeded = False
 
         # Telegram integration
         self._telegram = TelegramNotifier(
@@ -424,71 +429,155 @@ class Dashboard:
         self._market_selections = market_selections
         self._bot_started_mono = time.monotonic()
 
+    def seed_from_db(self, db_path: str) -> None:
+        """Load recent filled/submitted orders and today's coverage from the DB."""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, check_same_thread=False)
+            conn.execute("PRAGMA busy_timeout=5000")
+            cur = conn.cursor()
+
+            # Last 6 filled orders (today)
+            cur.execute("""
+                SELECT o.slug, f.fill_price, f.fill_size, f.timestamp
+                FROM fills f JOIN orders o ON f.order_id = o.order_id
+                WHERE o.dry_run = 0
+                ORDER BY f.timestamp DESC LIMIT 6
+            """)
+            self._db_recent_filled = [
+                {"slug": r[0], "price": r[1], "size": r[2], "ts": r[3]}
+                for r in cur.fetchall()
+            ]
+
+            # Last 6 submitted (still pending — won't exist after restart, but
+            # grab most recent orders as reference)
+            cur.execute("""
+                SELECT slug, price, size, placed_at
+                FROM orders WHERE dry_run = 0
+                ORDER BY placed_at DESC LIMIT 6
+            """)
+            self._db_recent_submitted = [
+                {"slug": r[0], "price": r[1], "size": r[2], "ts": r[3]}
+                for r in cur.fetchall()
+            ]
+
+            # Today's coverage: distinct slugs per duration
+            today_start = int(time.time()) - int(time.time()) % 86400
+            cur.execute("""
+                SELECT slug, COUNT(*) FROM orders
+                WHERE dry_run = 0 AND placed_at >= ?
+                GROUP BY slug
+            """, (today_start,))
+            dur_counts: dict[str, int] = {}
+            dur_expected: dict[str, int] = {}
+            for slug, cnt in cur.fetchall():
+                dl = self._detect_dur_label(slug)
+                dur_counts[dl] = dur_counts.get(dl, 0) + 1
+
+            # Expected today so far
+            hours_today = (int(time.time()) - today_start) / 3600
+            n_cryptos = len(self._market_selections) if self._market_selections else 7
+            for dur in (self._durations or [5, 15, 60, 240, 1440]):
+                dl = {5: "5m", 15: "15m", 60: "1h", 240: "4h", 1440: "1d"}.get(dur, f"{dur}m")
+                windows_per_hr = 60 / dur if dur <= 60 else (1 / (dur / 60))
+                exp = int(windows_per_hr * n_cryptos * hours_today)
+                dur_expected[dl] = max(exp, 1)
+
+            self._db_coverage = {
+                dl: {"actual": dur_counts.get(dl, 0), "expected": dur_expected.get(dl, 1)}
+                for dl in dur_expected
+            }
+
+            conn.close()
+            self._db_seeded = True
+            logger.info(
+                "[DASHBOARD] Seeded from DB: %d filled, %d recent, %d coverage durations",
+                len(self._db_recent_filled), len(self._db_recent_submitted), len(self._db_coverage),
+            )
+        except Exception:
+            logger.warning("[DASHBOARD] Failed to seed from DB", exc_info=True)
+
+    @staticmethod
+    def _detect_dur_label(slug: str) -> str:
+        slug_l = slug.lower()
+        if "-up-or-down-on-" in slug_l:
+            return "1d"
+        if "-4h-" in slug_l or slug_l.endswith("-4h"):
+            return "4h"
+        if "-15m-" in slug_l or slug_l.endswith("-15m"):
+            return "15m"
+        if "-5m-" in slug_l or slug_l.endswith("-5m"):
+            return "5m"
+        if "-up-or-down-" in slug_l:
+            return "1h"
+        return "other"
+
     def _coverage_panel(self) -> Panel:
         lines: list[str] = []
         uptime_s = time.monotonic() - self._bot_started_mono
         uptime_h = uptime_s / 3600
+        n_cryptos = len(self._market_selections) if self._market_selections else 7
 
-        # Per-duration coverage
-        if self._monitored_ts and self._durations and self._market_selections:
-            n_cryptos = len(self._market_selections)
-            for dur in sorted(self._durations):
-                tracked_count = 0
-                for sel in self._market_selections:
-                    tracked_count += len(self._monitored_ts.get(dur, {}).get(sel, set()))
+        # Use DB cumulative coverage if available, with live overlay
+        today_start = int(time.time()) - int(time.time()) % 86400
+        hours_today = (int(time.time()) - today_start) / 3600
 
-                if dur <= 15:
-                    windows_per_hr = 60 / dur
-                elif dur == 60:
-                    windows_per_hr = 1
-                elif dur == 240:
-                    windows_per_hr = 0.25
-                else:
-                    windows_per_hr = 1 / 24
+        dur_configs = [
+            (5,    "5m",  12.0),   # 12 windows/hr
+            (15,   "15m",  4.0),   # 4 windows/hr
+            (60,   "1h",   1.0),
+            (240,  "4h",   0.25),
+            (1440, "1d",   1/24),
+        ]
 
-                expected = int(windows_per_hr * n_cryptos * max(uptime_h, 1 / 60))
-                # Live tracking only counts current + next + catchup, so
-                # expected for "right now" is ~2-3 windows × n_cryptos for
-                # short durations, not cumulative.
-                expected_live = int(windows_per_hr * n_cryptos * (dur * 60 / 3600) * 3)
-                if dur <= 15:
-                    expected_live = n_cryptos * 3
-                elif dur == 60:
-                    expected_live = n_cryptos * 2
-                else:
-                    expected_live = n_cryptos * 2
+        for dur_min, label, windows_per_hr in dur_configs:
+            if self._durations and dur_min not in self._durations:
+                continue
 
-                pct = tracked_count / expected_live * 100 if expected_live > 0 else 0
-                pct_capped = min(pct, 100)
-                bar_len = int(pct_capped / 10)
-                bar = "█" * bar_len + "░" * (10 - bar_len)
+            expected_today = max(int(windows_per_hr * n_cryptos * hours_today), 1)
 
-                dur_label = {5: "5m", 15: "15m", 60: "1h", 240: "4h", 1440: "1d"}.get(dur, f"{dur}m")
-                color = "green" if pct >= 80 else ("yellow" if pct >= 50 else "red")
-                lines.append(f"  {dur_label:4s} [{color}]{bar}[/{color}] {tracked_count:3d}/{expected_live:<3d}")
-        else:
-            lines.append("  [dim]No coverage data[/dim]")
+            # Combine DB coverage + live tracked count
+            if self._db_seeded and label in self._db_coverage:
+                actual = self._db_coverage[label]["actual"]
+            else:
+                actual = 0
+
+            # Add live tracked count (current snapshot of subscribed markets)
+            live_count = 0
+            if self._monitored_ts and dur_min in self._monitored_ts:
+                for sel_set in self._monitored_ts[dur_min].values():
+                    live_count += len(sel_set)
+
+            # Use the larger of DB cumulative or live snapshot
+            display_actual = max(actual, live_count)
+
+            pct = display_actual / expected_today * 100 if expected_today > 0 else 0
+            pct_capped = min(pct, 100)
+            bar_len = int(pct_capped / 10)
+            bar = "█" * bar_len + "░" * (10 - bar_len)
+
+            color = "green" if pct >= 80 else ("yellow" if pct >= 50 else "red")
+            lines.append(f" {label:4s} [{color}]{bar}[/{color}] {display_actual:4d}/{expected_today:<4d} [{color}]{pct:.0f}%[/{color}]")
 
         # Orders / hour
-        if self._order_mgr and uptime_h > 0:
+        if self._order_mgr:
             total_orders = self._order_mgr.stats.get("submitted", 0)
             orders_hr = total_orders / uptime_h if uptime_h > 1 / 60 else 0
             lines.append("")
-            target_rate = len(self._market_selections) * sum(
-                60 / d for d in self._durations if d <= 15
-            ) if self._durations else 100
+            target_rate = n_cryptos * sum(
+                60 / d for d in (self._durations or [5, 15]) if d <= 15
+            )
             rate_color = "green" if orders_hr >= target_rate * 0.8 else ("yellow" if orders_hr >= target_rate * 0.5 else "red")
-            lines.append(f"  Orders/hr:  [{rate_color}]{orders_hr:.0f}[/{rate_color}] / ~{target_rate:.0f} target")
+            lines.append(f" Ord/hr [{rate_color}]{orders_hr:>5.0f}[/{rate_color}] / {target_rate:.0f}")
 
             fills = self._order_mgr.stats.get("filled", 0) + self._order_mgr.stats.get("partial", 0)
             fills_day = fills / uptime_h * 24 if uptime_h > 1 / 60 else 0
             fill_rate = fills / total_orders * 100 if total_orders > 0 else 0
-            lines.append(f"  Fills/day:  {fills_day:.1f} (rate: {fill_rate:.1f}%)")
+            lines.append(f" Fill/d {fills_day:>5.1f}  ({fill_rate:.1f}%)")
 
-        # Uptime
         hrs = int(uptime_h)
         mins = int((uptime_s % 3600) / 60)
-        lines.append(f"  Uptime:     {hrs}h {mins}m")
+        lines.append(f" Up     {hrs}h {mins}m")
 
         return Panel("\n".join(lines), title="COVERAGE", border_style="cyan")
 
@@ -686,59 +775,74 @@ class Dashboard:
         submitted_table.add_column("Size", width=6, justify="right")
         submitted_table.add_column("Age", width=8, justify="right")
 
+        now = time.time()
+        now_ns = time.time_ns()
+
+        # ── Filled: merge live + DB-seeded ───────────────────────────────
+        fill_rows: list[tuple[str, float, float, float]] = []  # (slug, price, size, epoch_s)
+
         if self._order_mgr:
-            now_ns = time.time_ns()
-            all_orders = list(self._order_mgr.active_orders.values())
+            for o in self._order_mgr.active_orders.values():
+                if o.status in (OrderStatus.FILLED, OrderStatus.PARTIAL):
+                    ts_s = (o.resolved_at_ns or o.placed_at_ns) / 1e9
+                    price = o.fill_price if o.fill_price else o.intent.price
+                    fill_rows.append((o.intent.slug, price, o.filled_size, ts_s))
 
-            filled = sorted(
-                [o for o in all_orders if o.status in (OrderStatus.FILLED, OrderStatus.PARTIAL)],
-                key=lambda o: o.resolved_at_ns or o.placed_at_ns,
-                reverse=True,
-            )[:6]
+        for d in self._db_recent_filled:
+            fill_rows.append((d["slug"], d["price"], d["size"], d["ts"]))
 
-            submitted = sorted(
-                [o for o in all_orders if o.status == OrderStatus.SUBMITTED],
-                key=lambda o: o.placed_at_ns,
-                reverse=True,
-            )[:6]
+        # Deduplicate by (slug, ts) and sort
+        seen_fills: set[tuple[str, int]] = set()
+        unique_fills: list[tuple[str, float, float, float]] = []
+        for row in sorted(fill_rows, key=lambda r: -r[3]):
+            key = (row[0], int(row[3]))
+            if key not in seen_fills:
+                seen_fills.add(key)
+                unique_fills.append(row)
+            if len(unique_fills) >= 6:
+                break
 
-            for o in filled:
-                display = self._format_slug(o.intent.slug)
-                ts = o.resolved_at_ns or o.placed_at_ns
-                age_s = (now_ns - ts) / 1e9
-                age_str = f"{age_s:.0f}s" if age_s < 60 else f"{age_s / 60:.1f}m"
-                price = o.fill_price if o.fill_price else o.intent.price
-                filled_table.add_row(
-                    display,
-                    f"{price:.4f}",
-                    f"{o.filled_size:.0f}",
-                    f"[dim]{age_str}[/dim]",
-                )
-            if not filled:
-                filled_table.add_row("[dim]none yet[/dim]", "", "", "")
+        for slug, price, size, ts_s in unique_fills:
+            display = self._format_slug(slug)
+            age_s = now - ts_s
+            age_str = f"{age_s:.0f}s" if age_s < 60 else f"{age_s / 60:.1f}m" if age_s < 3600 else f"{age_s / 3600:.1f}h"
+            filled_table.add_row(display, f"{price:.4f}", f"{size:.0f}", f"[dim]{age_str}[/dim]")
 
-            for o in submitted:
-                display = self._format_slug(o.intent.slug)
-                age_s = (now_ns - o.placed_at_ns) / 1e9
-                age_str = f"{age_s:.0f}s" if age_s < 60 else f"{age_s / 60:.1f}m"
-                submitted_table.add_row(
-                    display,
-                    f"{o.intent.price:.4f}",
-                    f"{o.intent.size:.0f}",
-                    f"[dim]{age_str}[/dim]",
-                )
-            if not submitted:
-                submitted_table.add_row("[dim]none pending[/dim]", "", "", "")
-        else:
-            filled_table.add_row("[dim]No data[/dim]", "", "", "")
-            submitted_table.add_row("[dim]No data[/dim]", "", "", "")
+        if not unique_fills:
+            filled_table.add_row("[dim]none yet[/dim]", "", "", "")
 
-        lines = Text()
-        lines.append("▎ LAST FILLED\n", style="bold green")
-        content_filled = filled_table
-        lines_sub = Text()
-        lines_sub.append("▎ LAST SUBMITTED\n", style="bold cyan")
-        content_sub = submitted_table
+        # ── Submitted: live first, then DB-seeded ────────────────────────
+        sub_rows: list[tuple[str, float, float, float]] = []
+
+        if self._order_mgr:
+            for o in self._order_mgr.active_orders.values():
+                if o.status == OrderStatus.SUBMITTED:
+                    ts_s = o.placed_at_ns / 1e9
+                    sub_rows.append((o.intent.slug, o.intent.price, o.intent.size, ts_s))
+
+        # If not enough live orders, fill from DB
+        if len(sub_rows) < 6:
+            for d in self._db_recent_submitted:
+                sub_rows.append((d["slug"], d["price"], d["size"], d["ts"]))
+
+        seen_subs: set[tuple[str, int]] = set()
+        unique_subs: list[tuple[str, float, float, float]] = []
+        for row in sorted(sub_rows, key=lambda r: -r[3]):
+            key = (row[0], int(row[3]))
+            if key not in seen_subs:
+                seen_subs.add(key)
+                unique_subs.append(row)
+            if len(unique_subs) >= 6:
+                break
+
+        for slug, price, size, ts_s in unique_subs:
+            display = self._format_slug(slug)
+            age_s = now - ts_s
+            age_str = f"{age_s:.0f}s" if age_s < 60 else f"{age_s / 60:.1f}m" if age_s < 3600 else f"{age_s / 3600:.1f}h"
+            submitted_table.add_row(display, f"{price:.4f}", f"{size:.0f}", f"[dim]{age_str}[/dim]")
+
+        if not unique_subs:
+            submitted_table.add_row("[dim]none pending[/dim]", "", "", "")
 
         layout = Layout()
         layout.split_row(
@@ -772,9 +876,9 @@ class Dashboard:
             Layout(self._orders_panel(), name="orders"),
         )
         layout["middle"].split_row(
-            Layout(self._coverage_panel(), name="coverage"),
             Layout(self._pnl_panel(), name="pnl"),
             Layout(self._risk_panel(), name="risk"),
+            Layout(self._coverage_panel(), name="coverage"),
         )
         layout["positions"].update(self._positions_panel())
         layout["recent_orders"].update(self._recent_orders_panel())

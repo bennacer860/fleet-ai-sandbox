@@ -322,6 +322,8 @@ class Bot:
                 durations=self._durations,
                 market_selections=self._market_selections,
             )
+            if self._persist:
+                self.dashboard.seed_from_db(self.db_path)
 
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
