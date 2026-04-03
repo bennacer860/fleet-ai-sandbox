@@ -89,7 +89,7 @@ class AggressivePostExpirySweepStrategy(Strategy):
         state = self._markets.get(event.slug)
 
         if state is None:
-            end_ts = extract_market_end_ts(event.slug)
+            end_ts = self._resolve_end_ts(event.slug, ctx)
             if end_ts is None:
                 self.last_skip_reason = "cannot determine expiration time"
                 return None
@@ -340,3 +340,10 @@ class AggressivePostExpirySweepStrategy(Strategy):
             "best_token_id": tids[best_idx],
         })
         return eval_data
+
+    @staticmethod
+    def _resolve_end_ts(slug: str, ctx: StrategyContext) -> int | None:
+        meta_end_ts = ctx.market_meta.get(slug, {}).get("end_ts")
+        if isinstance(meta_end_ts, (int, float)) and meta_end_ts > 0:
+            return int(meta_end_ts)
+        return extract_market_end_ts(slug)

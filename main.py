@@ -37,28 +37,37 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     setup_logging()
 
+    category = (args.category or "crypto").lower()
+    if category not in {"crypto", "stocks"}:
+        print(f"ERROR: Unsupported category '{args.category}'. Use 'crypto' or 'stocks'.")
+        return 1
+
     durations = args.durations or sorted(SUPPORTED_DURATIONS)
-    markets = args.markets
+    markets = [m.upper() for m in args.markets]
     now = int(_time.time())
 
     initial_slugs: list[str] = []
-    for dur in durations:
-        cur_ts = get_current_interval_utc(dur)
-        nxt_ts = get_next_interval_utc(dur)
+    if category == "crypto":
+        for dur in durations:
+            cur_ts = get_current_interval_utc(dur)
+            nxt_ts = get_next_interval_utc(dur)
 
-        # Apply lazy subscription: skip long-duration markets that are
-        # too far from expiry (they'll be added later by the sub manager).
-        if dur >= LAZY_SUB_MIN_DURATION:
-            interval_s = dur * 60
-            for ts in (cur_ts, nxt_ts):
-                end_time = ts + interval_s
-                if end_time - now <= LAZY_SUB_LEAD_S:
-                    initial_slugs.extend(slugs_for_timestamp(markets, dur, ts))
-        else:
-            initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
-            initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
+            # Apply lazy subscription: skip long-duration markets that are
+            # too far from expiry (they'll be added later by the sub manager).
+            if dur >= LAZY_SUB_MIN_DURATION:
+                interval_s = dur * 60
+                for ts in (cur_ts, nxt_ts):
+                    end_time = ts + interval_s
+                    if end_time - now <= LAZY_SUB_LEAD_S:
+                        initial_slugs.extend(slugs_for_timestamp(markets, dur, ts))
+            else:
+                initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
+                initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
+    else:
+        # Stocks mode is discovery-driven; initial subscriptions come from runtime Gamma discovery.
+        initial_slugs = []
 
-    if not initial_slugs:
+    if category == "crypto" and not initial_slugs:
         print("ERROR: No initial slugs generated. Check market/duration settings.")
         return 1
 
@@ -77,6 +86,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         early_tick_threshold=args.early_tick_threshold,
         market_selections=markets,
         durations=durations,
+        market_category=category,
+        stock_tickers=args.stock_tickers,
+        stock_lazy_lead_minutes=args.stock_lazy_lead_minutes,
         claim_min_value=args.claim,
         claim_interval=args.claim_interval,
         persist=persist,
@@ -261,6 +273,18 @@ def main() -> int:
     run_parser.add_argument(
         "--markets", nargs="+", default=["BTC"],
         help="Crypto markets to monitor (default: BTC)",
+    )
+    run_parser.add_argument(
+        "--category", type=str, default="crypto", choices=["crypto", "stocks"],
+        help="Market category: 'crypto' keeps existing flow, 'stocks' auto-discovers non-crypto up-or-down events",
+    )
+    run_parser.add_argument(
+        "--stock-tickers", nargs="+", default=None,
+        help="Optional stock ticker allowlist when --category stocks (e.g. SPX TSLA AAPL GOOGL).",
+    )
+    run_parser.add_argument(
+        "--stock-lazy-lead-minutes", type=int, default=60,
+        help="For --category stocks, subscribe only within this many minutes before endDate (default: 60).",
     )
     run_parser.add_argument(
         "--durations", nargs="+", type=int, default=None,

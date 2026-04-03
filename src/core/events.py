@@ -113,6 +113,7 @@ class MarketMeta:
     condition_id: str
     token_ids: tuple[str, ...]
     outcomes: tuple[str, ...]
+    end_ts: int | None = None
     timestamp_ns: int = field(default_factory=_now_ns)
 
 

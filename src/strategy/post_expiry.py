@@ -164,7 +164,7 @@ class PostExpirySweepStrategy(Strategy):
         if slug in self._ordered_slugs:
             return None
 
-        end_ts = extract_market_end_ts(slug)
+        end_ts = self._resolve_end_ts(slug, ctx)
         if end_ts is None:
             self.last_skip_reason = "cannot determine expiration time"
             return None
@@ -222,6 +222,13 @@ class PostExpirySweepStrategy(Strategy):
             slug=slug,
             tick_size=market_tick_size,
         )]
+
+    @staticmethod
+    def _resolve_end_ts(slug: str, ctx: StrategyContext) -> int | None:
+        meta_end_ts = ctx.market_meta.get(slug, {}).get("end_ts")
+        if isinstance(meta_end_ts, (int, float)) and meta_end_ts > 0:
+            return int(meta_end_ts)
+        return extract_market_end_ts(slug)
 
     def _get_eval(
         self, slug: str, token_id: str, ctx: StrategyContext

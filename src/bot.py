@@ -44,7 +44,6 @@ from .gamma_client import get_winning_token_id, is_market_ended
 from .execution.auto_claimer import AutoClaimer
 from .execution.fill_simulator import FillSimulator
 from .markets.fifteen_min import (
-    MarketSelection,
     SUPPORTED_DURATIONS,
     detect_duration_from_slug,
     extract_market_end_ts,
@@ -53,6 +52,7 @@ from .markets.fifteen_min import (
     get_market_slug,
     get_next_interval_utc,
 )
+from .markets.stock_discovery import discover_non_crypto_up_or_down_markets
 from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
@@ -91,6 +91,7 @@ BALANCE_REFRESH_INTERVAL_S = 30
 # threshold when they are within LAZY_SUB_LEAD_S of expiry.
 LAZY_SUB_MIN_DURATION = 30   # minutes — applies to 30m, 60m, etc.
 LAZY_SUB_LEAD_S = 15 * 60    # subscribe 15 minutes before expiry
+STOCK_DISCOVERY_REFRESH_S = 5 * 60
 
 
 class Bot:
@@ -106,8 +107,11 @@ class Bot:
         dashboard_enabled: bool = False,
         price_threshold: float = 0.95,
         early_tick_threshold: float = 0.995,
-        market_selections: list[MarketSelection] | None = None,
+        market_selections: list[str] | None = None,
         durations: list[int] | None = None,
+        market_category: str = "crypto",
+        stock_tickers: list[str] | None = None,
+        stock_lazy_lead_minutes: int = 60,
         claim_min_value: float | None = None,
         claim_interval: float = 60.0,
         persist: bool = True,
@@ -122,8 +126,15 @@ class Bot:
         self._persist = persist
         self.loop: asyncio.AbstractEventLoop | None = None
         self._slugs = slugs
-        self._market_selections = market_selections or []
+        self._market_category = market_category.lower()
+        self._market_selections = [m.upper() for m in (market_selections or [])]
         self._durations = durations or sorted(SUPPORTED_DURATIONS)
+        self._stock_ticker_filter = {t.upper() for t in (stock_tickers or [])} or None
+        self._stock_lazy_lead_s = max(1, stock_lazy_lead_minutes) * 60
+        self._stock_next_discovery_mono = 0.0
+        self._stock_discovered: dict[str, dict[str, Any]] = {}
+        self._stock_monitored_slugs: set[str] = set()
+        self._stock_deferred_slugs: set[str] = set()
 
         self._monitored_ts: dict[int, dict[str, set[int]]] = {
             dur: {sel: set() for sel in self._market_selections}
@@ -199,7 +210,12 @@ class Bot:
         )
         self.user_ws = UserWebSocket(event_bus=self.event_bus)
 
-        crypto_assets = list(set(self._market_selections)) or None
+        if self._market_category == "stocks":
+            crypto_assets: list[str] | None = []
+            self._crypto_ws_enabled = False
+        else:
+            crypto_assets = list(set(self._market_selections)) or None
+            self._crypto_ws_enabled = True
         self.crypto_ws = CryptoWebSocket(assets=crypto_assets)
 
         if strategies:
@@ -662,7 +678,8 @@ class Bot:
             if state is not None:
                 state.tick_event_ns = tick_event_ns
                 state.handler_start_ns = handler_start_ns
-                state.market_end_ts = extract_market_end_ts(intent.slug)
+                meta_end_ts = self._strategy_ctx.market_meta.get(intent.slug, {}).get("end_ts")
+                state.market_end_ts = meta_end_ts or extract_market_end_ts(intent.slug)
                 state.market = extract_market_from_slug(intent.slug)
                 state.submission_source = submission_source
                 bp = self._strategy_ctx.best_prices.get(intent.token_id, {})
@@ -883,6 +900,7 @@ class Bot:
                 "token_ids": tuple(tids),
                 "outcomes": outcomes,
                 "condition_id": cond,
+                "end_ts": self.market_ws.end_ts_by_slug.get(slug),
             }
         self._strategy_ctx.market_meta = meta
         self._strategy_ctx.crypto_prices = dict(self.crypto_ws.latest_prices)
@@ -946,6 +964,9 @@ class Bot:
     def _seed_monitored_timestamps(self) -> None:
         """Populate _monitored_ts and _deferred_ts from the initial state so the 
         subscription manager knows which windows are already tracked."""
+        if self._market_category == "stocks":
+            return
+
         now = int(time.time())
         for dur in self._durations:
             cur_ts = get_current_interval_utc(dur)
@@ -968,8 +989,85 @@ class Bot:
         """Periodically add new market windows and prune expired ones."""
         while True:
             await asyncio.sleep(SUB_CHECK_INTERVAL)
-            for dur in self._durations:
-                await self._manage_subscriptions_for_duration(dur)
+            if self._market_category == "stocks":
+                await self._manage_stock_subscriptions()
+            else:
+                for dur in self._durations:
+                    await self._manage_subscriptions_for_duration(dur)
+
+    async def _refresh_stock_discovery(self) -> None:
+        now_mono = time.monotonic()
+        if self._stock_discovered and now_mono < self._stock_next_discovery_mono:
+            return
+
+        loop = asyncio.get_event_loop()
+        discovered = await loop.run_in_executor(
+            None,
+            discover_non_crypto_up_or_down_markets,
+        )
+
+        if self._stock_ticker_filter:
+            discovered = [m for m in discovered if m.get("ticker", "").upper() in self._stock_ticker_filter]
+
+        self._stock_discovered = {m["slug"]: m for m in discovered}
+        self._stock_next_discovery_mono = now_mono + STOCK_DISCOVERY_REFRESH_S
+        logger.info("[SUB][STOCKS] Discovery refreshed: %d markets", len(self._stock_discovered))
+
+    async def _manage_stock_subscriptions(self) -> None:
+        """Discover non-crypto up-or-down markets and lazy-subscribe near expiry."""
+        await self._refresh_stock_discovery()
+
+        now = int(time.time())
+        slugs_to_add: list[str] = []
+        slugs_to_remove: list[str] = []
+        discovered_slugs = set(self._stock_discovered.keys())
+
+        for slug, meta in self._stock_discovered.items():
+            end_ts = meta.get("end_ts")
+            if not end_ts:
+                continue
+
+            if now > end_ts + GRACE_PERIOD_SECONDS:
+                self._stock_monitored_slugs.discard(slug)
+                self._stock_deferred_slugs.discard(slug)
+                if slug in self.market_ws.market_active and not self.market_ws.market_active[slug]:
+                    slugs_to_remove.append(slug)
+                continue
+
+            tte = end_ts - now
+            if tte <= self._stock_lazy_lead_s:
+                self._stock_monitored_slugs.add(slug)
+                self._stock_deferred_slugs.discard(slug)
+                if slug not in self.market_ws.token_ids:
+                    slugs_to_add.append(slug)
+                    logger.info(
+                        "[SUB][STOCKS] Adding %s (%.0fm to expiry)",
+                        format_slug_with_est_time(slug),
+                        tte / 60,
+                    )
+            else:
+                if slug not in self.market_ws.token_ids:
+                    self._stock_deferred_slugs.add(slug)
+
+        # Drop stale discovered references no longer present and not active.
+        for slug in list(self._stock_monitored_slugs):
+            if slug not in discovered_slugs and slug not in self.market_ws.market_active:
+                self._stock_monitored_slugs.discard(slug)
+        for slug in list(self._stock_deferred_slugs):
+            if slug not in discovered_slugs and slug not in self.market_ws.market_active:
+                self._stock_deferred_slugs.discard(slug)
+
+        if slugs_to_add:
+            await self.market_ws.add_markets(slugs_to_add)
+            self._launch_prefetch(slugs_to_add)
+            if self.dashboard:
+                for slug in slugs_to_add:
+                    self.dashboard.push_event(f"📍 MARKET_ADD  {format_slug_with_est_time(slug)}")
+
+        if slugs_to_remove:
+            await self.market_ws.remove_markets(slugs_to_remove)
+            for slug in slugs_to_remove:
+                self._eval_cache.pop(slug, None)
 
     async def _manage_subscriptions_for_duration(self, duration: int) -> None:
         interval_seconds = duration * 60
@@ -1210,6 +1308,7 @@ class Bot:
         if _profile:
             logger.info("  Profile  : %s", _profile)
         logger.info("  Slugs    : %d", len(self._slugs))
+        logger.info("  Category : %s", self._market_category)
         logger.info("  Strategies: %s", ", ".join(s.name() for s in self.strategies))
         logger.info("  Dry-run  : %s", self.dry_run)
         logger.info("  Dashboard: %s", self.dashboard_enabled)
@@ -1238,13 +1337,16 @@ class Bot:
                 if self.persistence else []
             ),
             asyncio.create_task(self._supervised_task("market_ws", self.market_ws.run)),
-            asyncio.create_task(self._supervised_task("crypto_ws", self.crypto_ws.run)),
             asyncio.create_task(self._supervised_task("health", self.health_monitor.run)),
             asyncio.create_task(self._supervised_task("alerts", self.alert_manager.run)),
             asyncio.create_task(self._supervised_task("metrics_loop", self._metrics_loop)),
             asyncio.create_task(self._supervised_task("sub_manager", self._manage_subscriptions)),
             asyncio.create_task(self._supervised_task("strategy_poll", self._strategy_poll_loop)),
         ]
+        if self._crypto_ws_enabled:
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("crypto_ws", self.crypto_ws.run))
+            )
 
         if not self.dry_run:
             self._tasks.append(

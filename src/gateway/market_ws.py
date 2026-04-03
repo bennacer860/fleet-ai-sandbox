@@ -82,6 +82,7 @@ class MarketWebSocket:
         self.book_event_filter: set[str] | None = book_event_filter
 
         self.token_ids: dict[str, list[str]] = {}
+        self.end_ts_by_slug: dict[str, int] = {}
         self.slug_by_token: dict[str, str] = {}
         self.market_active: dict[str, bool] = {}
         self.condition_ids: dict[str, str] = {}
@@ -197,6 +198,15 @@ class MarketWebSocket:
         tids = get_market_token_ids(market)
         outcomes = get_outcomes(market)
         condition_id = market.get("conditionId", market.get("condition_id", ""))
+        end_date = event.get("endDate")
+        end_ts: int | None = None
+        if end_date:
+            try:
+                from datetime import datetime
+
+                end_ts = int(datetime.fromisoformat(str(end_date).replace("Z", "+00:00")).timestamp())
+            except Exception:
+                end_ts = None
 
         if not tids:
             return []
@@ -210,16 +220,24 @@ class MarketWebSocket:
             if i < len(outcomes):
                 self.token_outcomes[tid] = outcomes[i]
 
+        if end_ts is not None:
+            self.end_ts_by_slug[slug] = end_ts
+
         self.event_bus.publish_nowait(MarketMeta(
             slug=slug,
             condition_id=condition_id,
             token_ids=tuple(tids),
             outcomes=tuple(outcomes),
+            end_ts=end_ts,
         ))
 
         return tids
 
     async def _init_markets(self) -> bool:
+        if not self._initial_slugs:
+            logger.info("No initial markets configured; waiting for dynamic subscriptions")
+            return True
+
         for slug in self._initial_slugs:
             try:
                 tids = await self._fetch_token_ids(slug)
@@ -291,6 +309,7 @@ class MarketWebSocket:
             self.market_active.pop(slug, None)
             if slug in self._initial_slugs:
                 self._initial_slugs.remove(slug)
+            self.end_ts_by_slug.pop(slug, None)
             logger.info("[MARKET_REMOVE] %s", slug)
 
         if tids_to_unsub and self._websocket:

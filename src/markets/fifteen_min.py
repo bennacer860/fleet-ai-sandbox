@@ -321,8 +321,12 @@ def _parse_1h_slug_start_ts(slug: str) -> int | None:
 def _parse_daily_slug_start_ts(slug: str) -> int | None:
     """Parse start timestamp from a daily human-readable slug.
 
-    Expected format: ``{asset}-up-or-down-on-{month}{day}-{year}``
-    Example: ``bitcoin-up-or-down-on-march31-2026``
+    Expected format:
+    - ``{asset}-up-or-down-on-{month}{day}-{year}``
+    - ``{asset}-up-or-down-on-{month}-{day}-{year}``
+    Examples:
+    - ``bitcoin-up-or-down-on-march31-2026``
+    - ``spx-up-or-down-on-april-6-2026``
 
     The market day starts at midnight US/Eastern.
 
@@ -337,10 +341,7 @@ def _parse_daily_slug_start_ts(slug: str) -> int | None:
 
     slug_lower = slug.lower()
 
-    m = re.search(
-        r"-up-or-down-on-([a-z]+)(\d{1,2})-(\d{4})$",
-        slug_lower,
-    )
+    m = re.search(r"-up-or-down-on-([a-z]+)(?:-)?(\d{1,2})-(\d{4})$", slug_lower)
     if not m:
         return None
 
