@@ -76,14 +76,16 @@ class AsyncPersistence:
             return
 
         try:
-            cursor = self._conn.cursor()
-            cursor.execute("BEGIN")
+            self._conn.execute("BEGIN")
             for op in batch:
-                cursor.execute(op.sql, op.params)
-            self._conn.commit()
+                self._conn.execute(op.sql, op.params)
+            self._conn.execute("COMMIT")
             self._total_writes += len(batch)
         except sqlite3.Error:
-            self._conn.rollback()
+            try:
+                self._conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
             logger.exception("[PERSISTENCE] Batch write failed (%d ops)", len(batch))
 
     async def stop(self) -> None:

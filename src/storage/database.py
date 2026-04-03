@@ -2,6 +2,11 @@
 
 Uses WAL mode for concurrent read/write from the async drain loop
 and any read-only CLI queries (``main.py stats``).
+
+**Litestream compatibility**: auto-checkpointing is disabled so that
+Litestream's own checkpoint management is not conflicted.  A generous
+``busy_timeout`` avoids ``SQLITE_BUSY`` when Litestream holds a read
+lock during replication.
 """
 
 from __future__ import annotations
@@ -169,10 +174,15 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             cursor = conn.execute(f"PRAGMA table_info({table})")
             existing = {row[1] for row in cursor.fetchall()}
             if column not in existing:
+                conn.execute("BEGIN")
                 conn.execute(sql)
-                conn.commit()
+                conn.execute("COMMIT")
                 logger.info("[DB] Migration: added %s.%s", table, column)
         except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
             logger.exception(
                 "[DB] Migration FAILED for %s.%s — will retry next startup",
                 table,
@@ -184,21 +194,60 @@ def init_db(db_path: str) -> sqlite3.Connection:
     """Create the database file (if needed) and ensure all tables exist.
 
     Returns a connection with WAL mode and foreign-key enforcement enabled.
+
+    Key settings for Litestream compatibility:
+
+    * ``wal_autocheckpoint=0`` — lets Litestream manage checkpointing;
+      concurrent auto-checkpoints by SQLite and Litestream are the #1
+      cause of WAL corruption.
+    * ``busy_timeout=5000`` — waits up to 5 s instead of failing
+      immediately when Litestream (or a read-only connection) holds a
+      shared lock.
+    * ``synchronous=NORMAL`` — safe for WAL mode; guarantees durability
+      at the WAL level while avoiding the fsync-per-commit overhead of
+      FULL.
+    * ``isolation_level=None`` — disables Python's implicit transaction
+      management so that the persistence layer can issue explicit
+      ``BEGIN`` / ``COMMIT`` without conflicting with the module's
+      internal state.
     """
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(str(path), check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn = sqlite3.connect(
+        str(path),
+        check_same_thread=False,
+        isolation_level=None,
+    )
+
+    journal_mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+    if journal_mode.lower() != "wal":
+        logger.warning(
+            "[DB] journal_mode returned '%s' instead of 'wal' — "
+            "Litestream replication may not work correctly",
+            journal_mode,
+        )
+
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.executescript(SCHEMA_SQL)
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA wal_autocheckpoint=0")
+
+    conn.execute("BEGIN")
+    for statement in SCHEMA_SQL.split(";"):
+        statement = statement.strip()
+        if statement:
+            conn.execute(statement)
+    conn.execute("COMMIT")
+
     _run_migrations(conn)
+
+    conn.execute("BEGIN")
     for idx_sql in _POST_MIGRATION_INDEXES:
         conn.execute(idx_sql)
-    conn.commit()
+    conn.execute("COMMIT")
 
-    logger.info("[DB] Initialised database at %s", db_path)
+    logger.info("[DB] Initialised database at %s (journal_mode=%s)", db_path, journal_mode)
     return conn
 
 
@@ -206,5 +255,6 @@ def get_readonly_connection(db_path: str) -> sqlite3.Connection:
     """Open a read-only connection for CLI stat queries."""
     uri = f"file:{db_path}?mode=ro"
     conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     return conn
