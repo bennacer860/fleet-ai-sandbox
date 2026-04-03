@@ -524,11 +524,15 @@ class Dashboard:
             (1440, "1d", 1 / 24, 1),    # 24h / 24h
         ]
 
+        today_start = int(time.time()) - int(time.time()) % 86400
+        elapsed_h = (int(time.time()) - today_start) / 3600
+
         for dur_min, label, windows_per_hr, windows_per_day in dur_configs:
             if self._durations and dur_min not in self._durations:
                 continue
 
             expected_daily = max(int(windows_per_hr * n_cryptos * 24), 1)
+            expected_so_far = max(int(windows_per_hr * n_cryptos * elapsed_h), 1)
 
             # Combine DB coverage + live tracked count
             if self._db_seeded and label in self._db_coverage:
@@ -545,6 +549,7 @@ class Dashboard:
             display_actual = max(actual, live_count)
 
             pct = display_actual / expected_daily * 100 if expected_daily > 0 else 0
+            pace_pct = display_actual / expected_so_far * 100 if expected_so_far > 0 else 0
             pct_capped = min(pct, 100)
             bar_len = int(pct_capped / 10)
             bar = "█" * bar_len + "░" * (10 - bar_len)
@@ -553,7 +558,7 @@ class Dashboard:
             lines.append(
                 f" {label:4s} [{color}]{bar}[/{color}] "
                 f"{display_actual:4d}/{expected_daily:<4d} [{color}]{pct:.0f}%[/{color}] "
-                f"[dim]({windows_per_day}/d)[/dim]"
+                f"[dim]({windows_per_day}/d/asset x {n_cryptos}, by now {expected_so_far}, pace {pace_pct:.0f}%)[/dim]"
             )
 
         # Orders / hour
@@ -575,20 +580,31 @@ class Dashboard:
         hrs = int(uptime_h)
         mins = int((uptime_s % 3600) / 60)
         lines.append(f" Up     {hrs}h {mins}m")
-        today_start = int(time.time()) - int(time.time()) % 86400
-        reset_ts = today_start + 86400
         now_ts = int(time.time())
+        if self._db_seeded:
+            count_start_ts = today_start
+            start_basis = "UTC day"
+        else:
+            count_start_ts = max(now_ts - int(uptime_s), 0)
+            start_basis = "bot start"
+
+        reset_ts = today_start + 86400
+        start_elapsed_s = max(now_ts - count_start_ts, 0)
+        start_elapsed_h = start_elapsed_s / 3600
+        start_elapsed_hh = start_elapsed_s // 3600
+        start_elapsed_mm = (start_elapsed_s % 3600) // 60
         reset_in_s = max(reset_ts - now_ts, 0)
         reset_h = reset_in_s // 3600
         reset_m = (reset_in_s % 3600) // 60
-        if self._db_seeded:
-            count_start_label = time.strftime("%H:%M UTC", time.gmtime(today_start))
-        else:
-            count_start_label = f"bot start ({hrs}h {mins}m ago)"
-        lines.append(f" Count from {count_start_label}")
+        reset_h_float = reset_in_s / 3600
+
         lines.append(
-            f" Reset at {time.strftime('%H:%M UTC', time.gmtime(reset_ts))}"
-            f" (in {reset_h}h {reset_m}m)"
+            f" Start  {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(count_start_ts))} "
+            f"({start_basis}, {start_elapsed_hh}h {start_elapsed_mm}m ago, {start_elapsed_h:.1f}h)"
+        )
+        lines.append(
+            f" End    {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(reset_ts))} "
+            f"(in {reset_h}h {reset_m}m, {reset_h_float:.1f}h)"
         )
 
         return Panel("\n".join(lines), title="COVERAGE", border_style="cyan")
