@@ -535,6 +535,7 @@ class Dashboard:
         table.add_column("Current", width=7, justify="right")
         table.add_column("uPnL", width=8, justify="right")
 
+        filtered: dict = {}
         if self._pos_tracker:
             all_positions = self._pos_tracker.positions
             filtered = {
@@ -579,8 +580,84 @@ class Dashboard:
         else:
             table.add_row("[dim]No data[/dim]", "", "", "", "", "")
 
-        count = len(filtered) if self._pos_tracker and filtered else 0
+        count = len(filtered)
         return Panel(table, title=f"POSITIONS ({count} open)", border_style="green")
+
+    def _recent_orders_panel(self) -> Panel:
+        from ..core.events import OrderStatus
+
+        filled_table = Table(show_header=True, header_style="bold green", box=None, pad_edge=False)
+        filled_table.add_column("Market", min_width=20)
+        filled_table.add_column("Price", width=7, justify="right")
+        filled_table.add_column("Size", width=6, justify="right")
+        filled_table.add_column("Age", width=8, justify="right")
+
+        submitted_table = Table(show_header=True, header_style="bold cyan", box=None, pad_edge=False)
+        submitted_table.add_column("Market", min_width=20)
+        submitted_table.add_column("Price", width=7, justify="right")
+        submitted_table.add_column("Size", width=6, justify="right")
+        submitted_table.add_column("Age", width=8, justify="right")
+
+        if self._order_mgr:
+            now_ns = time.time_ns()
+            all_orders = list(self._order_mgr.active_orders.values())
+
+            filled = sorted(
+                [o for o in all_orders if o.status in (OrderStatus.FILLED, OrderStatus.PARTIAL)],
+                key=lambda o: o.resolved_at_ns or o.placed_at_ns,
+                reverse=True,
+            )[:6]
+
+            submitted = sorted(
+                [o for o in all_orders if o.status == OrderStatus.SUBMITTED],
+                key=lambda o: o.placed_at_ns,
+                reverse=True,
+            )[:6]
+
+            for o in filled:
+                display = self._format_slug(o.intent.slug)
+                ts = o.resolved_at_ns or o.placed_at_ns
+                age_s = (now_ns - ts) / 1e9
+                age_str = f"{age_s:.0f}s" if age_s < 60 else f"{age_s / 60:.1f}m"
+                price = o.fill_price if o.fill_price else o.intent.price
+                filled_table.add_row(
+                    display,
+                    f"{price:.4f}",
+                    f"{o.filled_size:.0f}",
+                    f"[dim]{age_str}[/dim]",
+                )
+            if not filled:
+                filled_table.add_row("[dim]none yet[/dim]", "", "", "")
+
+            for o in submitted:
+                display = self._format_slug(o.intent.slug)
+                age_s = (now_ns - o.placed_at_ns) / 1e9
+                age_str = f"{age_s:.0f}s" if age_s < 60 else f"{age_s / 60:.1f}m"
+                submitted_table.add_row(
+                    display,
+                    f"{o.intent.price:.4f}",
+                    f"{o.intent.size:.0f}",
+                    f"[dim]{age_str}[/dim]",
+                )
+            if not submitted:
+                submitted_table.add_row("[dim]none pending[/dim]", "", "", "")
+        else:
+            filled_table.add_row("[dim]No data[/dim]", "", "", "")
+            submitted_table.add_row("[dim]No data[/dim]", "", "", "")
+
+        lines = Text()
+        lines.append("▎ LAST FILLED\n", style="bold green")
+        content_filled = filled_table
+        lines_sub = Text()
+        lines_sub.append("▎ LAST SUBMITTED\n", style="bold cyan")
+        content_sub = submitted_table
+
+        layout = Layout()
+        layout.split_row(
+            Layout(Panel(filled_table, title="LAST 6 FILLED", border_style="green"), name="filled"),
+            Layout(Panel(submitted_table, title="LAST 6 SUBMITTED", border_style="cyan"), name="submitted"),
+        )
+        return Panel(layout, title="RECENT ORDERS", border_style="yellow")
 
     def _events_panel(self) -> Panel:
         if self._recent_events:
@@ -596,10 +673,9 @@ class Dashboard:
         layout.split_column(
             Layout(name="header", size=1),
             Layout(name="top", size=15),
-            # P&L now includes cash and portfolio rows; reserve more height
-            # so those lines are not clipped in the terminal.
             Layout(name="middle", size=10),
             Layout(name="positions", size=8),
+            Layout(name="recent_orders", size=12),
             Layout(name="bottom"),
         )
         layout["header"].update(self._header())
@@ -612,6 +688,7 @@ class Dashboard:
             Layout(self._risk_panel(), name="risk"),
         )
         layout["positions"].update(self._positions_panel())
+        layout["recent_orders"].update(self._recent_orders_panel())
         layout["bottom"].split_column(
             Layout(self._system_panel(), name="system", size=12),
             Layout(self._events_panel(), name="events"),
