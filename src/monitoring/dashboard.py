@@ -474,13 +474,11 @@ class Dashboard:
                 dl = self._detect_dur_label(slug)
                 dur_counts[dl] = dur_counts.get(dl, 0) + 1
 
-            # Expected today so far
-            hours_today = (int(time.time()) - today_start) / 3600
             n_cryptos = len(self._market_selections) if self._market_selections else 7
             for dur in (self._durations or [5, 15, 60, 240, 1440]):
                 dl = {5: "5m", 15: "15m", 60: "1h", 240: "4h", 1440: "1d"}.get(dur, f"{dur}m")
                 windows_per_hr = 60 / dur if dur <= 60 else (1 / (dur / 60))
-                exp = int(windows_per_hr * n_cryptos * hours_today)
+                exp = int(windows_per_hr * n_cryptos * 24)
                 dur_expected[dl] = max(exp, 1)
 
             self._db_coverage = {
@@ -518,23 +516,19 @@ class Dashboard:
         uptime_h = uptime_s / 3600
         n_cryptos = len(self._market_selections) if self._market_selections else 7
 
-        # Use DB cumulative coverage if available, with live overlay
-        today_start = int(time.time()) - int(time.time()) % 86400
-        hours_today = (int(time.time()) - today_start) / 3600
-
         dur_configs = [
-            (5,    "5m",  12.0),   # 12 windows/hr
-            (15,   "15m",  4.0),   # 4 windows/hr
-            (60,   "1h",   1.0),
-            (240,  "4h",   0.25),
-            (1440, "1d",   1/24),
+            (5, "5m", 12.0, 288),       # 24h / 5m
+            (15, "15m", 4.0, 96),       # 24h / 15m
+            (60, "1h", 1.0, 24),        # 24h / 1h
+            (240, "4h", 0.25, 6),       # 24h / 4h
+            (1440, "1d", 1 / 24, 1),    # 24h / 24h
         ]
 
-        for dur_min, label, windows_per_hr in dur_configs:
+        for dur_min, label, windows_per_hr, windows_per_day in dur_configs:
             if self._durations and dur_min not in self._durations:
                 continue
 
-            expected_today = max(int(windows_per_hr * n_cryptos * hours_today), 1)
+            expected_daily = max(int(windows_per_hr * n_cryptos * 24), 1)
 
             # Combine DB coverage + live tracked count
             if self._db_seeded and label in self._db_coverage:
@@ -548,16 +542,19 @@ class Dashboard:
                 for sel_set in self._monitored_ts[dur_min].values():
                     live_count += len(sel_set)
 
-            # Use the larger of DB cumulative or live snapshot
             display_actual = max(actual, live_count)
 
-            pct = display_actual / expected_today * 100 if expected_today > 0 else 0
+            pct = display_actual / expected_daily * 100 if expected_daily > 0 else 0
             pct_capped = min(pct, 100)
             bar_len = int(pct_capped / 10)
             bar = "█" * bar_len + "░" * (10 - bar_len)
 
             color = "green" if pct >= 80 else ("yellow" if pct >= 50 else "red")
-            lines.append(f" {label:4s} [{color}]{bar}[/{color}] {display_actual:4d}/{expected_today:<4d} [{color}]{pct:.0f}%[/{color}]")
+            lines.append(
+                f" {label:4s} [{color}]{bar}[/{color}] "
+                f"{display_actual:4d}/{expected_daily:<4d} [{color}]{pct:.0f}%[/{color}] "
+                f"[dim]({windows_per_day}/d)[/dim]"
+            )
 
         # Orders / hour
         if self._order_mgr:
@@ -578,6 +575,21 @@ class Dashboard:
         hrs = int(uptime_h)
         mins = int((uptime_s % 3600) / 60)
         lines.append(f" Up     {hrs}h {mins}m")
+        today_start = int(time.time()) - int(time.time()) % 86400
+        reset_ts = today_start + 86400
+        now_ts = int(time.time())
+        reset_in_s = max(reset_ts - now_ts, 0)
+        reset_h = reset_in_s // 3600
+        reset_m = (reset_in_s % 3600) // 60
+        if self._db_seeded:
+            count_start_label = time.strftime("%H:%M UTC", time.gmtime(today_start))
+        else:
+            count_start_label = f"bot start ({hrs}h {mins}m ago)"
+        lines.append(f" Count from {count_start_label}")
+        lines.append(
+            f" Reset at {time.strftime('%H:%M UTC', time.gmtime(reset_ts))}"
+            f" (in {reset_h}h {reset_m}m)"
+        )
 
         return Panel("\n".join(lines), title="COVERAGE", border_style="cyan")
 
