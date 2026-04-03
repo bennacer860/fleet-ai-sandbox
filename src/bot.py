@@ -315,6 +315,14 @@ class Bot:
                     else:
                         logger.debug("[BOT] Telegram disabled, skipping claim notification")
                 self.auto_claimer.on_claim = _on_claim
+
+        if self.dashboard:
+            self.dashboard.set_coverage_refs(
+                monitored_ts=self._monitored_ts,
+                durations=self._durations,
+                market_selections=self._market_selections,
+            )
+
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
         self._last_balance_refresh_mono: float = 0.0

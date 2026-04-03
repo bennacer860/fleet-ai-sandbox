@@ -95,7 +95,15 @@ class Dashboard:
         self._counted_filled_order_ids: set[str] = set()
         self._cash_balance_usdc: float | None = None
         self._cash_balance_updated_mono: float | None = None
-        
+
+        # Coverage tracking — set by bot after init via set_coverage_refs()
+        self._monitored_ts: dict[int, dict[str, set[int]]] | None = None
+        self._durations: list[int] = []
+        self._market_selections: list[str] = []
+        self._bot_started_mono: float = time.monotonic()
+        self._coverage_orders_placed: int = 0
+        self._coverage_fills: int = 0
+
         # Telegram integration
         self._telegram = TelegramNotifier(
             token=TELEGRAM_BOT_TOKEN,
@@ -404,6 +412,86 @@ class Dashboard:
         self._cash_balance_usdc = balance_usdc
         self._cash_balance_updated_mono = time.monotonic() if balance_usdc is not None else None
 
+    def set_coverage_refs(
+        self,
+        monitored_ts: dict[int, dict[str, set[int]]],
+        durations: list[int],
+        market_selections: list[str],
+    ) -> None:
+        """Wire bot subscription state for coverage display."""
+        self._monitored_ts = monitored_ts
+        self._durations = durations
+        self._market_selections = market_selections
+        self._bot_started_mono = time.monotonic()
+
+    def _coverage_panel(self) -> Panel:
+        lines: list[str] = []
+        uptime_s = time.monotonic() - self._bot_started_mono
+        uptime_h = uptime_s / 3600
+
+        # Per-duration coverage
+        if self._monitored_ts and self._durations and self._market_selections:
+            n_cryptos = len(self._market_selections)
+            for dur in sorted(self._durations):
+                tracked_count = 0
+                for sel in self._market_selections:
+                    tracked_count += len(self._monitored_ts.get(dur, {}).get(sel, set()))
+
+                if dur <= 15:
+                    windows_per_hr = 60 / dur
+                elif dur == 60:
+                    windows_per_hr = 1
+                elif dur == 240:
+                    windows_per_hr = 0.25
+                else:
+                    windows_per_hr = 1 / 24
+
+                expected = int(windows_per_hr * n_cryptos * max(uptime_h, 1 / 60))
+                # Live tracking only counts current + next + catchup, so
+                # expected for "right now" is ~2-3 windows × n_cryptos for
+                # short durations, not cumulative.
+                expected_live = int(windows_per_hr * n_cryptos * (dur * 60 / 3600) * 3)
+                if dur <= 15:
+                    expected_live = n_cryptos * 3
+                elif dur == 60:
+                    expected_live = n_cryptos * 2
+                else:
+                    expected_live = n_cryptos * 2
+
+                pct = tracked_count / expected_live * 100 if expected_live > 0 else 0
+                pct_capped = min(pct, 100)
+                bar_len = int(pct_capped / 10)
+                bar = "█" * bar_len + "░" * (10 - bar_len)
+
+                dur_label = {5: "5m", 15: "15m", 60: "1h", 240: "4h", 1440: "1d"}.get(dur, f"{dur}m")
+                color = "green" if pct >= 80 else ("yellow" if pct >= 50 else "red")
+                lines.append(f"  {dur_label:4s} [{color}]{bar}[/{color}] {tracked_count:3d}/{expected_live:<3d}")
+        else:
+            lines.append("  [dim]No coverage data[/dim]")
+
+        # Orders / hour
+        if self._order_mgr and uptime_h > 0:
+            total_orders = self._order_mgr.stats.get("submitted", 0)
+            orders_hr = total_orders / uptime_h if uptime_h > 1 / 60 else 0
+            lines.append("")
+            target_rate = len(self._market_selections) * sum(
+                60 / d for d in self._durations if d <= 15
+            ) if self._durations else 100
+            rate_color = "green" if orders_hr >= target_rate * 0.8 else ("yellow" if orders_hr >= target_rate * 0.5 else "red")
+            lines.append(f"  Orders/hr:  [{rate_color}]{orders_hr:.0f}[/{rate_color}] / ~{target_rate:.0f} target")
+
+            fills = self._order_mgr.stats.get("filled", 0) + self._order_mgr.stats.get("partial", 0)
+            fills_day = fills / uptime_h * 24 if uptime_h > 1 / 60 else 0
+            fill_rate = fills / total_orders * 100 if total_orders > 0 else 0
+            lines.append(f"  Fills/day:  {fills_day:.1f} (rate: {fill_rate:.1f}%)")
+
+        # Uptime
+        hrs = int(uptime_h)
+        mins = int((uptime_s % 3600) / 60)
+        lines.append(f"  Uptime:     {hrs}h {mins}m")
+
+        return Panel("\n".join(lines), title="COVERAGE", border_style="cyan")
+
     def _risk_panel(self) -> Panel:
         lines: list[str] = []
         if self._risk_mgr:
@@ -673,7 +761,7 @@ class Dashboard:
         layout.split_column(
             Layout(name="header", size=1),
             Layout(name="top", size=15),
-            Layout(name="middle", size=10),
+            Layout(name="middle", size=12),
             Layout(name="positions", size=8),
             Layout(name="recent_orders", size=12),
             Layout(name="bottom"),
@@ -684,6 +772,7 @@ class Dashboard:
             Layout(self._orders_panel(), name="orders"),
         )
         layout["middle"].split_row(
+            Layout(self._coverage_panel(), name="coverage"),
             Layout(self._pnl_panel(), name="pnl"),
             Layout(self._risk_panel(), name="risk"),
         )
