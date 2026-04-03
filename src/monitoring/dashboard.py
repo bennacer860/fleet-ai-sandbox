@@ -107,6 +107,8 @@ class Dashboard:
         self._db_recent_submitted: list[dict] = []
         # Cumulative coverage from DB (slugs seen per duration today)
         self._db_coverage: dict[str, dict] = {}
+        self._db_fills_today: int = 0
+        self._db_submitted_today: int = 0
         self._db_seeded = False
 
         # Telegram integration
@@ -463,6 +465,21 @@ class Dashboard:
 
             # Today's coverage: distinct slugs per duration
             today_start = int(time.time()) - int(time.time()) % 86400
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM fills f JOIN orders o ON f.order_id = o.order_id
+                WHERE o.dry_run = 0 AND f.timestamp >= ?
+                """,
+                (today_start,),
+            )
+            self._db_fills_today = int(cur.fetchone()[0] or 0)
+            cur.execute(
+                "SELECT COUNT(*) FROM orders WHERE dry_run = 0 AND placed_at >= ?",
+                (today_start,),
+            )
+            self._db_submitted_today = int(cur.fetchone()[0] or 0)
+
             cur.execute("""
                 SELECT slug, COUNT(*) FROM orders
                 WHERE dry_run = 0 AND placed_at >= ?
@@ -513,7 +530,6 @@ class Dashboard:
     def _coverage_panel(self) -> Panel:
         lines: list[str] = []
         uptime_s = time.monotonic() - self._bot_started_mono
-        uptime_h = uptime_s / 3600
         n_cryptos = len(self._market_selections) if self._market_selections else 7
 
         dur_configs = [
@@ -524,8 +540,16 @@ class Dashboard:
             (1440, "1d", 1 / 24, 1),    # 24h / 24h
         ]
 
-        today_start = int(time.time()) - int(time.time()) % 86400
-        elapsed_h = (int(time.time()) - today_start) / 3600
+        now_ts = int(time.time())
+        today_start = now_ts - now_ts % 86400
+        elapsed_h = (now_ts - today_start) / 3600
+        if self._db_seeded:
+            count_start_ts = today_start
+            start_basis = "UTC day"
+        else:
+            count_start_ts = max(now_ts - int(uptime_s), 0)
+            start_basis = "bot start"
+        count_elapsed_h = max((now_ts - count_start_ts) / 3600, 1 / 60)
 
         for dur_min, label, windows_per_hr, windows_per_day in dur_configs:
             if self._durations and dur_min not in self._durations:
@@ -563,8 +587,11 @@ class Dashboard:
 
         # Orders / hour
         if self._order_mgr:
-            total_orders = self._order_mgr.stats.get("submitted", 0)
-            orders_hr = total_orders / uptime_h if uptime_h > 1 / 60 else 0
+            live_submitted = self._order_mgr.stats.get("submitted", 0)
+            live_fills = self._order_mgr.stats.get("filled", 0) + self._order_mgr.stats.get("partial", 0)
+            total_orders = self._db_submitted_today + live_submitted
+            total_fills = self._db_fills_today + live_fills
+            orders_hr = total_orders / count_elapsed_h
             lines.append("")
             target_rate = n_cryptos * sum(
                 60 / d for d in (self._durations or [5, 15]) if d <= 15
@@ -572,21 +599,9 @@ class Dashboard:
             rate_color = "green" if orders_hr >= target_rate * 0.8 else ("yellow" if orders_hr >= target_rate * 0.5 else "red")
             lines.append(f" Ord/hr [{rate_color}]{orders_hr:>5.0f}[/{rate_color}] / {target_rate:.0f}")
 
-            fills = self._order_mgr.stats.get("filled", 0) + self._order_mgr.stats.get("partial", 0)
-            fills_day = fills / uptime_h * 24 if uptime_h > 1 / 60 else 0
-            fill_rate = fills / total_orders * 100 if total_orders > 0 else 0
+            fills_day = total_fills / count_elapsed_h * 24
+            fill_rate = total_fills / total_orders * 100 if total_orders > 0 else 0
             lines.append(f" Fill/d {fills_day:>5.1f}  ({fill_rate:.1f}%)")
-
-        hrs = int(uptime_h)
-        mins = int((uptime_s % 3600) / 60)
-        lines.append(f" Up     {hrs}h {mins}m")
-        now_ts = int(time.time())
-        if self._db_seeded:
-            count_start_ts = today_start
-            start_basis = "UTC day"
-        else:
-            count_start_ts = max(now_ts - int(uptime_s), 0)
-            start_basis = "bot start"
 
         reset_ts = today_start + 86400
         start_elapsed_s = max(now_ts - count_start_ts, 0)
