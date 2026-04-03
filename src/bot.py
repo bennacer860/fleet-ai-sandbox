@@ -83,7 +83,7 @@ logger = get_logger(__name__)
 
 MAX_RETRIES = 10
 RETRY_BASE_DELAY = 5
-SUB_CHECK_INTERVAL = 30
+SUB_CHECK_INTERVAL = 10
 GRACE_PERIOD_SECONDS = 5 * 60
 BALANCE_REFRESH_INTERVAL_S = 30
 
@@ -953,11 +953,21 @@ class Bot:
             
             use_lazy = dur >= LAZY_SUB_MIN_DURATION
             interval_s = dur * 60
-            
+
+            seeds = [cur_ts, nxt_ts]
+            if not use_lazy:
+                prev_ts = cur_ts - interval_s
+                prev_end = prev_ts + interval_s
+                if now <= prev_end + GRACE_PERIOD_SECONDS:
+                    seeds.insert(0, prev_ts)
+
             for sel in self._market_selections:
-                for ts in (cur_ts, nxt_ts):
+                for ts in seeds:
                     end_time = ts + interval_s
                     time_to_expiry = end_time - now
+
+                    if time_to_expiry < -GRACE_PERIOD_SECONDS:
+                        continue
                     
                     if use_lazy and time_to_expiry > LAZY_SUB_LEAD_S:
                         self._deferred_ts[dur][sel].add(ts)
@@ -975,10 +985,18 @@ class Bot:
         interval_seconds = duration * 60
         cur_ts = get_current_interval_utc(duration)
         nxt_ts = get_next_interval_utc(duration)
+        prev_ts = cur_ts - interval_seconds
         now = int(time.time())
 
-        # For long durations, only subscribe when close to expiry.
         use_lazy = duration >= LAZY_SUB_MIN_DURATION
+
+        # For short-duration markets, also check the previous window to
+        # catch any that were missed if the loop was delayed.
+        candidate_timestamps = [cur_ts, nxt_ts]
+        if not use_lazy:
+            prev_end = prev_ts + interval_seconds
+            if now <= prev_end + GRACE_PERIOD_SECONDS:
+                candidate_timestamps.insert(0, prev_ts)
 
         slugs_to_add: list[str] = []
         slugs_to_remove: list[str] = []
@@ -987,17 +1005,24 @@ class Bot:
             tracked = self._monitored_ts[duration][sel]
             deferred = self._deferred_ts[duration][sel]
 
-            # ── Check timestamps we want to track ──
-            for ts in (cur_ts, nxt_ts):
+            for ts in candidate_timestamps:
                 if ts in tracked or ts in deferred:
-                    continue  # already handled
+                    continue
 
                 end_time = ts + interval_seconds
                 time_to_expiry = end_time - now
-                label = "next" if ts == nxt_ts else "current"
+
+                if time_to_expiry < -GRACE_PERIOD_SECONDS:
+                    continue
+
+                if ts == nxt_ts:
+                    label = "next"
+                elif ts == prev_ts:
+                    label = "catchup"
+                else:
+                    label = "current"
 
                 if use_lazy and time_to_expiry > LAZY_SUB_LEAD_S:
-                    # Too far from expiry — defer, don't subscribe yet.
                     deferred.add(ts)
                     try:
                         slug = get_market_slug(sel, duration, ts)
@@ -1010,7 +1035,6 @@ class Bot:
                         pass
                     continue
 
-                # Subscribe now.
                 try:
                     slug = get_market_slug(sel, duration, ts)
                     slugs_to_add.append(slug)

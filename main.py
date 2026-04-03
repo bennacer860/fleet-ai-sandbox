@@ -26,7 +26,7 @@ from src.logging_config import setup_logging
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    from src.bot import Bot, LAZY_SUB_MIN_DURATION, LAZY_SUB_LEAD_S
+    from src.bot import Bot, LAZY_SUB_MIN_DURATION, LAZY_SUB_LEAD_S, GRACE_PERIOD_SECONDS
     from src.markets.fifteen_min import SUPPORTED_DURATIONS
     from src.utils.slug_helpers import slugs_for_timestamp
     from src.markets.fifteen_min import (
@@ -45,16 +45,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     for dur in durations:
         cur_ts = get_current_interval_utc(dur)
         nxt_ts = get_next_interval_utc(dur)
+        interval_s = dur * 60
 
-        # Apply lazy subscription: skip long-duration markets that are
-        # too far from expiry (they'll be added later by the sub manager).
         if dur >= LAZY_SUB_MIN_DURATION:
-            interval_s = dur * 60
             for ts in (cur_ts, nxt_ts):
                 end_time = ts + interval_s
                 if end_time - now <= LAZY_SUB_LEAD_S:
                     initial_slugs.extend(slugs_for_timestamp(markets, dur, ts))
         else:
+            prev_ts = cur_ts - interval_s
+            prev_end = prev_ts + interval_s
+            if now <= prev_end + GRACE_PERIOD_SECONDS:
+                initial_slugs.extend(slugs_for_timestamp(markets, dur, prev_ts))
             initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
             initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
 
