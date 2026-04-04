@@ -1,6 +1,6 @@
 import pytest
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.core.events import TickSizeChange, BookUpdate
 from src.core.models import Side
@@ -74,7 +74,9 @@ def test_tick_size_change_after_expiry(base_ctx, post_expiry_strategy):
         assert len(intents) == 1
         assert intents[0].side == Side.BUY
         assert intents[0].price == 0.999
+        assert intents[0].size == 5.0
         assert intents[0].token_id == "token_no"
+        assert intents[0].skip_dedup is True
         
         # It should stop watching after placing the order
         assert slug not in post_expiry_strategy._watching
@@ -119,7 +121,9 @@ def test_book_update_after_expiry(base_ctx, post_expiry_strategy):
         assert len(intents) == 1
         assert intents[0].side == Side.BUY
         assert intents[0].price == 0.999
+        assert intents[0].size == 5.0
         assert intents[0].token_id == "token_no"
+        assert intents[0].skip_dedup is True
         
         # It should stop watching
         assert slug not in post_expiry_strategy._watching
@@ -151,6 +155,8 @@ def test_poll_triggers_order_after_expiry(base_ctx, post_expiry_strategy):
     assert len(intents) == 1
     assert intents[0].side == Side.BUY
     assert intents[0].price == 0.999
+    assert intents[0].size == 5.0
+    assert intents[0].skip_dedup is True
 
 def test_no_proximity_filter_on_post_expiry(base_ctx, post_expiry_strategy):
     """Post-expiry orders should submit regardless of proximity to 1.0."""
@@ -175,3 +181,29 @@ def test_no_proximity_filter_on_post_expiry(base_ctx, post_expiry_strategy):
     assert intents is not None
     assert len(intents) == 1
     assert intents[0].side == Side.BUY
+    assert intents[0].size == 5.0
+    assert intents[0].skip_dedup is True
+
+
+def test_tick_size_change_after_expiry_coarse_tick_caps_price(base_ctx, post_expiry_strategy):
+    slug = "btc-updown-15m-1773541800"
+    base_ctx.tick_sizes["token_yes"] = 0.01
+    base_ctx.tick_sizes["token_no"] = 0.01
+
+    with patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10):
+        event = TickSizeChange(
+            condition_id="cond1",
+            slug=slug,
+            token_id="token_no",
+            old_tick_size="0.1",
+            new_tick_size="0.001"
+        )
+
+        import asyncio
+        intents = asyncio.run(post_expiry_strategy.on_tick_size_change(event, base_ctx))
+
+    assert intents is not None
+    assert len(intents) == 1
+    assert intents[0].price == 0.99
+    assert intents[0].size == 5.0
+    assert intents[0].skip_dedup is True

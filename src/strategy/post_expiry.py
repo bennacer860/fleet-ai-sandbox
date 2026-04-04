@@ -17,8 +17,7 @@ import asyncio
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
-from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug, detect_duration_from_slug
-from ..config import DEFAULT_TRADE_SIZE, TRADE_SIZE_60M, TRADE_SIZE_240M, TRADE_SIZE_1440M, AGGRESSIVE_POLL_INTERVAL_S
+from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug
 
 from .base import Strategy, StrategyContext
 
@@ -27,6 +26,7 @@ logger = get_logger(__name__)
 SWEEP_TICK_SIZE = "0.001"
 MAX_ORDER_PRICE = 0.999
 FALLBACK_MIN_ORDER_SIZE = 5.0
+END_MARKET_ORDER_SIZE = 5.0
 
 DEFAULT_PRICE_THRESHOLD = 0.99
 _ASSET_PRICE_THRESHOLD: dict[str, float] = {
@@ -192,21 +192,12 @@ class PostExpirySweepStrategy(Strategy):
             )
             return None
 
-        from ..config import POST_EXPIRY_MULTIPLIER
-        min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
-        
-        market_duration = detect_duration_from_slug(slug) or 15
-        _SIZE_BY_DURATION = {60: TRADE_SIZE_60M, 240: TRADE_SIZE_240M, 1440: TRADE_SIZE_1440M}
-        base_trade_size = _SIZE_BY_DURATION.get(market_duration, DEFAULT_TRADE_SIZE)
-        order_size = max(base_trade_size, min_size) * POST_EXPIRY_MULTIPLIER
-
-        all_tids = eval_data.get("token_ids", (best_token,))
-        tick_sizes = [ctx.tick_sizes.get(t, 0.01) for t in all_tids]
-        market_tick_size = min(tick_sizes)
-        safe_order_price = self._order_price if market_tick_size < 0.01 else min(self._order_price, 0.99)
+        order_size = END_MARKET_ORDER_SIZE
+        token_tick_size = ctx.tick_sizes.get(best_token, 0.01)
+        safe_order_price = 0.999 if token_tick_size < 0.01 else 0.99
 
         logger.info(
-            "[POST_EXPIRY] Expiration passed for %s. Winning outcome: %s @ %.3f → BUY %.4f x %.2f",
+            "[POST_EXPIRY] Expiration passed for %s. Winning outcome: %s @ %.3f → END_MARKET_ORDER BUY %.4f x %.2f",
             slug, best_outcome, best_price, safe_order_price, order_size,
         )
 
@@ -220,7 +211,8 @@ class PostExpirySweepStrategy(Strategy):
             side=Side.BUY,
             strategy=self.name(),
             slug=slug,
-            tick_size=market_tick_size,
+            tick_size=token_tick_size,
+            skip_dedup=True,
         )]
 
     def _get_eval(

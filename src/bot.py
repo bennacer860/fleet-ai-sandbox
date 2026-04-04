@@ -651,12 +651,15 @@ class Bot:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
             if intent.strategy == "post_expiry":
-                # Taxonomy focused on whether we fired immediately on a tick
-                # vs. watched until expiry and then submitted.
-                if isinstance(event, TickSizeChange):
-                    submission_source = "immediate_tick"
+                if intent.skip_dedup:
+                    submission_source = "end_market_order"
                 else:
-                    submission_source = "watched_expiry"
+                    # Taxonomy focused on whether we fired immediately on a tick
+                    # vs. watched until expiry and then submitted.
+                    if isinstance(event, TickSizeChange):
+                        submission_source = "immediate_tick"
+                    else:
+                        submission_source = "watched_expiry"
             else:
                 # Generic transport-oriented labels for other strategies.
                 if isinstance(event, TickSizeChange):
