@@ -31,9 +31,9 @@ sudo su - ec2-user -c '
     
     echo "Installing systemd units..."
     sudo cp deploy/polymarket-bot.service /etc/systemd/system/
-    sudo cp deploy/polymarket-bot-p1-gabagool.service /etc/systemd/system/
+    sudo cp deploy/polymarket-bot-p1-end-market.service /etc/systemd/system/
     sudo systemctl daemon-reload
-    sudo systemctl enable polymarket-bot polymarket-bot-p1-gabagool
+    sudo systemctl enable polymarket-bot polymarket-bot-p1-end-market
 
     # Clean up any legacy sessions from previous layouts.
     sudo -u ec2-user tmux kill-session -t bot || true
@@ -48,12 +48,12 @@ sudo su - ec2-user -c '
 
     echo "Restarting bot services..."
     sudo systemctl restart polymarket-bot
-    sudo systemctl restart polymarket-bot-p1-gabagool
+    sudo systemctl restart polymarket-bot-p1-end-market
     
     echo "Deployment complete! The bot is restarting."
     echo "To view profile dashboards, connect via SSM and run:"
     echo "  tmux attach -t bot-p2   # post_expiry (profile 2)"
-    echo "  tmux attach -t bot-p1   # gabagool (profile 1)"
+    echo "  tmux attach -t bot-p1   # end_market (profile 1)"
 '
 EOF
 )

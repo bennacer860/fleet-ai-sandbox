@@ -51,7 +51,7 @@ sudo -u ec2-user .venv/bin/pip install -r requirements.txt
 # 7. Copy systemd services and litestream config
 echo "Configuring services..."
 cp $APP_DIR/deploy/polymarket-bot.service /etc/systemd/system/
-cp $APP_DIR/deploy/polymarket-bot-p1-gabagool.service /etc/systemd/system/
+cp $APP_DIR/deploy/polymarket-bot-p1-end-market.service /etc/systemd/system/
 cp $APP_DIR/deploy/litestream.service /etc/systemd/system/
 mkdir -p /etc/litestream
 cp $APP_DIR/deploy/litestream.yml /etc/litestream/litestream.yml
@@ -83,7 +83,7 @@ systemctl enable log-sync.timer
 systemctl start log-sync.timer
 systemctl enable polymarket-bot
 systemctl start polymarket-bot
-systemctl enable polymarket-bot-p1-gabagool
-systemctl start polymarket-bot-p1-gabagool
+systemctl enable polymarket-bot-p1-end-market
+systemctl start polymarket-bot-p1-end-market
 
 echo "Bootstrap complete!"

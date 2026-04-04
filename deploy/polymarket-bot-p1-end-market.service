@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket Bot Profile 1 End Market (tmux)
+After=network.target litestream.service
+Requires=litestream.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/polymarket-bot
+EnvironmentFile=/opt/polymarket-bot/.env
+
+ExecStart=/usr/bin/bash -lc '/usr/bin/tmux has-session -t bot-p1 2>/dev/null || /usr/bin/tmux new-session -d -s bot-p1 -e "HOME=/home/ec2-user" '\''/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP DOGE HYPE BNB --durations 5 15 60 240 1440 --profile 1 --strategy end_market --tag p1-end-market --claim 40 --dashboard; exec bash'\'''
+ExecStop=/usr/bin/bash -lc '/usr/bin/tmux kill-session -t bot-p1 || true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

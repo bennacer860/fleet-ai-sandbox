@@ -58,6 +58,7 @@ from .strategy.base import Strategy, StrategyContext
 from .strategy.sweep import SweepStrategy
 from .strategy.post_expiry import PostExpirySweepStrategy
 from .strategy.aggressive_post_expiry import AggressivePostExpirySweepStrategy
+from .strategy.end_market import EndMarketStrategy
 from .utils.slug_helpers import slugs_for_timestamp
 from .utils.telegram_notifier import TelegramNotifier
 from .config import (
@@ -209,6 +210,12 @@ class Bot:
                 self.strategies = [
                     PostExpirySweepStrategy(
                         price_threshold=price_threshold,
+                        hot_tokens=self._hot_tokens,
+                    )
+                ]
+            elif strategy_name == "end_market":
+                self.strategies = [
+                    EndMarketStrategy(
                         hot_tokens=self._hot_tokens,
                     )
                 ]
@@ -650,7 +657,9 @@ class Bot:
     ) -> None:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
-            if intent.strategy == "post_expiry":
+            if intent.strategy == "end_market":
+                submission_source = "end_market_order"
+            elif intent.strategy == "post_expiry":
                 # Taxonomy focused on whether we fired immediately on a tick
                 # vs. watched until expiry and then submitted.
                 if isinstance(event, TickSizeChange):
