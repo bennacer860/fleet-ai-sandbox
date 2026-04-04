@@ -741,10 +741,13 @@ class Bot:
                         state.spot_price, state.strike_price,
                         state.proximity, state.spot_price_age_ms,
                     )
+                    source_tag = ""
+                    if state.submission_source == "end_market_order":
+                        source_tag = "  [bold magenta]END_MARKET_ORDER[/bold magenta]"
                     self.dashboard.push_event(
                         f"📤 [green]SUBMITTED[/green]  {display_slug}  "
                         f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}  "
-                        f"(bid={bid_str} ask={ask_str}){timing}{prox_str}"
+                        f"(bid={bid_str} ask={ask_str}){timing}{prox_str}{source_tag}"
                     )
             
             # Telegram notification for submission (only if not dry-run for cleaner feed)
