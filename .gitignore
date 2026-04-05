@@ -14,6 +14,9 @@ market_events.csv
 *.db-shm
 data/*.log*
 
+# Local collector pulls (large); fixtures live under tests/fixtures/
+data/collectors/*.jsonl.gz
+
 # Terraform
 .terraform/
 *.tfstate
