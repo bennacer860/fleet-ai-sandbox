@@ -136,7 +136,7 @@ This will generate charts and statistics showing bid activity patterns over time
 
 ### Multi-Event Monitoring
 
-Monitor multiple market events simultaneously with automatic market status tracking. See `MULTI_EVENT_MONITORING.md` for detailed documentation.
+Monitor multiple market events simultaneously with automatic market status tracking. See [`docs/features/MULTI_EVENT_MONITORING.md`](docs/features/MULTI_EVENT_MONITORING.md) for detailed documentation.
 
 **Monitor specific event slugs:**
 
@@ -165,7 +165,7 @@ Features:
 - Records `condition_id` and `raw_slug` for reliable cross-referencing with wallet trades
 - All data saved to a unified CSV (`sweeper_analysis.csv`) for analysis
 
-See `MULTI_EVENT_MONITORING.md` for complete usage examples and documentation.
+See [`docs/features/MULTI_EVENT_MONITORING.md`](docs/features/MULTI_EVENT_MONITORING.md) for complete usage examples and documentation.
 
 ### Wallet Trade Fetching
 

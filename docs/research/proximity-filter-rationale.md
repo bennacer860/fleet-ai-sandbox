@@ -139,5 +139,5 @@ margin to absorb this difference.
 
 ## Detailed Loss Analyses
 
-- [`xrp-updown-15m-1773304200-loss-analysis.md`](xrp-updown-15m-1773304200-loss-analysis.md)
-- [`eth-updown-5m-1773304800-loss-analysis.md`](eth-updown-5m-1773304800-loss-analysis.md)
+- [`xrp-updown-15m-1773304200-loss-analysis.md`](../postmortem/xrp-updown-15m-1773304200-loss-analysis.md)
+- [`eth-updown-5m-1773304800-loss-analysis.md`](../postmortem/eth-updown-5m-1773304800-loss-analysis.md)
