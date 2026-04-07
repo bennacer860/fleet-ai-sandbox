@@ -19,3 +19,4 @@ https://polymarket.com/@martynov014
 
 ### unknown 
 https://polymarket.com/@pbot-6
+https://polymarket.com/@frozenriver
