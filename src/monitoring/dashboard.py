@@ -250,20 +250,25 @@ class Dashboard:
         table.add_column("", width=3)
 
         if self._market_ws:
+            from ..markets.stocks import is_stock_slug
             active = [s for s, a in self._market_ws.market_active.items() if a]
-            
-            # Count active markets by duration
-            duration_counts = {}
+
+            duration_counts: dict[int, int] = {}
+            stock_count = 0
             for slug in active:
+                if is_stock_slug(slug):
+                    stock_count += 1
+                    continue
                 dur = detect_duration_from_slug(slug)
                 if dur:
                     duration_counts[dur] = duration_counts.get(dur, 0) + 1
-                    
-            # Build title string with breakdown
+
             count = len(active)
             breakdown_parts = []
             for dur in sorted(duration_counts.keys()):
                 breakdown_parts.append(f"{dur}m: {duration_counts[dur]}")
+            if stock_count:
+                breakdown_parts.append(f"stocks: {stock_count}")
             breakdown_str = " | ".join(breakdown_parts)
             title = f"MARKETS ({count} active"
             if breakdown_str:
