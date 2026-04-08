@@ -372,12 +372,18 @@ def extract_market_end_ts(slug: str) -> int | None:
     - 5m/15m/4h: ``{crypto}-updown-{5m|15m|4h}-{start_ts}``
     - 1h: ``{asset}-up-or-down-{month}-{day}-{year}-{hour}{am|pm}-et``
     - daily: ``{asset}-up-or-down-on-{month}{day}-{year}``
+    - stock daily: ``{ticker}-[opens-]up-or-down-on-{month}-{day}-{year}``
 
     Market end = start_ts + duration_seconds.
 
     Returns:
         End timestamp as int, or None if the slug cannot be parsed.
     """
+    from .stocks import is_stock_slug, parse_stock_slug_end_ts
+
+    if is_stock_slug(slug):
+        return parse_stock_slug_end_ts(slug)
+
     duration = detect_duration_from_slug(slug)
     if duration is None:
         return None

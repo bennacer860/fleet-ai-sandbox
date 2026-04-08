@@ -114,6 +114,7 @@ class Bot:
         persist: bool = True,
         fill_mode: str = "book",
         tag: str = "",
+        stock_tickers: list[str] | None = None,
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self._fill_mode = fill_mode
@@ -125,6 +126,8 @@ class Bot:
         self._slugs = slugs
         self._market_selections = market_selections or []
         self._durations = durations or sorted(SUPPORTED_DURATIONS)
+        self._stock_tickers: list[str] = [t.upper() for t in (stock_tickers or [])]
+        self._stock_tracked: set[str] = set()
 
         self._monitored_ts: dict[int, dict[str, set[int]]] = {
             dur: {sel: set() for sel in self._market_selections}
@@ -1122,6 +1125,61 @@ class Bot:
             for slug in slugs_to_remove:
                 self._eval_cache.pop(slug, None)
 
+    # ── Stock daily subscription management ───────────────────────────────
+
+    async def _manage_stock_subscriptions(self) -> None:
+        """Subscribe to daily stock open/close markets and rotate at date change."""
+        from datetime import date as _date
+
+        import pytz
+
+        from .markets.stocks import generate_stock_slugs_for_date
+
+        est = pytz.timezone("US/Eastern")
+
+        while True:
+            await asyncio.sleep(SUB_CHECK_INTERVAL)
+            now = int(time.time())
+
+            from datetime import datetime as _dt
+
+            today = _dt.now(est).date()
+
+            slugs_to_add: list[str] = []
+            slugs_to_remove: list[str] = []
+
+            for ticker in self._stock_tickers:
+                for slug in generate_stock_slugs_for_date(ticker, today):
+                    end_ts = extract_market_end_ts(slug)
+                    if end_ts is None:
+                        continue
+
+                    if slug in self._stock_tracked:
+                        if now > end_ts + GRACE_PERIOD_SECONDS:
+                            slugs_to_remove.append(slug)
+                            self._stock_tracked.discard(slug)
+                            logger.info("[STOCK_SUB] Removing expired stock market: %s", slug)
+                        continue
+
+                    if now > end_ts + GRACE_PERIOD_SECONDS:
+                        continue
+
+                    slugs_to_add.append(slug)
+                    self._stock_tracked.add(slug)
+                    logger.info("[STOCK_SUB] Adding stock market: %s", slug)
+
+            if slugs_to_add:
+                await self.market_ws.add_markets(slugs_to_add)
+                self._launch_prefetch(slugs_to_add)
+                if self.dashboard:
+                    for slug in slugs_to_add:
+                        self.dashboard.push_event(f"📍 STOCK_ADD  {slug}")
+
+            if slugs_to_remove:
+                await self.market_ws.remove_markets(slugs_to_remove)
+                for slug in slugs_to_remove:
+                    self._eval_cache.pop(slug, None)
+
     # ── Startup housekeeping ──────────────────────────────────────────────
 
     async def _startup_housekeeping(self) -> None:
@@ -1313,6 +1371,11 @@ class Bot:
         if self.auto_claimer:
             self._tasks.append(
                 asyncio.create_task(self._supervised_task("auto_claimer", self.auto_claimer.run))
+            )
+
+        if self._stock_tickers:
+            self._tasks.append(
+                asyncio.create_task(self._supervised_task("stock_sub", self._manage_stock_subscriptions))
             )
 
         try:

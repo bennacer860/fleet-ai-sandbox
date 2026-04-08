@@ -60,6 +60,18 @@ def cmd_run(args: argparse.Namespace) -> int:
             initial_slugs.extend(slugs_for_timestamp(markets, dur, cur_ts))
             initial_slugs.extend(slugs_for_timestamp(markets, dur, nxt_ts))
 
+    stock_tickers: list[str] = [t.upper() for t in args.stocks]
+    if stock_tickers:
+        from datetime import datetime as _dt
+        import pytz
+        from src.markets.stocks import generate_stock_slugs_for_date
+
+        est = pytz.timezone("US/Eastern")
+        today = _dt.now(est).date()
+
+        for ticker in stock_tickers:
+            initial_slugs.extend(generate_stock_slugs_for_date(ticker, today))
+
     if not initial_slugs:
         print("ERROR: No initial slugs generated. Check market/duration settings.")
         return 1
@@ -84,6 +96,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         persist=persist,
         fill_mode=args.fill_mode,
         tag=args.tag,
+        stock_tickers=stock_tickers,
     )
 
     bot.run_sync()
@@ -307,6 +320,10 @@ def main() -> int:
     run_parser.add_argument(
         "--tag", type=str, default="",
         help="Session tag applied to all orders, trades, and decisions for later filtering.",
+    )
+    run_parser.add_argument(
+        "--stocks", nargs="+", default=[],
+        help="Stock/ETF tickers for daily open/close markets (e.g. SPX TSLA AAPL)",
     )
 
     # ── health ─────────────────────────────────────────────────────────────
