@@ -18,7 +18,7 @@ from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
 from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug, detect_duration_from_slug
-from ..config import DEFAULT_TRADE_SIZE, TRADE_SIZE_60M, TRADE_SIZE_240M, TRADE_SIZE_1440M, AGGRESSIVE_POLL_INTERVAL_S
+from ..config import DEFAULT_TRADE_SIZE, TRADE_SIZE_60M, TRADE_SIZE_240M, TRADE_SIZE_1440M, TRADE_SIZE_STOCKS, AGGRESSIVE_POLL_INTERVAL_S
 
 from .base import Strategy, StrategyContext
 
@@ -193,11 +193,15 @@ class PostExpirySweepStrategy(Strategy):
             return None
 
         from ..config import POST_EXPIRY_MULTIPLIER
+        from ..markets.stocks import is_stock_slug
         min_size = eval_data.get("min_order_size", FALLBACK_MIN_ORDER_SIZE)
-        
-        market_duration = detect_duration_from_slug(slug) or 15
-        _SIZE_BY_DURATION = {60: TRADE_SIZE_60M, 240: TRADE_SIZE_240M, 1440: TRADE_SIZE_1440M}
-        base_trade_size = _SIZE_BY_DURATION.get(market_duration, DEFAULT_TRADE_SIZE)
+
+        if is_stock_slug(slug):
+            base_trade_size = TRADE_SIZE_STOCKS
+        else:
+            market_duration = detect_duration_from_slug(slug) or 15
+            _SIZE_BY_DURATION = {60: TRADE_SIZE_60M, 240: TRADE_SIZE_240M, 1440: TRADE_SIZE_1440M}
+            base_trade_size = _SIZE_BY_DURATION.get(market_duration, DEFAULT_TRADE_SIZE)
         order_size = max(base_trade_size, min_size) * POST_EXPIRY_MULTIPLIER
 
         all_tids = eval_data.get("token_ids", (best_token,))
