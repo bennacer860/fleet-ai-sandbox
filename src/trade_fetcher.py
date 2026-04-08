@@ -127,6 +127,26 @@ def fetch_trades_for_wallet(
     min_price: Optional[float] = None,
 ) -> list[dict[str, Any]]:
     """
+    Backward-compatible wrapper returning only trades.
+
+    For pagination/error metadata, use fetch_trades_for_wallet_with_meta().
+    """
+    trades, _ = fetch_trades_for_wallet_with_meta(
+        wallet=wallet,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        min_price=min_price,
+    )
+    return trades
+
+
+def fetch_trades_for_wallet_with_meta(
+    wallet: str,
+    start_ts: int,
+    end_ts: int,
+    min_price: Optional[float] = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """
     Fetch all trades for a wallet address within a date range from the Polymarket Data API.
 
     Paginates through the /trades endpoint, applies client-side date filtering,
@@ -140,12 +160,20 @@ def fetch_trades_for_wallet(
         min_price: Optional minimum price filter (e.g. 0.95 for sweep detection)
 
     Returns:
-        List of enriched trade dicts ready for CSV output.
+        Tuple of:
+          - List of enriched trade dicts ready for CSV output.
+          - Metadata dict with pagination/error details.
     """
     all_trades: list[dict[str, Any]] = []
     offset = 0
     est_tz = pytz_timezone("US/Eastern")
     utc_tz = pytz_timezone("UTC")
+    pages_fetched = 0
+    oldest_payload_ts: int | None = None
+    newest_payload_ts: int | None = None
+    api_error_status: int | None = None
+    api_error_message: str | None = None
+    api_error_offset: int | None = None
 
     logger.info(
         "Fetching trades: wallet=%s, start=%d, end=%d, min_price=%s",
@@ -172,11 +200,17 @@ def fetch_trades_for_wallet(
         try:
             resp = requests.get(url, params=params, timeout=60)
             resp.raise_for_status()
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as exc:
             logger.exception("API request failed at offset=%d", offset)
+            api_error_offset = offset
+            api_error_status = (
+                exc.response.status_code if getattr(exc, "response", None) is not None else None
+            )
+            api_error_message = str(exc)
             break
 
         data = resp.json()
+        pages_fetched += 1
         elapsed_ms = (time.perf_counter() - t0) * 1000
         logger.info(
             "Received %d trades (offset=%d, latency=%.0fms)",
@@ -211,6 +245,12 @@ def fetch_trades_for_wallet(
                         continue
             else:
                 continue
+
+            # Track payload bounds before client-side filters.
+            if oldest_payload_ts is None or trade_ts < oldest_payload_ts:
+                oldest_payload_ts = trade_ts
+            if newest_payload_ts is None or trade_ts > newest_payload_ts:
+                newest_payload_ts = trade_ts
 
             # Date range filter
             if trade_ts < start_ts or trade_ts > end_ts:
@@ -269,8 +309,21 @@ def fetch_trades_for_wallet(
         offset += DEFAULT_LIMIT
         time.sleep(RATE_LIMIT_DELAY)
 
+    possible_truncation = (
+        api_error_status == 400 and api_error_offset is not None and api_error_offset >= 3000
+    )
+    meta = {
+        "pages_fetched": pages_fetched,
+        "last_offset_attempted": api_error_offset if api_error_offset is not None else offset,
+        "api_error_status": api_error_status,
+        "api_error_message": api_error_message,
+        "api_error_offset": api_error_offset,
+        "possible_truncation": possible_truncation,
+        "oldest_payload_ts": oldest_payload_ts,
+        "newest_payload_ts": newest_payload_ts,
+    }
     logger.info("Total trades fetched and filtered: %d", len(all_trades))
-    return all_trades
+    return all_trades, meta
 
 
 def write_trades_csv(trades: list[dict[str, Any]], output_path: str) -> None:
