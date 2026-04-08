@@ -42,6 +42,18 @@ DEFAULT_S3_PREFIX = "research/trade-tracker"
 MAX_CONSECUTIVE_ERRORS = 10
 
 
+def _trade_dedup_key(trade: dict[str, Any]) -> tuple:
+    """Composite key for dedup since the Data API does not return a unique trade ID."""
+    return (
+        int(trade.get("timestamp", 0)),
+        str(trade.get("asset", "")),
+        float(trade.get("price", 0)),
+        float(trade.get("size", 0)),
+        str(trade.get("side", "")),
+        str(trade.get("transaction_hash", "")),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Duration parsing
 # ---------------------------------------------------------------------------
@@ -176,7 +188,7 @@ class TradeTracker:
             output_path = f"/tmp/tracker_{safe_user}_{int(time.time())}.csv"
         self.output_path = output_path
 
-        self._seen_ids: set[str] = set()
+        self._seen_keys: set[tuple] = set()
         self._trades: list[dict[str, Any]] = []
         self._dupes_filtered: int = 0
         self._polls: int = 0
@@ -218,13 +230,11 @@ class TradeTracker:
         self._consecutive_errors = 0
         new_count = 0
         for t in trades:
-            tid = str(t.get("id", ""))
-            if not tid:
-                continue
-            if tid in self._seen_ids:
+            key = _trade_dedup_key(t)
+            if key in self._seen_keys:
                 self._dupes_filtered += 1
                 continue
-            self._seen_ids.add(tid)
+            self._seen_keys.add(key)
             self._trades.append(t)
             new_count += 1
         return new_count
