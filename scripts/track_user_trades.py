@@ -31,7 +31,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from src.logging_config import get_logger, setup_logging
-from src.trade_fetcher import CSV_COLUMNS, fetch_trades_for_wallet_with_meta, write_trades_csv
+from src.trade_fetcher import CSV_COLUMNS, fetch_trades_for_wallet, write_trades_csv
 
 logger = get_logger(__name__)
 
@@ -202,7 +202,7 @@ class TradeTracker:
     def _poll_once(self, cursor_ts: int, now_ts: int) -> int:
         """Fetch trades for ``[cursor_ts, now_ts]``, deduplicate, return count of new trades."""
         try:
-            trades, _meta = fetch_trades_for_wallet_with_meta(
+            trades = fetch_trades_for_wallet(
                 wallet=self.user,
                 start_ts=cursor_ts,
                 end_ts=now_ts,
