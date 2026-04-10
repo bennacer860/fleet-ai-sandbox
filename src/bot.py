@@ -87,6 +87,7 @@ RETRY_BASE_DELAY = 5
 SUB_CHECK_INTERVAL = 10
 GRACE_PERIOD_SECONDS = 5 * 60
 BALANCE_REFRESH_INTERVAL_S = 30
+TELEGRAM_SUMMARY_INTERVAL_S = 20 * 60  # periodic Telegram digest
 
 # Lazy subscription: only subscribe to markets with duration >= this
 # threshold when they are within LAZY_SUB_LEAD_S of expiry.
@@ -301,30 +302,36 @@ class Bot:
             )
             if self.dashboard:
                 self.dashboard._auto_claimer = self.auto_claimer
-                # Push claim events to dashboard feed
-                dashboard_ref = self.dashboard
-                def _on_claim(title: str, balance: float | None, tx_hash: str) -> None:
-                    logger.info("[BOT] _on_claim callback triggered for %s (bal=%s)", title, balance)
-                    # Dashboard push (thread-safe for display)
+
+            dashboard_for_claim = self.dashboard
+
+            def _on_claim(title: str, balance: float | None, tx_hash: str) -> None:
+                logger.info("[BOT] _on_claim callback triggered for %s (bal=%s)", title, balance)
+                if dashboard_for_claim:
                     bal_str = f"  [dim]bal=${balance:.2f}[/dim]" if balance is not None else ""
-                    dashboard_ref.push_event(
+                    dashboard_for_claim.push_event(
                         f"💎 [bold green]CLAIMED[/bold green]  {title}{bal_str}  tx={tx_hash[:10]}…"
                     )
-                    
-                    # Telegram notification (must be thread-safe for asyncio)
-                    if self.telegram.enabled:
-                        bal_tele = f"\n💰 <b>Balance: ${balance:.2f}</b>" if balance is not None else ""
-                        body = (
-                            f"📦 <b>Market:</b> <code>{title}</code>\n"
-                            f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>"
-                            f"{bal_tele}"
-                        )
-                        msg = self._telegram_msg("🟢", "WINNINGS COLLECTED", body)
-                        logger.debug("[BOT] Sending claim notification to Telegram")
-                        asyncio.run_coroutine_threadsafe(self.telegram.push_message(msg), self.loop)
+
+                # Telegram (thread-safe for asyncio; works without dashboard)
+                if self.telegram.enabled:
+                    bal_tele = f"\n💰 <b>Balance: ${balance:.2f}</b>" if balance is not None else ""
+                    body = (
+                        f"📦 <b>Market:</b> <code>{title}</code>\n"
+                        f"🔗 <b>Tx:</b> <a href='https://polygonscan.com/tx/{tx_hash}'>{tx_hash[:10]}...</a>"
+                        f"{bal_tele}"
+                    )
+                    msg = self._telegram_msg("🟢", "WINNINGS COLLECTED", body)
+                    logger.debug("[BOT] Sending claim notification to Telegram")
+                    loop = getattr(self, "loop", None)
+                    if loop is not None and loop.is_running():
+                        asyncio.run_coroutine_threadsafe(self.telegram.push_message(msg), loop)
                     else:
-                        logger.debug("[BOT] Telegram disabled, skipping claim notification")
-                self.auto_claimer.on_claim = _on_claim
+                        logger.warning("[BOT] Event loop not running; skipping Telegram claim notify")
+                else:
+                    logger.debug("[BOT] Telegram disabled, skipping claim notification")
+
+            self.auto_claimer.on_claim = _on_claim
 
         if self.dashboard:
             self.dashboard.set_coverage_refs(
@@ -338,6 +345,7 @@ class Bot:
         self._metrics = Metrics.get()
         self._tasks: list[asyncio.Task[Any]] = []
         self._last_balance_refresh_mono: float = 0.0
+        self._tg_summary_last_stats: dict[str, int] = {}
 
     def _telegram_msg(self, color_emoji: str, title: str, body: str) -> str:
         """Build a Telegram message with profile and color indicator."""
@@ -543,6 +551,7 @@ class Bot:
 
         bus.subscribe(OrderFill, self.order_manager.on_order_fill)
         bus.subscribe(OrderFill, self._dashboard_on_fill)
+        bus.subscribe(OrderFill, self._telegram_on_fill)
         bus.subscribe(OrderLive, self.order_manager.on_order_live)
         bus.subscribe(OrderTerminal, self.order_manager.on_order_terminal)
         bus.subscribe(OrderTerminal, self._dashboard_on_terminal)
@@ -699,24 +708,30 @@ class Bot:
 
                 self.order_manager.re_persist(state)
 
-            if state is None and self.dashboard:
+            if state is None:
                 stats = self.order_manager.stats
-                if stats.get("dedup_skips", 0) > 0:
-                    self.dashboard.push_event(
-                        f"🛡️ [yellow]SKIP[/yellow]  {display_slug}  DEDUP: already ordered this session"
-                    )
-                elif stats.get("risk_blocks", 0) > 0:
-                    risk_reason = self.order_manager._last_risk_reason or "limit exceeded"
-                    self.dashboard.push_event(
-                        f"⚠️ [yellow]SKIP[/yellow]  {display_slug}  RISK: {risk_reason}"
-                    )
-                    # Telegram alert for risk block
-                    if self.telegram.enabled:
-                        body = (
-                            f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
-                            f"🚫 <b>Reason:</b> <code>{risk_reason}</code>"
+                is_dedup = stats.get("dedup_skips", 0) > 0
+                is_risk = stats.get("risk_blocks", 0) > 0
+                if self.dashboard:
+                    if is_dedup:
+                        self.dashboard.push_event(
+                            f"🛡️ [yellow]SKIP[/yellow]  {display_slug}  DEDUP: already ordered this session"
                         )
-                        await self.telegram.push_message(self._telegram_msg("⚠️", "ORDER RISK BLOCKED", body))
+                    elif is_risk:
+                        risk_reason = self.order_manager._last_risk_reason or "limit exceeded"
+                        self.dashboard.push_event(
+                            f"⚠️ [yellow]SKIP[/yellow]  {display_slug}  RISK: {risk_reason}"
+                        )
+                # Telegram for risk blocks (no dashboard required; mirror elif dedup vs risk)
+                if is_risk and not is_dedup and self.telegram.enabled:
+                    risk_reason = self.order_manager._last_risk_reason or "limit exceeded"
+                    body = (
+                        f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
+                        f"🚫 <b>Reason:</b> <code>{risk_reason}</code>"
+                    )
+                    await self.telegram.push_message(
+                        self._telegram_msg("⚠️", "ORDER RISK BLOCKED", body)
+                    )
                 continue
 
             if state and self.dashboard:
@@ -755,22 +770,6 @@ class Bot:
                         f"{intent.side.value} {intent.price:.4f} x {intent.size:.2f}  "
                         f"(bid={bid_str} ask={ask_str}){timing}{prox_str}"
                     )
-            
-            # Telegram notification for submission (only if not dry-run for cleaner feed)
-            if state and not self.dry_run:
-                if state.is_terminal:
-                    reason = self._clean_reason(state.rejection_reason or state.status.value)
-                    body = (
-                        f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
-                        f"❌ <b>Reason:</b> <code>{reason}</code>"
-                    )
-                    await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {state.status.value}", body))
-                else:
-                    body = (
-                        f"📍 <b>Market:</b> <code>{display_slug}</code>\n"
-                        f"🔄 <b>{intent.side.value}</b>: ${intent.price:.4f} × {intent.size:.2f} shares"
-                    )
-                    await self.telegram.push_message(self._telegram_msg("🟡", "ORDER SUBMITTED", body))
 
             if state and not state.is_terminal:
                 self.position_tracker.register_order(
@@ -860,7 +859,19 @@ class Bot:
                 is_final_fill=(label == "FILLED"),
             )
 
-        # Telegram notification
+    async def _telegram_on_fill(self, event: OrderFill) -> None:
+        """Telegram for fills/partials; independent of dashboard (race-safe label)."""
+        if not self.telegram.enabled:
+            return
+        state = self.order_manager.active_orders.get(event.order_id)
+        if not state:
+            return
+        slug = state.intent.slug
+        display = format_slug_with_est_time(slug)
+        thresh = state.intent.size * 0.99
+        fs = state.filled_size
+        eff = fs + event.fill_size
+        label = "FILLED" if (fs >= thresh or eff >= thresh) else "PARTIAL"
         body = (
             f"📍 <b>Market:</b> <code>{display}</code>\n"
             f"💵 <b>Price:</b> ${event.fill_price:.4f}\n"
@@ -879,15 +890,6 @@ class Bot:
         self.dashboard.push_event(
             f"[red]{event.status.value}[/red]  {display}  {reason}"
         )
-
-        # Telegram notification
-        body = (
-            f"📍 <b>Market:</b> <code>{display}</code>\n"
-            f"❌ <b>Reason:</b> <code>{reason}</code>"
-        )
-        # Suppress noisy alerts for force-expired stale orders.
-        if event.status != OrderStatus.EXPIRED_STALE:
-            await self.telegram.push_message(self._telegram_msg("🔴", f"ORDER {event.status.value}", body))
 
     # ── Context maintenance ───────────────────────────────────────────────
 
@@ -962,6 +964,47 @@ class Bot:
                         self._last_balance_refresh_mono = now_mono
                     except Exception:
                         logger.warning("[METRICS] Failed to refresh account balance", exc_info=True)
+
+    async def _telegram_summary_loop(self) -> None:
+        """Periodic Telegram digest: order stats deltas since last tick and balance."""
+        while True:
+            await asyncio.sleep(TELEGRAM_SUMMARY_INTERVAL_S)
+            if not self.telegram.enabled:
+                continue
+            try:
+                cur = self.order_manager.stats
+                prev = self._tg_summary_last_stats
+                keys = set(cur) | set(prev)
+                deltas = {k: cur.get(k, 0) - prev.get(k, 0) for k in keys}
+                self._tg_summary_last_stats = dict(cur)
+
+                balance_text = "n/a"
+                if not self.dry_run:
+                    try:
+                        bal = await self.rest_client.fetch_balance()
+                        balance_text = f"${bal:,.2f}"
+                    except Exception:
+                        logger.warning(
+                            "[TELEGRAM_SUMMARY] Failed to refresh balance",
+                            exc_info=True,
+                        )
+                        balance_text = "(fetch error)"
+
+                window_m = TELEGRAM_SUMMARY_INTERVAL_S // 60
+                body = (
+                    f"⏱ <b>Window:</b> last {window_m} min\n"
+                    f"📤 <b>Submitted:</b> {deltas.get('submitted', 0)}  "
+                    f"🛑 <b>Rejected:</b> {deltas.get('rejected', 0)}  "
+                    f"⚠️ <b>Failed:</b> {deltas.get('failed', 0)}\n"
+                    f"🎯 <b>Filled:</b> {deltas.get('filled', 0)}  "
+                    f"🌓 <b>Partial fills:</b> {deltas.get('partial', 0)}\n"
+                    f"💰 <b>Balance:</b> {balance_text}"
+                )
+                await self.telegram.push_message(
+                    self._telegram_msg("📈", "SESSION SUMMARY", body)
+                )
+            except Exception:
+                logger.exception("[TELEGRAM_SUMMARY] Failed to send digest")
 
     # ── Subscription management (market rolling) ───────────────────────────
 
@@ -1346,6 +1389,13 @@ class Bot:
             asyncio.create_task(self._supervised_task("sub_manager", self._manage_subscriptions)),
             asyncio.create_task(self._supervised_task("strategy_poll", self._strategy_poll_loop)),
         ]
+
+        if self.telegram.enabled:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._supervised_task("telegram_summary", self._telegram_summary_loop)
+                )
+            )
 
         if not self.dry_run:
             self._tasks.append(
