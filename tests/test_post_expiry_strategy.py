@@ -175,3 +175,60 @@ def test_no_proximity_filter_on_post_expiry(base_ctx, post_expiry_strategy):
     assert intents is not None
     assert len(intents) == 1
     assert intents[0].side == Side.BUY
+
+
+def test_post_expiry_proximity_guard_blocks_close_expiry(base_ctx, post_expiry_strategy):
+    slug = "btc-updown-15m-1773541800"
+    base_ctx.eval_cache[slug]["price_to_beat"] = 100.0
+    base_ctx.crypto_prices["BTC"] = 100.01  # 0.01% away
+    base_ctx.crypto_price_ts["BTC"] = time.monotonic()
+    base_ctx.tick_sizes["token_yes"] = 0.001
+    base_ctx.tick_sizes["token_no"] = 0.001
+
+    with (
+        patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10),
+        patch("src.strategy.post_expiry.PROXIMITY_FILTER_ENABLED", True),
+        patch("src.strategy.post_expiry.PROXIMITY_MIN_DISTANCE", 0.001),  # 0.1%
+    ):
+        event = TickSizeChange(
+            condition_id="cond1",
+            slug=slug,
+            token_id="token_no",
+            old_tick_size="0.01",
+            new_tick_size="0.001",
+        )
+
+        import asyncio
+        intents = asyncio.run(post_expiry_strategy.on_tick_size_change(event, base_ctx))
+
+    assert intents is None
+    assert post_expiry_strategy.last_skip_reason is not None
+    assert "proximity" in post_expiry_strategy.last_skip_reason.lower()
+
+
+def test_post_expiry_proximity_guard_allows_non_close_expiry(base_ctx, post_expiry_strategy):
+    slug = "btc-updown-15m-1773541800"
+    base_ctx.eval_cache[slug]["price_to_beat"] = 100.0
+    base_ctx.crypto_prices["BTC"] = 101.0  # 1.0% away
+    base_ctx.crypto_price_ts["BTC"] = time.monotonic()
+    base_ctx.tick_sizes["token_yes"] = 0.001
+    base_ctx.tick_sizes["token_no"] = 0.001
+
+    with (
+        patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10),
+        patch("src.strategy.post_expiry.PROXIMITY_FILTER_ENABLED", True),
+        patch("src.strategy.post_expiry.PROXIMITY_MIN_DISTANCE", 0.001),  # 0.1%
+    ):
+        event = TickSizeChange(
+            condition_id="cond1",
+            slug=slug,
+            token_id="token_no",
+            old_tick_size="0.01",
+            new_tick_size="0.001",
+        )
+
+        import asyncio
+        intents = asyncio.run(post_expiry_strategy.on_tick_size_change(event, base_ctx))
+
+    assert intents is not None
+    assert len(intents) == 1

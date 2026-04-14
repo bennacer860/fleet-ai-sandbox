@@ -3,10 +3,6 @@
 Detects when a market's tick size drops to 0.001.
 Waits until just after the market's expiration time.
 Buys the most expensive token (the one that won the market).
-
-Post-expiry orders intentionally bypass any proximity / distance
-filtering — the only gate is that the market must be past its
-expiration timestamp.
 """
 
 from __future__ import annotations
@@ -18,7 +14,17 @@ from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
 from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug, detect_duration_from_slug
-from ..config import DEFAULT_TRADE_SIZE, TRADE_SIZE_60M, TRADE_SIZE_240M, TRADE_SIZE_1440M, TRADE_SIZE_STOCKS, AGGRESSIVE_POLL_INTERVAL_S
+from ..utils.market_data import fetch_strike_price
+from ..config import (
+    DEFAULT_TRADE_SIZE,
+    TRADE_SIZE_60M,
+    TRADE_SIZE_240M,
+    TRADE_SIZE_1440M,
+    TRADE_SIZE_STOCKS,
+    AGGRESSIVE_POLL_INTERVAL_S,
+    PROXIMITY_FILTER_ENABLED,
+    PROXIMITY_MIN_DISTANCE,
+)
 
 from .base import Strategy, StrategyContext
 
@@ -37,6 +43,7 @@ _ASSET_PRICE_THRESHOLD: dict[str, float] = {
 
 class PostExpirySweepStrategy(Strategy):
     """Buys the winning token just after expiration if tick size is 0.001."""
+    _STALE_THRESHOLD_MS = 10_000
 
     def __init__(
         self,
@@ -51,6 +58,10 @@ class PostExpirySweepStrategy(Strategy):
         self.last_skip_reason: str | None = None
         self.last_watching: bool = False
         self.last_best_price: float | None = None
+        self.last_spot_price: float | None = None
+        self.last_price_to_beat: float | None = None
+        self.last_proximity: float | None = None
+        self.last_price_age_ms: float | None = None
         self._ordered_slugs: set[str] = set()
 
     def name(self) -> str:
@@ -62,6 +73,10 @@ class PostExpirySweepStrategy(Strategy):
         self.last_skip_reason = None
         self.last_watching = False
         self.last_best_price = None
+        self.last_spot_price = None
+        self.last_price_to_beat = None
+        self.last_proximity = None
+        self.last_price_age_ms = None
 
         if event.new_tick_size != SWEEP_TICK_SIZE:
             self.last_skip_reason = f"not a sweep signal (tick_size={event.new_tick_size})"
@@ -191,6 +206,57 @@ class PostExpirySweepStrategy(Strategy):
                 slug, best_outcome, best_price, threshold,
             )
             return None
+
+        if PROXIMITY_FILTER_ENABLED:
+            price_to_beat = eval_data.get("price_to_beat")
+            if price_to_beat is None:
+                price_to_beat = fetch_strike_price(slug)
+                if price_to_beat is not None:
+                    eval_data["price_to_beat"] = price_to_beat
+                    logger.info("[POST_EXPIRY] Lazy strike fetch succeeded for %s: $%.6f", slug, price_to_beat)
+                else:
+                    self.last_skip_reason = "proximity guard: strike unavailable"
+                    logger.info("[POST_EXPIRY] %s: SKIP — %s", slug, self.last_skip_reason)
+                    return None
+
+            self.last_price_to_beat = price_to_beat
+            spot = ctx.crypto_prices.get(asset) if asset else None
+            ts = ctx.crypto_price_ts.get(asset) if asset else None
+            stale = False
+
+            if ts is not None:
+                self.last_price_age_ms = (time.monotonic() - ts) * 1000
+                stale = self.last_price_age_ms > self._STALE_THRESHOLD_MS
+
+            if spot is None:
+                self.last_skip_reason = "proximity guard: spot unavailable"
+                logger.info("[POST_EXPIRY] %s: SKIP — %s", slug, self.last_skip_reason)
+                return None
+
+            self.last_spot_price = spot
+
+            if stale:
+                self.last_skip_reason = (
+                    f"proximity guard: spot stale ({self.last_price_age_ms:.0f}ms old > {self._STALE_THRESHOLD_MS}ms)"
+                )
+                logger.info("[POST_EXPIRY] %s: SKIP — %s", slug, self.last_skip_reason)
+                return None
+
+            if price_to_beat <= 0:
+                self.last_skip_reason = "proximity guard: invalid strike"
+                logger.info("[POST_EXPIRY] %s: SKIP — %s", slug, self.last_skip_reason)
+                return None
+
+            self.last_proximity = abs(spot - price_to_beat) / price_to_beat
+            if self.last_proximity < PROXIMITY_MIN_DISTANCE:
+                self.last_skip_reason = (
+                    f"proximity {self.last_proximity:.4%} < {PROXIMITY_MIN_DISTANCE:.4%}"
+                )
+                logger.info(
+                    "[POST_EXPIRY] %s: SKIP — %s (spot=$%.6f strike=$%.6f)",
+                    slug, self.last_skip_reason, spot, price_to_beat,
+                )
+                return None
 
         from ..config import POST_EXPIRY_MULTIPLIER
         from ..markets.stocks import is_stock_slug
