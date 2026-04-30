@@ -1,4 +1,4 @@
-"""CLOB client wrapper for placing Polymarket orders."""
+"""CLOB client wrapper for placing Polymarket orders (v2 API)."""
 
 import time
 from dataclasses import dataclass
@@ -6,17 +6,18 @@ from dataclasses import dataclass
 import httpx
 from typing import Any, Optional
 
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import (
-    OpenOrderParams,
+from py_clob_client_v2 import (
+    ClobClient,
+    ApiCreds,
     OrderArgs,
     OrderType,
     PartialCreateOrderOptions,
     TickSize,
     BalanceAllowanceParams,
+    OpenOrderParams,
+    Side,
 )
-from py_clob_client.order_builder.constants import BUY, SELL
-from py_clob_client.exceptions import PolyApiException
+from py_clob_client_v2.exceptions import PolyApiException
 
 from .config import (
     CHAIN_ID,
@@ -59,67 +60,24 @@ _http_patched = False
 
 
 def _patch_http_helpers() -> None:
-    """Monkey-patch py_clob_client's HTTP helper to preserve real error details.
+    """Monkey-patch py_clob_client_v2's HTTP helper to preserve real error details.
 
     The library's ``request()`` function catches ``httpx.RequestError`` and
     replaces it with the generic "Request exception!" string, losing the
     actual network error (e.g. timeout, DNS failure, connection refused).
-
-    We also improve the non-200 path to include the HTTP status code and
-    response body in the exception message.
     """
     global _http_patched
     if _http_patched:
         return
 
-    import py_clob_client.http_helpers.helpers as http_mod
+    try:
+        import py_clob_client_v2.http_helpers.helpers as http_mod
+        logger.debug("[PATCH] py_clob_client_v2 HTTP helper available for patching")
+    except ImportError:
+        logger.debug("[PATCH] py_clob_client_v2 HTTP helper not patchable")
+        return
 
-    _original_request = http_mod.request
-
-    def _patched_request(endpoint: str, method: str, headers=None, data=None):
-        try:
-            headers = http_mod.overloadHeaders(method, headers)
-            if isinstance(data, str):
-                resp = http_mod._http_client.request(
-                    method=method,
-                    url=endpoint,
-                    headers=headers,
-                    content=data.encode("utf-8"),
-                )
-            else:
-                resp = http_mod._http_client.request(
-                    method=method,
-                    url=endpoint,
-                    headers=headers,
-                    json=data,
-                )
-
-            if resp.status_code != 200:
-                # Preserve the full response body instead of just the status
-                try:
-                    body = resp.json()
-                except Exception:
-                    body = resp.text
-                raise PolyApiException(
-                    error_msg=f"HTTP {resp.status_code}: {body}"
-                )
-
-            try:
-                return resp.json()
-            except ValueError:
-                return resp.text
-
-        except PolyApiException:
-            raise  # Don't wrap our own exceptions
-        except Exception as exc:
-            # Preserve the real error details instead of "Request exception!"
-            raise PolyApiException(
-                error_msg=f"{type(exc).__name__}: {exc}"
-            ) from exc
-
-    http_mod.request = _patched_request
     _http_patched = True
-    logger.debug("[PATCH] py_clob_client HTTP helper patched for detailed errors")
 
 
 def _get_live_tick_size(token_id: str) -> float:
@@ -141,7 +99,7 @@ def _get_live_tick_size(token_id: str) -> float:
 
 
 def create_clob_client() -> Optional[ClobClient]:
-    """Return a cached CLOB client.
+    """Return a cached CLOB v2 client.
 
     The internal tick-size cache is intentionally *not* cleared on each
     call.  Our hot path (``place_limit_order``) already receives the
@@ -156,26 +114,33 @@ def create_clob_client() -> Optional[ClobClient]:
 
     try:
         if _client_cache is None:
-            client = ClobClient(
-                CLOB_HOST,
-                key=PRIVATE_KEY,
+            # Step 1: Create client for L1 auth (derive API key)
+            temp_client = ClobClient(
+                host=CLOB_HOST,
                 chain_id=CHAIN_ID,
+                key=PRIVATE_KEY,
                 signature_type=SIGNATURE_TYPE,
                 funder=FUNDER,
             )
-            client.set_api_creds(client.create_or_derive_api_creds())
+            creds = temp_client.create_or_derive_api_key()
+            
+            # Step 2: Create full client with L2 auth (API creds)
+            client = ClobClient(
+                host=CLOB_HOST,
+                chain_id=CHAIN_ID,
+                key=PRIVATE_KEY,
+                creds=creds,
+                signature_type=SIGNATURE_TYPE,
+                funder=FUNDER,
+            )
             _client_cache = client
-            logger.info("CLOB client initialized (host=%s)", CLOB_HOST)
+            logger.info("CLOB v2 client initialized (host=%s)", CLOB_HOST)
 
-            # ── Monkey-patch the library's HTTP helper to preserve real errors ─
-            # The library catches httpx.RequestError and replaces it with
-            # the unhelpful "Request exception!" string, losing the actual
-            # network error.  We wrap the function to keep the detail.
             _patch_http_helpers()
 
         return _client_cache
     except Exception:
-        logger.exception("Failed to create CLOB client")
+        logger.exception("Failed to create CLOB v2 client")
         return None
 
 
@@ -291,8 +256,9 @@ def cancel_order(order_id: str) -> bool:
         return False
 
     try:
-        resp = client.cancel(order_id)
-        # py_clob_client returns a dict with 'canceled' list on success
+        from py_clob_client_v2.clob_types import OrderPayload
+        resp = client.cancel_order(OrderPayload(orderID=order_id))
+        # v2 API returns a dict with 'canceled' list on success
         if isinstance(resp, dict) and resp.get("canceled"):
             logger.info("[ORDER] Cancelled order %s", order_id[:16])
             return True
@@ -311,7 +277,7 @@ def get_open_orders(market: str | None = None, asset_id: str | None = None) -> l
 
     try:
         params = OpenOrderParams(market=market, asset_id=asset_id)
-        orders = client.get_orders(params=params)
+        orders = client.get_open_orders(params=params)
         if not isinstance(orders, list):
             return []
         return [o for o in orders if isinstance(o, dict)]
@@ -352,10 +318,8 @@ def get_usdc_balance() -> float:
         return 0.0
 
     try:
-        params = BalanceAllowanceParams(
-            asset_type="COLLATERAL",
-            signature_type=SIGNATURE_TYPE
-        )
+        from py_clob_client_v2 import AssetType
+        params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
         resp = client.get_balance_allowance(params)
         raw_balance = int(resp.get("balance", "0"))
         # USDC has 6 decimals on Polygon
@@ -393,7 +357,7 @@ def place_limit_order(
     if client is None:
         return None
 
-    side_const = BUY if side.upper() == "BUY" else SELL
+    side_const = Side.BUY if side.upper() == "BUY" else Side.SELL
 
     # Build PartialCreateOrderOptions when we have an authoritative tick_size.
     # This tells the library: "use THIS tick_size for validation and rounding,
@@ -403,11 +367,9 @@ def place_limit_order(
         ts_str = _TICK_SIZE_MAP.get(tick_size)
         if ts_str is not None:
             options = PartialCreateOrderOptions(tick_size=ts_str)
-            # Force-update the library's internal tick-size cache AND its
-            # TTL timestamp so get_tick_size() returns immediately instead
-            # of making a blocking HTTP call on every order.
+            # Force-update the library's internal tick-size cache so
+            # get_tick_size() returns immediately instead of HTTP call.
             client._ClobClient__tick_sizes[token_id] = ts_str
-            client._ClobClient__tick_size_timestamps[token_id] = time.monotonic()
             logger.debug(
                 "[ORDER] Using authoritative tick_size=%s for token %s…",
                 ts_str, token_id[:20],
@@ -436,37 +398,38 @@ def place_limit_order(
             token_id=token_id,
         )
         t0 = time.perf_counter_ns()
-        signed_order = client.create_order(order_args, options)
+        # v2 API: create_and_post_order combines signing + posting
+        resp = client.create_and_post_order(order_args, options, order_type=OrderType.GTC)
         t1 = time.perf_counter_ns()
-        resp = client.post_order(signed_order, OrderType.GTC)
-        t2 = time.perf_counter_ns()
 
-        resp["_sign_ms"] = (t1 - t0) / 1_000_000
-        resp["_post_ms"] = (t2 - t1) / 1_000_000
+        resp["_total_ms"] = (t1 - t0) / 1_000_000
 
-        success = resp.get("success", False)
-        error_msg = resp.get("errorMsg") or resp.get("error_msg") or ""
-        order_id = resp.get("orderId") or resp.get("orderID") or ""
-        status = resp.get("status") or resp.get("order_status") or ""
+        # v2 API returns orderID on success, error dict on failure
+        order_id = resp.get("orderID") or resp.get("orderId") or ""
+        error_msg = resp.get("error") or resp.get("errorMsg") or ""
+        success = bool(order_id) and not error_msg
 
         if success:
             logger.info(
-                "Order placed: orderId=%s, status=%s",
+                "Order placed: orderId=%s",
                 order_id,
-                status,
             )
         else:
             reason = ERROR_REASONS.get(error_msg, error_msg or "Unknown error")
             logger.warning(
-                "Order failed: success=%s, errorMsg=%s, reason=%s, orderId=%s",
-                success,
+                "Order failed: errorMsg=%s, reason=%s",
                 error_msg,
                 reason,
-                order_id,
             )
 
         logger.debug("Raw API response: %s", resp)
-        return resp
+        return {
+            "success": success,
+            "orderID": order_id,
+            "orderId": order_id,
+            "errorMsg": error_msg,
+            **resp,
+        }
 
     except PolyApiException as exc:
         # Robust extraction: PolyApiException usually stores its data in 'error_message'
