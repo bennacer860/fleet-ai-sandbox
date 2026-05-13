@@ -88,9 +88,39 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_NOTIFICATIONS_ENABLED = os.getenv("TELEGRAM_NOTIFICATIONS_ENABLED", "true").lower() in ("true", "1", "yes")
 TELEGRAM_ENABLED = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID and TELEGRAM_NOTIFICATIONS_ENABLED)
 
-# Proximity filter (Binance WS spot price vs. Polymarket strike price)
+# Proximity filter (Binance WS spot price vs. strike price)
+# Global defaults — applied to any strategy that doesn't have its own override.
 PROXIMITY_FILTER_ENABLED = os.getenv("PROXIMITY_FILTER_ENABLED", "false").lower() in ("true", "1", "yes")
 PROXIMITY_MIN_DISTANCE = float(os.getenv("PROXIMITY_MIN_DISTANCE", "0.0005"))
+PROXIMITY_STALE_THRESHOLD_MS = float(os.getenv("PROXIMITY_STALE_THRESHOLD_MS", "10000"))
+PROXIMITY_BLOCK_MISSING_STRIKE = os.getenv("PROXIMITY_BLOCK_MISSING_STRIKE", "false").lower() in ("true", "1", "yes")
+PROXIMITY_BLOCK_MISSING_SPOT = os.getenv("PROXIMITY_BLOCK_MISSING_SPOT", "false").lower() in ("true", "1", "yes")
+
+# Per-strategy proximity overrides.
+# Env pattern: {STRATEGY}_PROXIMITY_FILTER_ENABLED, {STRATEGY}_PROXIMITY_MIN_DISTANCE, etc.
+# e.g. SWEEP_PROXIMITY_FILTER_ENABLED=true, POST_EXPIRY_PROXIMITY_MIN_DISTANCE=0.002
+def _bool_env(key: str, default: bool) -> bool:
+    val = os.getenv(key)
+    if val is None:
+        return default
+    return val.lower() in ("true", "1", "yes")
+
+def _float_env(key: str, default: float) -> float:
+    val = os.getenv(key)
+    if val is None:
+        return default
+    return float(val)
+
+def get_proximity_config(strategy: str) -> dict:
+    """Return proximity settings for a strategy, falling back to globals."""
+    prefix = strategy.upper()
+    return {
+        "enabled": _bool_env(f"{prefix}_PROXIMITY_FILTER_ENABLED", PROXIMITY_FILTER_ENABLED),
+        "min_distance": _float_env(f"{prefix}_PROXIMITY_MIN_DISTANCE", PROXIMITY_MIN_DISTANCE),
+        "stale_threshold_ms": _float_env(f"{prefix}_PROXIMITY_STALE_THRESHOLD_MS", PROXIMITY_STALE_THRESHOLD_MS),
+        "block_missing_strike": _bool_env(f"{prefix}_PROXIMITY_BLOCK_MISSING_STRIKE", PROXIMITY_BLOCK_MISSING_STRIKE),
+        "block_missing_spot": _bool_env(f"{prefix}_PROXIMITY_BLOCK_MISSING_SPOT", PROXIMITY_BLOCK_MISSING_SPOT),
+    }
 
 # Aggressive post-expiry strategy
 AGGRESSIVE_POLL_INTERVAL_S = float(os.getenv("AGGRESSIVE_POLL_INTERVAL_S", "0.3"))
