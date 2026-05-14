@@ -55,6 +55,11 @@ from .markets.fifteen_min import (
 )
 from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
+from .strategy.proximity import (
+    NoOpProximityCalculator,
+    ProximityCalculator,
+    SimpleProximityCalculator,
+)
 from .strategy.sweep import SweepStrategy
 from .strategy.post_expiry import PostExpirySweepStrategy
 from .strategy.aggressive_post_expiry import AggressivePostExpirySweepStrategy
@@ -77,10 +82,24 @@ from .config import (
     TELEGRAM_ENABLED,
     STARTUP_CANCEL_OPEN_ORDERS,
     STARTUP_RECONCILE_POSITIONS,
-
+    get_proximity_config,
 )
 
 logger = get_logger(__name__)
+
+
+def _build_proximity_calculator(strategy_name: str) -> ProximityCalculator:
+    """Build the right ProximityCalculator for *strategy_name* from env config."""
+    cfg = get_proximity_config(strategy_name)
+    if not cfg["enabled"]:
+        return NoOpProximityCalculator()
+    return SimpleProximityCalculator(
+        min_distance=cfg["min_distance"],
+        stale_threshold_ms=cfg["stale_threshold_ms"],
+        block_on_missing_strike=cfg["block_missing_strike"],
+        block_on_missing_spot=cfg["block_missing_spot"],
+    )
+
 
 MAX_RETRIES = 10
 RETRY_BASE_DELAY = 5
@@ -210,11 +229,13 @@ class Bot:
         if strategies:
             self.strategies = strategies
         else:
+            prox = _build_proximity_calculator(strategy_name)
             if strategy_name == "post_expiry":
                 self.strategies = [
                     PostExpirySweepStrategy(
                         price_threshold=price_threshold,
                         hot_tokens=self._hot_tokens,
+                        proximity_calculator=prox,
                     )
                 ]
             elif strategy_name == "end_market":
@@ -246,6 +267,7 @@ class Bot:
                         price_threshold=price_threshold,
                         early_tick_threshold=early_tick_threshold,
                         hot_tokens=self._hot_tokens,
+                        proximity_calculator=prox,
                     )
                 ]
 

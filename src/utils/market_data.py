@@ -25,6 +25,7 @@ logger = get_logger(__name__)
 FALLBACK_MIN_ORDER_SIZE: float = 5.0
 
 _BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+_BYBIT_KLINES = "https://api.bybit.com/v5/market/kline"
 
 _ASSET_TO_SYMBOL: dict[str, str] = {
     "BTC": "BTCUSDT",
@@ -36,13 +37,68 @@ _ASSET_TO_SYMBOL: dict[str, str] = {
     "BNB": "BNBUSDT",
 }
 
+_BYBIT_ASSETS: set[str] = {"HYPE"}
+
+
+def _fetch_binance_kline(symbol: str, start_ms: int, slug: str, timeout: float) -> float | None:
+    """Fetch a 1m kline open price from Binance."""
+    try:
+        resp = requests.get(
+            _BINANCE_KLINES,
+            params={"symbol": symbol, "interval": "1m", "startTime": start_ms, "limit": 1},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        klines = resp.json()
+        if klines and len(klines) > 0:
+            return float(klines[0][1])
+        logger.warning("[STRIKE] Binance returned empty klines for %s (symbol=%s, startTime=%d)", slug, symbol, start_ms)
+    except requests.exceptions.Timeout:
+        logger.warning("[STRIKE] Binance kline request timed out after %.1fs for %s (symbol=%s)", timeout, slug, symbol)
+    except requests.exceptions.HTTPError as exc:
+        logger.warning(
+            "[STRIKE] Binance kline HTTP %s for %s (symbol=%s, startTime=%d): %s",
+            exc.response.status_code if exc.response is not None else "?",
+            slug, symbol, start_ms, exc,
+        )
+    except Exception:
+        logger.warning("[STRIKE] Unexpected error fetching Binance kline for %s (symbol=%s)", slug, symbol, exc_info=True)
+    return None
+
+
+def _fetch_bybit_kline(symbol: str, start_ms: int, slug: str, timeout: float) -> float | None:
+    """Fetch a 1m kline open price from Bybit."""
+    try:
+        resp = requests.get(
+            _BYBIT_KLINES,
+            params={"category": "spot", "symbol": symbol, "interval": "1", "start": start_ms, "limit": 1},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        result = data.get("result", {})
+        rows = result.get("list", [])
+        if rows and len(rows) > 0:
+            return float(rows[0][1])
+        logger.warning("[STRIKE] Bybit returned empty klines for %s (symbol=%s, start=%d)", slug, symbol, start_ms)
+    except requests.exceptions.Timeout:
+        logger.warning("[STRIKE] Bybit kline request timed out after %.1fs for %s (symbol=%s)", timeout, slug, symbol)
+    except requests.exceptions.HTTPError as exc:
+        logger.warning(
+            "[STRIKE] Bybit kline HTTP %s for %s (symbol=%s, start=%d): %s",
+            exc.response.status_code if exc.response is not None else "?",
+            slug, symbol, start_ms, exc,
+        )
+    except Exception:
+        logger.warning("[STRIKE] Unexpected error fetching Bybit kline for %s (symbol=%s)", slug, symbol, exc_info=True)
+    return None
+
 
 def fetch_strike_price(slug: str, timeout: float = 5.0) -> float | None:
-    """Fetch the crypto spot price at the market's start time from Binance klines.
+    """Fetch the crypto spot price at the market's start time.
 
-    The slug encodes the start timestamp (e.g. ``xrp-updown-15m-1773304200``).
-    We fetch the 1-minute candle that contains that timestamp and return
-    the open price, which is the effective strike price for the market.
+    Uses Binance klines for most assets; routes to Bybit for assets
+    in ``_BYBIT_ASSETS`` (e.g. HYPE which has no Binance spot pair).
     """
     asset = extract_market_from_slug(slug)
     if not asset:
@@ -51,7 +107,7 @@ def fetch_strike_price(slug: str, timeout: float = 5.0) -> float | None:
 
     symbol = _ASSET_TO_SYMBOL.get(asset)
     if not symbol:
-        logger.warning("[STRIKE] No Binance symbol mapping for asset %r (slug: %s)", asset, slug)
+        logger.warning("[STRIKE] No symbol mapping for asset %r (slug: %s)", asset, slug)
         return None
 
     parts = slug.rsplit("-", 1)
@@ -66,39 +122,15 @@ def fetch_strike_price(slug: str, timeout: float = 5.0) -> float | None:
 
     start_ms = start_ts * 1000
 
-    try:
-        resp = requests.get(
-            _BINANCE_KLINES,
-            params={
-                "symbol": symbol,
-                "interval": "1m",
-                "startTime": start_ms,
-                "limit": 1,
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        klines = resp.json()
-        if klines and len(klines) > 0:
-            open_price = float(klines[0][1])
-            logger.debug("[STRIKE] %s start=%d → %s open=$%.6f", slug, start_ts, symbol, open_price)
-            return open_price
-        logger.warning(
-            "[STRIKE] Binance returned empty klines for %s (symbol=%s, startTime=%d)",
-            slug, symbol, start_ms,
-        )
-    except requests.exceptions.Timeout:
-        logger.warning("[STRIKE] Binance kline request timed out after %.1fs for %s (symbol=%s)", timeout, slug, symbol)
-    except requests.exceptions.HTTPError as exc:
-        logger.warning(
-            "[STRIKE] Binance kline HTTP %s for %s (symbol=%s, startTime=%d): %s",
-            exc.response.status_code if exc.response is not None else "?",
-            slug, symbol, start_ms, exc,
-        )
-    except Exception:
-        logger.warning("[STRIKE] Unexpected error fetching kline for %s (symbol=%s)", slug, symbol, exc_info=True)
+    if asset in _BYBIT_ASSETS:
+        price = _fetch_bybit_kline(symbol, start_ms, slug, timeout)
+    else:
+        price = _fetch_binance_kline(symbol, start_ms, slug, timeout)
 
-    return None
+    if price is not None:
+        logger.debug("[STRIKE] %s start=%d → %s open=$%.6f", slug, start_ts, symbol, price)
+
+    return price
 
 
 # ── Market evaluation ────────────────────────────────────────────────────────

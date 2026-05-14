@@ -6,6 +6,7 @@ from src.core.events import TickSizeChange, BookUpdate
 from src.core.models import Side
 from src.strategy.post_expiry import PostExpirySweepStrategy
 from src.strategy.base import StrategyContext
+from src.strategy.proximity import SimpleProximityCalculator
 
 @pytest.fixture
 def base_ctx():
@@ -177,19 +178,21 @@ def test_no_proximity_filter_on_post_expiry(base_ctx, post_expiry_strategy):
     assert intents[0].side == Side.BUY
 
 
-def test_post_expiry_proximity_guard_blocks_close_expiry(base_ctx, post_expiry_strategy):
+def test_post_expiry_proximity_guard_blocks_close_expiry(base_ctx):
     slug = "btc-updown-15m-1773541800"
+    prox = SimpleProximityCalculator(min_distance=0.001)
+    strategy = PostExpirySweepStrategy(
+        order_price=0.999,
+        proximity_calculator=prox,
+    )
+
     base_ctx.eval_cache[slug]["price_to_beat"] = 100.0
     base_ctx.crypto_prices["BTC"] = 100.01  # 0.01% away
     base_ctx.crypto_price_ts["BTC"] = time.monotonic()
     base_ctx.tick_sizes["token_yes"] = 0.001
     base_ctx.tick_sizes["token_no"] = 0.001
 
-    with (
-        patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10),
-        patch("src.strategy.post_expiry.PROXIMITY_FILTER_ENABLED", True),
-        patch("src.strategy.post_expiry.PROXIMITY_MIN_DISTANCE", 0.001),  # 0.1%
-    ):
+    with patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10):
         event = TickSizeChange(
             condition_id="cond1",
             slug=slug,
@@ -199,26 +202,28 @@ def test_post_expiry_proximity_guard_blocks_close_expiry(base_ctx, post_expiry_s
         )
 
         import asyncio
-        intents = asyncio.run(post_expiry_strategy.on_tick_size_change(event, base_ctx))
+        intents = asyncio.run(strategy.on_tick_size_change(event, base_ctx))
 
     assert intents is None
-    assert post_expiry_strategy.last_skip_reason is not None
-    assert "proximity" in post_expiry_strategy.last_skip_reason.lower()
+    assert strategy.last_skip_reason is not None
+    assert "proximity" in strategy.last_skip_reason.lower()
 
 
-def test_post_expiry_proximity_guard_allows_non_close_expiry(base_ctx, post_expiry_strategy):
+def test_post_expiry_proximity_guard_allows_non_close_expiry(base_ctx):
     slug = "btc-updown-15m-1773541800"
+    prox = SimpleProximityCalculator(min_distance=0.001)
+    strategy = PostExpirySweepStrategy(
+        order_price=0.999,
+        proximity_calculator=prox,
+    )
+
     base_ctx.eval_cache[slug]["price_to_beat"] = 100.0
     base_ctx.crypto_prices["BTC"] = 101.0  # 1.0% away
     base_ctx.crypto_price_ts["BTC"] = time.monotonic()
     base_ctx.tick_sizes["token_yes"] = 0.001
     base_ctx.tick_sizes["token_no"] = 0.001
 
-    with (
-        patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10),
-        patch("src.strategy.post_expiry.PROXIMITY_FILTER_ENABLED", True),
-        patch("src.strategy.post_expiry.PROXIMITY_MIN_DISTANCE", 0.001),  # 0.1%
-    ):
+    with patch("src.strategy.post_expiry.extract_market_end_ts", return_value=time.time() - 10):
         event = TickSizeChange(
             condition_id="cond1",
             slug=slug,
@@ -228,7 +233,7 @@ def test_post_expiry_proximity_guard_allows_non_close_expiry(base_ctx, post_expi
         )
 
         import asyncio
-        intents = asyncio.run(post_expiry_strategy.on_tick_size_change(event, base_ctx))
+        intents = asyncio.run(strategy.on_tick_size_change(event, base_ctx))
 
     assert intents is not None
     assert len(intents) == 1
