@@ -21,7 +21,7 @@ import orjson
 import websockets
 
 from ..core.event_bus import EventBus
-from ..core.events import BookUpdate, MarketMeta, MarketResolved, TickSizeChange
+from ..core.events import BookUpdate, LastTradePrice, MarketMeta, MarketResolved, TickSizeChange
 from ..gamma_client import (
     fetch_event_by_slug,
     get_market_token_ids,
@@ -56,7 +56,8 @@ HEARTBEAT_RESUBSCRIBE_EVERY_S = float(os.environ.get("MARKET_WS_RESUBSCRIBE_EVER
 HEARTBEAT_MAX_RESUBSCRIBE_ATTEMPTS = int(os.environ.get("MARKET_WS_MAX_RESUBSCRIBE_ATTEMPTS", "3"))
 HEARTBEAT_RECONNECT_AFTER_S = float(os.environ.get("MARKET_WS_RECONNECT_AFTER_S", "7.0"))
 SUBSCRIPTION_KEEPALIVE_S = float(os.environ.get("MARKET_WS_KEEPALIVE_S", "60"))
-_DATA_CHANNELS: tuple[str, ...] = ("book", "price_change", "tick_size_change")
+_DATA_CHANNELS: tuple[str, ...] = ("book", "price_change", "tick_size_change", "last_trade_price")
+_SUBSCRIPTION_CHANNELS: tuple[str, ...] = _DATA_CHANNELS
 
 
 class MarketWebSocket:
@@ -88,6 +89,8 @@ class MarketWebSocket:
         self.condition_by_token: dict[str, str] = {}
         self.token_outcomes: dict[str, str] = {}
         self.best_prices: dict[str, dict[str, float]] = {}
+        self.order_books: dict[str, dict[str, tuple[tuple[float, float], ...]]] = {}
+        self.last_trade_prices: list[dict[str, Any]] = []
 
         self._initial_slugs = initial_slugs or []
         self._websocket: Optional[websockets.WebSocketClientProtocol] = None
@@ -176,7 +179,7 @@ class MarketWebSocket:
         return orjson.dumps({
             "type": "subscribe",
             "assets_ids": asset_ids,
-            "channels": ["book", "price_change", "tick_size_change"],
+            "channels": list(_SUBSCRIPTION_CHANNELS),
             "custom_feature_enabled": False,
         }).decode("utf-8")
 
@@ -272,9 +275,10 @@ class MarketWebSocket:
                 await self._websocket.send(msg)
                 logger.info(
                     "[MARKET_WS_SUB] Re-subscribed ALL %d tokens (%d new) on live WS "
-                    "(channels: book, price_change, tick_size_change)",
+                    "(channels: %s)",
                     len(all_tids),
                     len(new_tids),
+                    ", ".join(_SUBSCRIPTION_CHANNELS),
                 )
             else:
                 logger.warning("[MARKET_WS_SUB] No active WS connection — %d tokens NOT subscribed", len(new_tids))
@@ -346,6 +350,7 @@ class MarketWebSocket:
             (float(a["price"]), float(a["size"]))
             for a in sorted(raw_asks, key=lambda x: float(x["price"]))[:10]
         )
+        self.order_books[asset_id] = {"bids": bids, "asks": asks}
 
         cond = self.condition_by_token.get(asset_id, "")
         self._books_processed += 1
@@ -357,6 +362,50 @@ class MarketWebSocket:
             asks=asks,
             best_bid=best_bid,
             best_ask=best_ask,
+        ))
+
+    def _process_last_trade_price(self, data: dict[str, Any]) -> None:
+        """Handle last trade messages for replay/partial-fill research."""
+        asset_id = data.get("asset_id")
+        if not asset_id:
+            return
+
+        slug = self.slug_by_token.get(asset_id)
+        if not slug or not self.market_active.get(slug, False):
+            return
+
+        try:
+            price = float(data.get("price", 0) or 0)
+            size = float(data.get("size", 0) or 0)
+        except (ValueError, TypeError):
+            return
+
+        if price <= 0 or size <= 0:
+            return
+
+        side = str(data.get("side", "")).upper()
+        cond = self.condition_by_token.get(asset_id, "")
+        exchange_ts = data.get("timestamp")
+        received_ns = time.time_ns()
+        row = {
+            "token_id": asset_id,
+            "condition_id": cond,
+            "slug": slug,
+            "outcome": self.token_outcomes.get(asset_id),
+            "price": price,
+            "size": size,
+            "side": side,
+            "exchange_timestamp": exchange_ts,
+            "received_timestamp_ns": received_ns,
+        }
+        self.last_trade_prices.append(row)
+        self.event_bus.publish_nowait(LastTradePrice(
+            token_id=asset_id,
+            slug=slug,
+            price=price,
+            size=size,
+            side=side,
+            timestamp_ns=received_ns,
         ))
 
     def _process_tick_size(self, data: dict[str, Any]) -> None:
@@ -639,8 +688,9 @@ class MarketWebSocket:
                         await ws.send(sub_msg)
                         logger.info(
                             "[WS_MARKET] Connected, subscribed to %d tokens "
-                            "(channels: book, price_change, tick_size_change)",
+                            "(channels: %s)",
                             len(all_tids),
+                            ", ".join(_SUBSCRIPTION_CHANNELS),
                         )
 
                         ping_task = asyncio.create_task(self._send_app_pings(ws))
@@ -677,6 +727,8 @@ class MarketWebSocket:
                                         self._process_price_change(item)
                                     elif msg_type == "tick_size_change":
                                         self._process_tick_size(item)
+                                    elif msg_type == "last_trade_price":
+                                        self._process_last_trade_price(item)
                         finally:
                             ping_task.cancel()
                             keepalive_task.cancel()

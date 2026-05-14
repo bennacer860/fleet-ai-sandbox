@@ -462,7 +462,7 @@ class TestSubscribeMessageFormat:
 
         assert data["type"] == "subscribe"
         assert set(data["assets_ids"]) == {"tok_a1", "tok_a2", "tok_b1", "tok_b2"}
-        assert data["channels"] == ["book", "price_change", "tick_size_change"]
+        assert data["channels"] == ["book", "price_change", "tick_size_change", "last_trade_price"]
 
     def test_subscribe_message_after_market_removal(self):
         mws = _make_market_ws()
@@ -472,6 +472,52 @@ class TestSubscribeMessageFormat:
         data = orjson.loads(msg)
 
         assert set(data["assets_ids"]) == {"tok_b1", "tok_b2"}
+
+
+# ── Collector research data caches ────────────────────────────────────────
+
+
+class TestResearchDataCaches:
+
+    def test_process_book_caches_top_depth(self):
+        mws = _make_market_ws()
+        mws._process_book({
+            "asset_id": "tok_a1",
+            "bids": [
+                {"price": "0.40", "size": "10"},
+                {"price": "0.41", "size": "5"},
+            ],
+            "asks": [
+                {"price": "0.43", "size": "7"},
+                {"price": "0.42", "size": "3"},
+            ],
+        })
+
+        assert mws.best_prices["tok_a1"] == {"bid": 0.41, "ask": 0.42}
+        assert mws.order_books["tok_a1"]["bids"] == ((0.41, 5.0), (0.4, 10.0))
+        assert mws.order_books["tok_a1"]["asks"] == ((0.42, 3.0), (0.43, 7.0))
+
+    def test_process_last_trade_price_caches_trade(self):
+        mws = _make_market_ws()
+        mws.condition_by_token["tok_a1"] = "cond-a"
+        mws.token_outcomes["tok_a1"] = "Up"
+
+        mws._process_last_trade_price({
+            "asset_id": "tok_a1",
+            "price": "0.72",
+            "size": "4.5",
+            "side": "SELL",
+            "timestamp": "123456",
+        })
+
+        assert len(mws.last_trade_prices) == 1
+        row = mws.last_trade_prices[0]
+        assert row["slug"] == "btc-5m-market-A"
+        assert row["condition_id"] == "cond-a"
+        assert row["outcome"] == "Up"
+        assert row["price"] == 0.72
+        assert row["size"] == 4.5
+        assert row["side"] == "SELL"
 
 
 # ── mark_data_message behaviour ──────────────────────────────────────────

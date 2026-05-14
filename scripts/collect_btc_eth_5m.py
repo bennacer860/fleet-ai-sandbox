@@ -57,6 +57,7 @@ class WindowPlan:
 class RunConfig:
     n_events: int
     interval_seconds: float
+    book_depth: int
     output_dir: Path
     upload: bool
     s3_bucket: str
@@ -169,6 +170,7 @@ def _build_run_config(args: argparse.Namespace) -> RunConfig:
     return RunConfig(
         n_events=args.n_events,
         interval_seconds=args.interval_seconds,
+        book_depth=args.book_depth,
         output_dir=Path(args.output_dir),
         upload=args.upload,
         s3_bucket=bucket,
@@ -193,6 +195,18 @@ def _window_meta(plans: list[WindowPlan]) -> list[dict[str, Any]]:
     return rows
 
 
+def _trim_levels(levels: tuple[tuple[float, float], ...], depth: int) -> list[list[float]]:
+    return [[price, size] for price, size in levels[:depth]]
+
+
+def _depth_size(levels: tuple[tuple[float, float], ...], depth: int) -> float:
+    return round(sum(size for _, size in levels[:depth]), 6)
+
+
+def _top_size(levels: tuple[tuple[float, float], ...]) -> float | None:
+    return levels[0][1] if levels else None
+
+
 async def _collect(cfg: RunConfig) -> dict[str, Any]:
     plans = _plan_windows(cfg.n_events)
     if cfg.dry_run:
@@ -200,6 +214,7 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
             "dry_run": True,
             "duration_minutes": _DURATION_MINUTES,
             "interval_seconds": cfg.interval_seconds,
+            "book_depth": cfg.book_depth,
             "windows": _window_meta(plans),
         }
 
@@ -211,6 +226,7 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
     completed_indexes: list[int] = []
     rows_written = 0
     sample_seq = 0
+    trade_cursor = 0
 
     initial_slugs: list[str] = []
     for i in active_indexes:
@@ -232,6 +248,7 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
                 "run_started_utc": _format_utc(start_wall),
                 "duration_minutes": _DURATION_MINUTES,
                 "interval_seconds": cfg.interval_seconds,
+                "book_depth": cfg.book_depth,
                 "markets": list(_DEFAULT_MARKETS),
                 "n_events": cfg.n_events,
                 "windows": _window_meta(plans),
@@ -260,6 +277,26 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
                         next_index += 1
 
                 sample_utc = _format_utc(now)
+                for trade_seq, trade in enumerate(market_ws.last_trade_prices[trade_cursor:], start=trade_cursor):
+                    row = {
+                        "type": "trade",
+                        "trade_seq": trade_seq,
+                        "sample_seq": sample_seq,
+                        "ts_utc": sample_utc,
+                        "slug": trade.get("slug"),
+                        "token_id": trade.get("token_id"),
+                        "condition_id": trade.get("condition_id"),
+                        "outcome": trade.get("outcome"),
+                        "price": trade.get("price"),
+                        "size": trade.get("size"),
+                        "side": trade.get("side"),
+                        "exchange_timestamp": trade.get("exchange_timestamp"),
+                        "received_timestamp_ns": trade.get("received_timestamp_ns"),
+                    }
+                    fh.write(json.dumps(row) + "\n")
+                    rows_written += 1
+                trade_cursor = len(market_ws.last_trade_prices)
+
                 for idx in sorted(active_indexes):
                     plan = plans[idx]
                     for market, slug in plan.slugs.items():
@@ -284,6 +321,9 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
 
                         for token_id in token_ids:
                             top = market_ws.best_prices.get(token_id, {})
+                            book = market_ws.order_books.get(token_id, {})
+                            bids = tuple(book.get("bids", ()))
+                            asks = tuple(book.get("asks", ()))
                             row = {
                                 "type": "sample",
                                 "sample_seq": sample_seq,
@@ -295,6 +335,12 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
                                 "outcome": market_ws.token_outcomes.get(token_id),
                                 "best_bid": top.get("bid"),
                                 "best_ask": top.get("ask"),
+                                "best_bid_size": _top_size(bids),
+                                "best_ask_size": _top_size(asks),
+                                "bid_depth": _depth_size(bids, cfg.book_depth),
+                                "ask_depth": _depth_size(asks, cfg.book_depth),
+                                "bids": _trim_levels(bids, cfg.book_depth),
+                                "asks": _trim_levels(asks, cfg.book_depth),
                                 "data_ready": bool(top),
                             }
                             fh.write(json.dumps(row) + "\n")
@@ -321,6 +367,8 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
         "events_completed": len(completed_indexes),
         "rows_written": rows_written,
         "samples_taken": sample_seq,
+        "trade_rows_written": trade_cursor,
+        "book_depth": cfg.book_depth,
         "output_path": str(output_path),
         "output_bytes": output_path.stat().st_size if output_path.exists() else 0,
         "s3_uri": s3_uri,
@@ -330,10 +378,11 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Collect BTC/ETH 5m top-of-book once per second for next N rolling windows."
+        description="Collect BTC/ETH 5m top-of-book, depth, and trade samples for next N rolling windows."
     )
     parser.add_argument("--n-events", type=int, default=2, help="Number of rolling 5m windows to complete.")
-    parser.add_argument("--interval-seconds", type=float, default=1.0, help="Sampling interval in seconds.")
+    parser.add_argument("--interval-seconds", type=float, default=0.25, help="Sampling interval in seconds.")
+    parser.add_argument("--book-depth", type=int, default=10, help="Number of bid/ask levels to persist per sample.")
     parser.add_argument("--output-dir", default="data/collectors", help="Directory for output artifact.")
     parser.add_argument(
         "--s3-prefix",
@@ -361,6 +410,8 @@ def main() -> int:
         parser.error("--n-events must be > 0")
     if args.interval_seconds <= 0:
         parser.error("--interval-seconds must be > 0")
+    if args.book_depth <= 0:
+        parser.error("--book-depth must be > 0")
 
     args.upload = not args.no_upload
 
