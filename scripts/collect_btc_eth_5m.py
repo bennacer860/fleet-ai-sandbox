@@ -234,6 +234,7 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
 
     event_bus = EventBus()
     market_ws = MarketWebSocket(event_bus=event_bus, initial_slugs=initial_slugs, book_event_filter=None)
+    bus_task = asyncio.create_task(event_bus.run())
     ws_task = asyncio.create_task(market_ws.run())
 
     start_wall = time.time()
@@ -357,8 +358,10 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
 
     finally:
         await market_ws.stop()
+        await event_bus.stop()
         ws_task.cancel()
-        await asyncio.gather(ws_task, return_exceptions=True)
+        bus_task.cancel()
+        await asyncio.gather(ws_task, bus_task, return_exceptions=True)
 
     return {
         "dry_run": False,
