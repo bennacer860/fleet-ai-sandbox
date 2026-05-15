@@ -14,12 +14,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
-from ..core.models import OrderIntent, Side
+from ..core.models import ExecutionPolicy, OrderIntent, Side
 from ..logging_config import get_logger
 from .base import Strategy, StrategyContext
 from .gabagool import PairState, PhaseManager, TrendDetector, pick_side, should_buy
+from .registry import StrategySpec, register_strategy
 
 logger = get_logger(__name__)
+
+GABAGOOL_EXECUTION_POLICY = ExecutionPolicy(
+    release_dedup_on_rejection=True,
+    release_dedup_on_partial_terminal=True,
+    release_dedup_on_fill=True,
+    enforce_min_notional=True,
+)
 
 
 @dataclass
@@ -184,6 +192,7 @@ class GabagoolStrategy(Strategy):
             strategy=self.name(),
             slug=slug,
             tick_size=tick_size,
+            execution_policy=GABAGOOL_EXECUTION_POLICY,
         )]
 
     async def on_market_resolved(
@@ -308,3 +317,12 @@ class GabagoolStrategy(Strategy):
     def token_to_slug(self, token_id: str) -> str | None:
         """Resolve a token_id back to its slug."""
         return self._token_to_slug.get(token_id)
+
+
+register_strategy(
+    "gabagool",
+    StrategySpec(
+        factory=lambda hot_tokens, **_: [GabagoolStrategy(hot_tokens=hot_tokens)],
+        needs_full_book_updates=True,
+    ),
+)

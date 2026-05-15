@@ -28,6 +28,7 @@ from ..config import (
 )
 from .base import Strategy, StrategyContext
 from .proximity import NoOpProximityCalculator, ProximityCalculator
+from .registry import StrategySpec, register_strategy
 
 logger = get_logger(__name__)
 
@@ -231,9 +232,7 @@ class SweepStrategy(Strategy):
 
         # ── Proximity check (delegated to calculator) ────────────────────
         if ctx:
-            prox_result = self._proximity.check(
-                slug, eval_data, ctx.crypto_prices, ctx.crypto_price_ts,
-            )
+            prox_result = self._proximity.check(slug, eval_data, ctx)
             self.last_spot_price = prox_result.spot
             self.last_price_to_beat = prox_result.strike
             self.last_proximity = prox_result.proximity
@@ -327,3 +326,19 @@ class SweepStrategy(Strategy):
             "best_token_id": tids[best_idx],
         })
         return eval_data
+
+
+register_strategy(
+    "sweep",
+    StrategySpec(
+        factory=lambda hot_tokens, price_threshold, early_tick_threshold, proximity_calculator: [
+            SweepStrategy(
+                hot_tokens=hot_tokens,
+                price_threshold=price_threshold,
+                early_tick_threshold=early_tick_threshold,
+                proximity_calculator=proximity_calculator,
+            )
+        ],
+        uses_proximity=True,
+    ),
+)

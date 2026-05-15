@@ -8,12 +8,14 @@ ingestion in the final 2 minutes before market expiry.
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
 from ..logging_config import get_logger
 from ..markets.fifteen_min import extract_market_end_ts
 from .base import Strategy, StrategyContext
+from .registry import StrategySpec, register_strategy
 
 logger = get_logger(__name__)
 
@@ -36,6 +38,9 @@ class EndMarketStrategy(Strategy):
 
     def name(self) -> str:
         return "end_market"
+
+    def classify_submission(self, event: Any) -> str:
+        return "end_market_order"
 
     async def on_tick_size_change(
         self, event: TickSizeChange, ctx: StrategyContext
@@ -210,3 +215,9 @@ class EndMarketStrategy(Strategy):
         if not any(p > 0 for p in eval_data["prices"]):
             return None
         return eval_data
+
+
+register_strategy(
+    "end_market",
+    StrategySpec(factory=lambda hot_tokens, **_: [EndMarketStrategy(hot_tokens=hot_tokens)]),
+)

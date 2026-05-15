@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
-from ..core.models import OrderIntent, Side
+from ..core.models import ExecutionPolicy, OrderIntent, Side
 from ..logging_config import get_logger
 from ..markets.fifteen_min import extract_market_end_ts, extract_market_from_slug, detect_duration_from_slug
 from ..config import (
@@ -35,11 +35,13 @@ from ..config import (
 )
 
 from .base import Strategy, StrategyContext
+from .registry import StrategySpec, register_strategy
 
 logger = get_logger(__name__)
 
 SWEEP_TICK_SIZE = "0.001"
 FALLBACK_MIN_ORDER_SIZE = 5.0
+AGGRESSIVE_EXECUTION_POLICY = ExecutionPolicy(skip_dedup=True)
 
 
 @dataclass
@@ -247,7 +249,7 @@ class AggressivePostExpirySweepStrategy(Strategy):
             strategy=self.name(),
             slug=slug,
             tick_size=tick_size,
-            skip_dedup=True,
+            execution_policy=AGGRESSIVE_EXECUTION_POLICY,
         )]
 
     def notify_order_result(self, slug: str, filled: bool) -> None:
@@ -345,3 +347,16 @@ class AggressivePostExpirySweepStrategy(Strategy):
             "best_token_id": tids[best_idx],
         })
         return eval_data
+
+
+register_strategy(
+    "aggressive_post_expiry",
+    StrategySpec(
+        factory=lambda hot_tokens, price_threshold, **_: [
+            AggressivePostExpirySweepStrategy(
+                hot_tokens=hot_tokens,
+                price_threshold=price_threshold,
+            )
+        ]
+    ),
+)

@@ -12,13 +12,21 @@ import os
 from dataclasses import dataclass, field
 
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
-from ..core.models import OrderIntent, Side
+from ..core.models import ExecutionPolicy, OrderIntent, Side
 from ..logging_config import get_logger
 from .base import Strategy, StrategyContext
 from .gabagool import PairState, TrendDetector
 from .gabagool_dual import pick_dual_sizes
+from .registry import StrategySpec, register_strategy
 
 logger = get_logger(__name__)
+
+GABAGOOL_DUAL_EXECUTION_POLICY = ExecutionPolicy(
+    skip_dedup=True,
+    release_dedup_on_rejection=True,
+    release_dedup_on_partial_terminal=True,
+    enforce_min_notional=True,
+)
 
 
 @dataclass
@@ -304,6 +312,15 @@ class GabagoolDualStrategy(Strategy):
                 strategy=self.name(),
                 slug=slug,
                 tick_size=tick_size,
-                skip_dedup=True,
+                execution_policy=GABAGOOL_DUAL_EXECUTION_POLICY,
             )
         ]
+
+
+register_strategy(
+    "gabagool_dual",
+    StrategySpec(
+        factory=lambda hot_tokens, **_: [GabagoolDualStrategy(hot_tokens=hot_tokens)],
+        needs_full_book_updates=True,
+    ),
+)

@@ -2,7 +2,7 @@ import asyncio
 
 from src.core.event_bus import EventBus
 from src.core.events import OrderFill, OrderStatus, OrderSubmitted, OrderTerminal
-from src.core.models import OrderIntent, Side
+from src.core.models import ExecutionPolicy, OrderIntent, Side
 from src.execution.order_manager import OrderManager
 from src.execution.risk_manager import RiskConfig, RiskManager
 
@@ -81,6 +81,21 @@ def _build_manager(rest_client: _CapturingRestClient) -> OrderManager:
     )
 
 
+GABAGOOL_POLICY = ExecutionPolicy(
+    release_dedup_on_rejection=True,
+    release_dedup_on_partial_terminal=True,
+    release_dedup_on_fill=True,
+    enforce_min_notional=True,
+)
+
+GABAGOOL_DUAL_POLICY = ExecutionPolicy(
+    skip_dedup=True,
+    release_dedup_on_rejection=True,
+    release_dedup_on_partial_terminal=True,
+    enforce_min_notional=True,
+)
+
+
 def test_submit_resizes_gabagool_buy_under_min_notional() -> None:
     rest = _CapturingRestClient()
     manager = _build_manager(rest)
@@ -91,6 +106,7 @@ def test_submit_resizes_gabagool_buy_under_min_notional() -> None:
         side=Side.BUY,
         strategy="gabagool",
         slug="btc-updown-15m-abc",
+        execution_policy=GABAGOOL_POLICY,
     )
 
     state = asyncio.run(manager.submit(intent))
@@ -114,6 +130,7 @@ def test_submit_resizes_with_buffer_for_boundary_case() -> None:
         side=Side.BUY,
         strategy="gabagool",
         slug="btc-updown-15m-boundary",
+        execution_policy=GABAGOOL_POLICY,
     )
 
     state = asyncio.run(manager.submit(intent))
@@ -154,6 +171,7 @@ def test_submit_allows_gabagool_retry_after_rejection() -> None:
         side=Side.BUY,
         strategy="gabagool",
         slug="btc-updown-15m-retry",
+        execution_policy=GABAGOOL_POLICY,
     )
 
     first = asyncio.run(manager.submit(intent))
@@ -198,6 +216,7 @@ def test_submit_allows_gabagool_retry_after_partial_then_terminal() -> None:
         side=Side.BUY,
         strategy="gabagool",
         slug="btc-updown-15m-partial-retry",
+        execution_policy=GABAGOOL_POLICY,
     )
 
     first = asyncio.run(manager.submit(intent))
@@ -281,6 +300,7 @@ def test_submit_does_not_resize_gabagool_sell() -> None:
         side=Side.SELL,
         strategy="gabagool",
         slug="btc-updown-15m-abc",
+        execution_policy=GABAGOOL_POLICY,
     )
 
     state = asyncio.run(manager.submit(intent))
@@ -301,6 +321,7 @@ def test_submit_allows_gabagool_retry_after_filled_order() -> None:
         side=Side.BUY,
         strategy="gabagool",
         slug="btc-updown-15m-filled-rebalance",
+        execution_policy=GABAGOOL_POLICY,
     )
 
     first = asyncio.run(manager.submit(intent))
@@ -334,6 +355,7 @@ def test_submit_allows_gabagool_retry_after_near_full_min_notional_fill() -> Non
         side=Side.BUY,
         strategy="gabagool",
         slug="btc-updown-15m-near-full-rebalance",
+        execution_policy=GABAGOOL_POLICY,
     )
 
     first = asyncio.run(manager.submit(intent))
@@ -369,6 +391,7 @@ def test_submit_resizes_gabagool_dual_buy_under_min_notional() -> None:
         side=Side.BUY,
         strategy="gabagool_dual",
         slug="btc-updown-15m-dual",
+        execution_policy=GABAGOOL_DUAL_POLICY,
     )
 
     state = asyncio.run(manager.submit(intent))
@@ -380,7 +403,7 @@ def test_submit_resizes_gabagool_dual_buy_under_min_notional() -> None:
     assert submitted.skip_dedup is True
 
 
-def test_submit_forces_skip_dedup_for_gabagool_dual() -> None:
+def test_submit_honors_skip_dedup_from_execution_policy_for_gabagool_dual() -> None:
     rest = _CapturingRestClient()
     manager = _build_manager(rest)
     intent = OrderIntent(
@@ -390,7 +413,10 @@ def test_submit_forces_skip_dedup_for_gabagool_dual() -> None:
         side=Side.BUY,
         strategy="gabagool_dual",
         slug="btc-updown-15m-dual",
-        skip_dedup=False,
+        execution_policy=ExecutionPolicy(
+            skip_dedup=True,
+            enforce_min_notional=True,
+        ),
     )
 
     state = asyncio.run(manager.submit(intent))

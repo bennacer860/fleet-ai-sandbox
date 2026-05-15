@@ -107,7 +107,7 @@ class OrderManager:
         signal_ns = time.time_ns()
         intent = self._normalize_intent(intent)
 
-        if not intent.skip_dedup and self._is_duplicate(intent):
+        if not intent.execution_policy.skip_dedup and self._is_duplicate(intent):
             self._stats["dedup_skips"] += 1
             logger.info("[ORDER] Dedup skip: %s/%s", intent.slug, intent.token_id[:16])
             self._log_decision(intent, "SKIP", "DEDUP: already ordered")
@@ -464,7 +464,7 @@ class OrderManager:
 
     def _release_dedup_on_rejection(self, intent: OrderIntent, status: OrderStatus) -> None:
         """Allow gabagool variants to retry a rejected/failed missing leg later."""
-        if intent.strategy not in {"gabagool", "gabagool_dual"}:
+        if not intent.execution_policy.release_dedup_on_rejection:
             return
         if status not in (OrderStatus.REJECTED, OrderStatus.FAILED):
             return
@@ -495,7 +495,7 @@ class OrderManager:
         (expired/cancelled), leaving a dangling one-sided position that may
         still be hedgeable on later ticks.
         """
-        if intent.strategy not in {"gabagool", "gabagool_dual"}:
+        if not intent.execution_policy.release_dedup_on_partial_terminal:
             return
         if not was_partial_fill:
             return
@@ -527,7 +527,7 @@ class OrderManager:
         mismatches (for example 3.15 vs 2.5). Releasing dedup after FILLED lets
         the strategy place a later balancing order on the lighter side.
         """
-        if intent.strategy != "gabagool":
+        if not intent.execution_policy.release_dedup_on_fill:
             return
         if status != OrderStatus.FILLED:
             return
@@ -649,15 +649,12 @@ class OrderManager:
         second safety net here prevents exchange-side rejections from turning
         into orphan legs if strategy-side config drifts.
         """
-        if intent.strategy not in {"gabagool", "gabagool_dual"}:
+        if not intent.execution_policy.enforce_min_notional:
             return intent
         if intent.side.value != "BUY":
             return intent
         if intent.price <= 0 or intent.size <= 0:
             return intent
-
-        if intent.strategy == "gabagool_dual" and not intent.skip_dedup:
-            intent = replace(intent, skip_dedup=True)
 
         order_notional = intent.price * intent.size
         if order_notional >= _MIN_MARKETABLE_BUY_NOTIONAL_USD:

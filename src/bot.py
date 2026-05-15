@@ -60,10 +60,7 @@ from .strategy.proximity import (
     ProximityCalculator,
     SimpleProximityCalculator,
 )
-from .strategy.sweep import SweepStrategy
-from .strategy.post_expiry import PostExpirySweepStrategy
-from .strategy.aggressive_post_expiry import AggressivePostExpirySweepStrategy
-from .strategy.end_market import EndMarketStrategy
+from .strategy.registry import get_strategy_spec
 from .utils.slug_helpers import slugs_for_timestamp
 from .utils.telegram_notifier import TelegramNotifier
 from .config import (
@@ -160,6 +157,7 @@ class Bot:
         }
 
         self.event_bus = EventBus()
+        self._display_proximity = _build_proximity_calculator(strategy_name)
 
         if self._persist:
             conn = init_db(self.db_path)
@@ -211,10 +209,18 @@ class Bot:
         # time-critical short-duration events.
         self._hot_tokens: set[str] = set()
 
-        # Gabagool variants need book updates from all markets to function (they
-        # activates from book data, not tick-size changes).  Disable the
-        # filter so BookUpdate events reach the strategy immediately.
-        use_book_filter = strategy_name not in {"gabagool", "gabagool_dual"}
+        if strategies:
+            self.strategies = strategies
+            known_specs = []
+            for strategy in self.strategies:
+                try:
+                    known_specs.append(get_strategy_spec(strategy.name()))
+                except ValueError:
+                    continue
+            use_book_filter = not any(spec.needs_full_book_updates for spec in known_specs)
+        else:
+            strategy_spec = get_strategy_spec(strategy_name)
+            use_book_filter = not strategy_spec.needs_full_book_updates
 
         self.market_ws = MarketWebSocket(
             event_bus=self.event_bus,
@@ -226,50 +232,18 @@ class Bot:
         crypto_assets = list(set(self._market_selections)) or None
         self.crypto_ws = CryptoWebSocket(assets=crypto_assets)
 
-        if strategies:
-            self.strategies = strategies
-        else:
-            prox = _build_proximity_calculator(strategy_name)
-            if strategy_name == "post_expiry":
-                self.strategies = [
-                    PostExpirySweepStrategy(
-                        price_threshold=price_threshold,
-                        hot_tokens=self._hot_tokens,
-                        proximity_calculator=prox,
-                    )
-                ]
-            elif strategy_name == "end_market":
-                self.strategies = [
-                    EndMarketStrategy(
-                        hot_tokens=self._hot_tokens,
-                    )
-                ]
-            elif strategy_name == "aggressive_post_expiry":
-                self.strategies = [
-                    AggressivePostExpirySweepStrategy(
-                        price_threshold=price_threshold,
-                        hot_tokens=self._hot_tokens,
-                    )
-                ]
-            elif strategy_name == "gabagool":
-                from .strategy.gabagool_adapter import GabagoolStrategy
-                self.strategies = [
-                    GabagoolStrategy(hot_tokens=self._hot_tokens)
-                ]
-            elif strategy_name == "gabagool_dual":
-                from .strategy.gabagool_dual_adapter import GabagoolDualStrategy
-                self.strategies = [
-                    GabagoolDualStrategy(hot_tokens=self._hot_tokens)
-                ]
-            else:
-                self.strategies = [
-                    SweepStrategy(
-                        price_threshold=price_threshold,
-                        early_tick_threshold=early_tick_threshold,
-                        hot_tokens=self._hot_tokens,
-                        proximity_calculator=prox,
-                    )
-                ]
+        if not strategies:
+            prox = (
+                _build_proximity_calculator(strategy_name)
+                if strategy_spec.uses_proximity
+                else NoOpProximityCalculator()
+            )
+            self.strategies = strategy_spec.factory(
+                hot_tokens=self._hot_tokens,
+                price_threshold=price_threshold,
+                early_tick_threshold=early_tick_threshold,
+                proximity_calculator=prox,
+            )
 
         self.health_monitor = HealthMonitor(
             heartbeat_path=HEALTH_FILE_PATH,
@@ -435,14 +409,23 @@ class Bot:
 
     def _proximity_for_slug(self, slug: str) -> str:
         """Build a proximity display string from the current context for *slug*."""
-        asset = extract_market_from_slug(slug)
-        if not asset:
+        eval_data = self._eval_cache.get(slug)
+        if not eval_data or eval_data.get("price_to_beat") is None:
             return ""
-        spot = self._strategy_ctx.crypto_prices.get(asset)
-        eval_data = self._eval_cache.get(slug) or {}
-        strike = eval_data.get("price_to_beat")
-        prox = abs(spot - strike) / strike if spot and strike and strike > 0 else None
-        return self._format_proximity(spot, strike, prox)
+        prox_result = self._display_proximity.check(slug, eval_data, self._strategy_ctx)
+        if (
+            prox_result.spot is None
+            and prox_result.strike is None
+            and prox_result.proximity is None
+            and prox_result.price_age_ms is None
+        ):
+            return ""
+        return self._format_proximity(
+            prox_result.spot,
+            prox_result.strike,
+            prox_result.proximity,
+            prox_result.price_age_ms,
+        )
 
     # ── Eval pre-fetch (min_order_size) ───────────────────────────────────
 
@@ -691,23 +674,11 @@ class Bot:
     ) -> None:
         tick_event_ns = getattr(event, "timestamp_ns", None)
         for intent in intents:
-            if intent.strategy == "end_market":
-                submission_source = "end_market_order"
-            elif intent.strategy == "post_expiry":
-                # Taxonomy focused on whether we fired immediately on a tick
-                # vs. watched until expiry and then submitted.
-                if isinstance(event, TickSizeChange):
-                    submission_source = "immediate_tick"
-                else:
-                    submission_source = "watched_expiry"
-            else:
-                # Generic transport-oriented labels for other strategies.
-                if isinstance(event, TickSizeChange):
-                    submission_source = "tick_size_change"
-                elif isinstance(event, BookUpdate):
-                    submission_source = "book_update"
-                else:
-                    submission_source = "poll"
+            submission_source = (
+                strategy.classify_submission(event)
+                if strategy is not None
+                else "unknown"
+            )
 
             display_slug = format_slug_with_est_time(intent.slug)
             state = await self.order_manager.submit(intent)
@@ -933,6 +904,7 @@ class Bot:
         self._strategy_ctx.market_meta = meta
         self._strategy_ctx.crypto_prices = dict(self.crypto_ws.latest_prices)
         self._strategy_ctx.crypto_price_ts = dict(self.crypto_ws.last_update_ts)
+        self._strategy_ctx.external_data = {}
 
     # ── Metrics collectors ────────────────────────────────────────────────
 

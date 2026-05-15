@@ -9,10 +9,11 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from ..logging_config import get_logger
 from ..markets.fifteen_min import extract_market_from_slug
+from .base import StrategyContext
 
 logger = get_logger(__name__)
 
@@ -48,8 +49,7 @@ class ProximityCalculator(ABC):
         self,
         slug: str,
         eval_data: dict[str, Any],
-        crypto_prices: dict[str, float],
-        crypto_price_ts: dict[str, float],
+        ctx: StrategyContext,
     ) -> ProximityResult:
         """Evaluate proximity and return whether to block.
 
@@ -59,10 +59,8 @@ class ProximityCalculator(ABC):
             Market slug (used to derive asset and strike).
         eval_data:
             Cached evaluation data (may contain ``price_to_beat``).
-        crypto_prices:
-            Current spot prices keyed by asset ticker.
-        crypto_price_ts:
-            Monotonic timestamps of when each spot price was received.
+        ctx:
+            Strategy context containing live prices and provider data.
         """
         ...
 
@@ -86,18 +84,17 @@ class NoOpProximityCalculator(ProximityCalculator):
         self,
         slug: str,
         eval_data: dict[str, Any],
-        crypto_prices: dict[str, float],
-        crypto_price_ts: dict[str, float],
+        ctx: StrategyContext,
     ) -> ProximityResult:
         asset = extract_market_from_slug(slug)
-        spot = crypto_prices.get(asset)
+        spot = ctx.crypto_prices.get(asset)
         strike = eval_data.get("price_to_beat")
         proximity = (
             abs(spot - strike) / strike
             if spot is not None and strike is not None and strike > 0
             else None
         )
-        ts = crypto_price_ts.get(asset) if asset else None
+        ts = ctx.crypto_price_ts.get(asset) if asset else None
         age = (time.monotonic() - ts) * 1000 if ts is not None else None
         return ProximityResult(
             proximity=proximity, spot=spot, strike=strike,
@@ -144,8 +141,7 @@ class SimpleProximityCalculator(ProximityCalculator):
         self,
         slug: str,
         eval_data: dict[str, Any],
-        crypto_prices: dict[str, float],
-        crypto_price_ts: dict[str, float],
+        ctx: StrategyContext,
     ) -> ProximityResult:
         asset = extract_market_from_slug(slug)
 
@@ -166,8 +162,8 @@ class SimpleProximityCalculator(ProximityCalculator):
                     "Strike price unavailable for %s — proximity filter skipped", slug,
                 )
 
-        spot = crypto_prices.get(asset) if asset else None
-        ts = crypto_price_ts.get(asset) if asset else None
+        spot = ctx.crypto_prices.get(asset) if asset else None
+        ts = ctx.crypto_price_ts.get(asset) if asset else None
         price_age_ms: float | None = None
         stale = False
 

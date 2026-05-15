@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from .events import OrderStatus
@@ -25,6 +25,17 @@ class Side(Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionPolicy:
+    """Execution-layer behavior flags attached to an order intent."""
+
+    skip_dedup: bool = False
+    release_dedup_on_rejection: bool = False
+    release_dedup_on_partial_terminal: bool = False
+    release_dedup_on_fill: bool = False
+    enforce_min_notional: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class OrderIntent:
     """What a strategy wants to do — produced by strategy, consumed by OrderManager."""
 
@@ -35,7 +46,19 @@ class OrderIntent:
     strategy: str
     slug: str
     tick_size: float | None = None
+    execution_policy: ExecutionPolicy = field(default_factory=ExecutionPolicy)
     skip_dedup: bool = False
+
+    def __post_init__(self) -> None:
+        # Backward-compat for existing callers still passing skip_dedup.
+        if self.skip_dedup and not self.execution_policy.skip_dedup:
+            object.__setattr__(
+                self,
+                "execution_policy",
+                replace(self.execution_policy, skip_dedup=True),
+            )
+        elif self.execution_policy.skip_dedup and not self.skip_dedup:
+            object.__setattr__(self, "skip_dedup", True)
 
 
 # ── Order lifecycle state ─────────────────────────────────────────────────────

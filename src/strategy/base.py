@@ -27,6 +27,7 @@ class StrategyContext:
     dry_run: bool = False
     crypto_prices: dict[str, float] = field(default_factory=dict)
     crypto_price_ts: dict[str, float] = field(default_factory=dict)
+    external_data: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class Strategy(ABC):
@@ -63,6 +64,14 @@ class Strategy(ABC):
         self, event: MarketResolved, ctx: StrategyContext
     ) -> None:
         """Called when a market resolves.  Default is a no-op."""
+
+    def classify_submission(self, event: Any) -> str:
+        """Classify submission source for analytics."""
+        if isinstance(event, TickSizeChange):
+            return "tick_size_change"
+        if isinstance(event, BookUpdate):
+            return "book_update"
+        return "poll"
 
     async def poll(self, ctx: StrategyContext) -> list[OrderIntent] | None:
         """Called periodically by the bot's poll loop.

@@ -25,6 +25,7 @@ from ..config import (
 
 from .base import Strategy, StrategyContext
 from .proximity import NoOpProximityCalculator, ProximityCalculator
+from .registry import StrategySpec, register_strategy
 
 logger = get_logger(__name__)
 
@@ -65,6 +66,11 @@ class PostExpirySweepStrategy(Strategy):
 
     def name(self) -> str:
         return "post_expiry"
+
+    def classify_submission(self, event: Any) -> str:
+        if isinstance(event, TickSizeChange):
+            return "immediate_tick"
+        return "watched_expiry"
 
     async def on_tick_size_change(
         self, event: TickSizeChange, ctx: StrategyContext
@@ -206,9 +212,7 @@ class PostExpirySweepStrategy(Strategy):
             )
             return None
 
-        prox_result = self._proximity.check(
-            slug, eval_data, ctx.crypto_prices, ctx.crypto_price_ts,
-        )
+        prox_result = self._proximity.check(slug, eval_data, ctx)
         self.last_spot_price = prox_result.spot
         self.last_price_to_beat = prox_result.strike
         self.last_proximity = prox_result.proximity
@@ -301,3 +305,18 @@ class PostExpirySweepStrategy(Strategy):
             "best_token_id": tids[best_idx],
         })
         return eval_data
+
+
+register_strategy(
+    "post_expiry",
+    StrategySpec(
+        factory=lambda hot_tokens, price_threshold, proximity_calculator, **_: [
+            PostExpirySweepStrategy(
+                hot_tokens=hot_tokens,
+                price_threshold=price_threshold,
+                proximity_calculator=proximity_calculator,
+            )
+        ],
+        uses_proximity=True,
+    ),
+)
