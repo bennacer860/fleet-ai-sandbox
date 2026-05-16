@@ -27,6 +27,7 @@ from src.logging_config import setup_logging
 
 def cmd_run(args: argparse.Namespace) -> int:
     from src.bot import Bot, LAZY_SUB_MIN_DURATION, LAZY_SUB_LEAD_S, GRACE_PERIOD_SECONDS
+    from src.markets.temperature import discover_daily_city_temperature_events
     from src.markets.fifteen_min import SUPPORTED_DURATIONS
     from src.utils.slug_helpers import slugs_for_timestamp
     from src.markets.fifteen_min import (
@@ -72,6 +73,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         for ticker in stock_tickers:
             initial_slugs.extend(generate_stock_slugs_for_date(ticker, today))
 
+    temperature_cities: list[str] = [c.upper() for c in args.temperature_cities]
+    if temperature_cities:
+        temp_events = discover_daily_city_temperature_events(
+            cities={c.lower() for c in temperature_cities},
+            temperature_kind=args.temperature_kind,
+            horizon_hours=args.temperature_sub_horizon_hours,
+        )
+        initial_slugs.extend([item.slug for item in temp_events])
+
     if not initial_slugs:
         print("ERROR: No initial slugs generated. Check market/duration settings.")
         return 1
@@ -97,6 +107,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         fill_mode=args.fill_mode,
         tag=args.tag,
         stock_tickers=stock_tickers,
+        temperature_cities=temperature_cities,
+        temperature_kind=args.temperature_kind,
+        temperature_sub_horizon_hours=args.temperature_sub_horizon_hours,
     )
 
     bot.run_sync()
@@ -328,6 +341,18 @@ def main() -> int:
     run_parser.add_argument(
         "--stocks", nargs="+", default=[],
         help="Stock/ETF tickers for daily open/close markets (e.g. SPX TSLA AAPL)",
+    )
+    run_parser.add_argument(
+        "--temperature-cities", nargs="+", default=[],
+        help="City slugs for daily temp markets (e.g. NYC PARIS LONDON)",
+    )
+    run_parser.add_argument(
+        "--temperature-kind", type=str, default="both", choices=["highest", "lowest", "both"],
+        help="Daily city temperature market type to monitor (default: both)",
+    )
+    run_parser.add_argument(
+        "--temperature-sub-horizon-hours", type=int, default=48,
+        help="Look-ahead horizon in hours for city temperature discovery (default: 48)",
     )
 
     # ── health ─────────────────────────────────────────────────────────────

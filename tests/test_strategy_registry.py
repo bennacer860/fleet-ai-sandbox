@@ -11,6 +11,7 @@ def test_strategy_registry_contains_expected_strategies() -> None:
         "gabagool",
         "gabagool_dual",
         "end_market",
+        "post_expiry_temperature",
     }
 
 

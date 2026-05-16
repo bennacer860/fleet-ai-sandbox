@@ -41,6 +41,7 @@ def ensure_builtin_strategies_registered() -> None:
         "src.strategy.gabagool_adapter",
         "src.strategy.gabagool_dual_adapter",
         "src.strategy.end_market",
+        "src.strategy.post_expiry_temperature",
     )
     for module_name in modules:
         import_module(module_name)

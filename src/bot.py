@@ -53,6 +53,7 @@ from .markets.fifteen_min import (
     get_market_slug,
     get_next_interval_utc,
 )
+from .markets.temperature import discover_daily_city_temperature_events
 from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.proximity import (
@@ -132,6 +133,9 @@ class Bot:
         fill_mode: str = "book",
         tag: str = "",
         stock_tickers: list[str] | None = None,
+        temperature_cities: list[str] | None = None,
+        temperature_kind: str = "both",
+        temperature_sub_horizon_hours: int = 48,
     ) -> None:
         self.dry_run = dry_run if dry_run is not None else DRY_RUN
         self._fill_mode = fill_mode
@@ -145,6 +149,10 @@ class Bot:
         self._durations = durations or sorted(SUPPORTED_DURATIONS)
         self._stock_tickers: list[str] = [t.upper() for t in (stock_tickers or [])]
         self._stock_tracked: set[str] = set()
+        self._temperature_cities: list[str] = [c.upper() for c in (temperature_cities or [])]
+        self._temperature_kind = temperature_kind
+        self._temperature_sub_horizon_hours = temperature_sub_horizon_hours
+        self._temperature_tracked: set[str] = set()
 
         self._monitored_ts: dict[int, dict[str, set[int]]] = {
             dur: {sel: set() for sel in self._market_selections}
@@ -901,6 +909,7 @@ class Bot:
                 "outcomes": outcomes,
                 "condition_id": cond,
             }
+            meta[slug].update(self.market_ws.market_metadata.get(slug, {}))
         self._strategy_ctx.market_meta = meta
         self._strategy_ctx.crypto_prices = dict(self.crypto_ws.latest_prices)
         self._strategy_ctx.crypto_price_ts = dict(self.crypto_ws.last_update_ts)
@@ -1217,6 +1226,52 @@ class Bot:
                 for slug in slugs_to_remove:
                     self._eval_cache.pop(slug, None)
 
+    async def _manage_temperature_subscriptions(self) -> None:
+        """Subscribe to daily city temperature event slugs discovered from Gamma."""
+        if not self._temperature_cities:
+            return
+
+        while True:
+            await asyncio.sleep(SUB_CHECK_INTERVAL)
+            now = int(time.time())
+
+            discovered = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: discover_daily_city_temperature_events(
+                    cities={c.lower() for c in self._temperature_cities},
+                    temperature_kind=self._temperature_kind,
+                    horizon_hours=self._temperature_sub_horizon_hours,
+                ),
+            )
+            discovered_slugs = {item.slug for item in discovered}
+
+            slugs_to_add = sorted(discovered_slugs - self._temperature_tracked)
+            slugs_to_remove: list[str] = []
+            for slug in sorted(self._temperature_tracked - discovered_slugs):
+                gamma_end_ts = (
+                    self.market_ws.market_metadata.get(slug, {}).get("gamma_end_ts")
+                    or 0
+                )
+                if now > gamma_end_ts + GRACE_PERIOD_SECONDS:
+                    slugs_to_remove.append(slug)
+
+            if slugs_to_add:
+                await self.market_ws.add_markets(slugs_to_add)
+                self._launch_prefetch(slugs_to_add)
+                if self.dashboard:
+                    for slug in slugs_to_add:
+                        self.dashboard.push_event(f"📍 TEMP_ADD  {slug}")
+                self._temperature_tracked.update(slugs_to_add)
+
+            if slugs_to_remove:
+                await self.market_ws.remove_markets(slugs_to_remove)
+                for slug in slugs_to_remove:
+                    self._eval_cache.pop(slug, None)
+                    self._temperature_tracked.discard(slug)
+                if self.dashboard:
+                    for slug in slugs_to_remove:
+                        self.dashboard.push_event(f"📍 TEMP_REMOVE  {slug}")
+
     # ── Startup housekeeping ──────────────────────────────────────────────
 
     async def _startup_housekeeping(self) -> None:
@@ -1420,6 +1475,14 @@ class Bot:
         if self._stock_tickers:
             self._tasks.append(
                 asyncio.create_task(self._supervised_task("stock_sub", self._manage_stock_subscriptions))
+            )
+        if self._temperature_cities:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._supervised_task(
+                        "temperature_sub", self._manage_temperature_subscriptions
+                    )
+                )
             )
 
         try:

@@ -11,6 +11,102 @@ from .logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _fetch_json_list(path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Fetch list-like Gamma responses with simple pagination support."""
+    url = f"{GAMMA_API}{path}"
+    t0 = time.perf_counter()
+    resp = requests.get(url, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    if isinstance(data, list):
+        logger.debug(
+            "Gamma list fetched: path=%s count=%d latency_ms=%.0f",
+            path,
+            len(data),
+            elapsed_ms,
+        )
+        return data
+    logger.warning("Unexpected Gamma list payload type for %s: %s", path, type(data))
+    return []
+
+
+def fetch_events(
+    *,
+    active: bool = True,
+    closed: bool = False,
+    limit: int = 100,
+    max_offset: int = 10000,
+) -> list[dict[str, Any]]:
+    """Fetch paginated events from Gamma."""
+    events: list[dict[str, Any]] = []
+    for offset in range(0, max_offset + 1, limit):
+        try:
+            page = _fetch_json_list(
+                "/events",
+                {
+                    "active": str(active).lower(),
+                    "closed": str(closed).lower(),
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "?"
+            logger.warning(
+                "Stopping event pagination at offset=%d due to HTTP %s", offset, status
+            )
+            break
+        except Exception:
+            logger.exception("Failed fetching Gamma events page at offset=%d", offset)
+            break
+
+        if not page:
+            break
+        events.extend(page)
+        if len(page) < limit:
+            break
+    return events
+
+
+def fetch_markets(
+    *,
+    active: bool = True,
+    closed: bool = False,
+    limit: int = 100,
+    max_offset: int = 10000,
+) -> list[dict[str, Any]]:
+    """Fetch paginated markets from Gamma."""
+    markets: list[dict[str, Any]] = []
+    for offset in range(0, max_offset + 1, limit):
+        try:
+            page = _fetch_json_list(
+                "/markets",
+                {
+                    "active": str(active).lower(),
+                    "closed": str(closed).lower(),
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "?"
+            logger.warning(
+                "Stopping market pagination at offset=%d due to HTTP %s", offset, status
+            )
+            break
+        except Exception:
+            logger.exception("Failed fetching Gamma markets page at offset=%d", offset)
+            break
+
+        if not page:
+            break
+        markets.extend(page)
+        if len(page) < limit:
+            break
+    return markets
+
+
 def fetch_event_by_slug(slug: str) -> Optional[dict[str, Any]]:
     """
     Fetch an event by its slug from the Gamma API.

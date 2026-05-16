@@ -22,12 +22,21 @@ import websockets
 
 from ..core.event_bus import EventBus
 from ..core.events import BookUpdate, LastTradePrice, MarketMeta, MarketResolved, TickSizeChange
+from ..config import CITY_TEMP_EXPIRY_BUFFER_HOURS
 from ..gamma_client import (
     fetch_event_by_slug,
     get_market_token_ids,
     get_outcomes,
     get_winning_token_id,
     is_market_ended,
+)
+from ..markets.temperature import (
+    compute_safe_expiry_ts,
+    extract_weather_station,
+    infer_city_timezone,
+    parse_city_temp_slug,
+    parse_game_start_ts,
+    parse_iso_ts,
 )
 from ..logging_config import get_logger
 
@@ -91,6 +100,7 @@ class MarketWebSocket:
         self.best_prices: dict[str, dict[str, float]] = {}
         self.order_books: dict[str, dict[str, tuple[tuple[float, float], ...]]] = {}
         self.last_trade_prices: list[dict[str, Any]] = []
+        self.market_metadata: dict[str, dict[str, Any]] = {}
 
         self._initial_slugs = initial_slugs or []
         self._websocket: Optional[websockets.WebSocketClientProtocol] = None
@@ -213,6 +223,38 @@ class MarketWebSocket:
             if i < len(outcomes):
                 self.token_outcomes[tid] = outcomes[i]
 
+        gamma_end_ts = parse_iso_ts(market.get("endDate") or event.get("endDate"))
+        game_start_ts = parse_game_start_ts(market.get("gameStartTime"))
+        temp_slug = market.get("slug") or event.get("slug") or slug
+        temp_parsed = parse_city_temp_slug(str(temp_slug))
+        if temp_parsed is not None:
+            temperature_kind, temperature_city = temp_parsed
+            city_timezone = infer_city_timezone(temperature_city)
+            market_family = "city_temperature"
+        else:
+            temperature_kind = None
+            temperature_city = None
+            city_timezone = None
+            market_family = "general"
+        safe_expiry_ts = compute_safe_expiry_ts(
+            game_start_ts=game_start_ts,
+            city_timezone=city_timezone or "UTC",
+            buffer_hours=CITY_TEMP_EXPIRY_BUFFER_HOURS,
+        )
+        resolution_source = market.get("resolutionSource") or event.get("resolutionSource")
+        self.market_metadata[slug] = {
+            "gamma_end_ts": gamma_end_ts,
+            "game_start_ts": game_start_ts,
+            "safe_expiry_ts": safe_expiry_ts,
+            "resolution_source": resolution_source,
+            "description": market.get("description") or event.get("description"),
+            "market_family": market_family,
+            "temperature_city": temperature_city,
+            "temperature_kind": temperature_kind,
+            "weather_station": extract_weather_station(resolution_source),
+            "city_timezone": city_timezone,
+        }
+
         self.event_bus.publish_nowait(MarketMeta(
             slug=slug,
             condition_id=condition_id,
@@ -293,6 +335,7 @@ class MarketWebSocket:
             for tid in tids:
                 self.slug_by_token.pop(tid, None)
             self.market_active.pop(slug, None)
+            self.market_metadata.pop(slug, None)
             if slug in self._initial_slugs:
                 self._initial_slugs.remove(slug)
             logger.info("[MARKET_REMOVE] %s", slug)
