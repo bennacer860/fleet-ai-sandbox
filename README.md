@@ -382,7 +382,7 @@ When you make changes to the code locally, push them to GitHub, then run the dep
 ./deploy/deploy.sh
 ```
 
-This script will connect to the EC2 instance, pull the latest code, update dependencies, and restart both bot profile services automatically.
+This script will connect to the EC2 instance, pull the latest code, update dependencies, restart `polymarket-bot2`, and keep `polymarket-bot1` disabled unless you enable it separately.
 
 ## Logging
 

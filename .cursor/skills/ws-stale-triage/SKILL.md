@@ -17,10 +17,10 @@ stale, which websocket channel is stale, and whether restart is needed.
 ## Environment
 
 - AWS profile: `rafik`
-- Instance ID: `i-04fb74e5b95fdc098`
+- Instance ID: `i-0431a0aa517edf582`
 - Region: `eu-west-1`
 - App path: `/opt/polymarket-bot`
-- Service: `polymarket-bot` (profile 2)
+- Service: `polymarket-bot2` (bot2/profile 2)
 - Dashboard tmux session: `bot-p2`
 - Log file: `/opt/polymarket-bot/data/bot_p2.log`
 
@@ -30,9 +30,9 @@ Run via SSM:
 
 ```bash
 AWS_PROFILE=rafik aws ssm send-command \
-  --instance-ids "i-04fb74e5b95fdc098" \
+  --instance-ids "i-0431a0aa517edf582" \
   --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["sudo su - ec2-user -c '\''cd /opt/polymarket-bot && sudo systemctl status polymarket-bot --no-pager -l | sed -n \"1,90p\"'\''"]' \
+  --parameters 'commands=["sudo su - ec2-user -c '\''cd /opt/polymarket-bot && sudo systemctl status polymarket-bot2 --no-pager -l | sed -n \"1,90p\"'\''"]' \
   --region eu-west-1 \
   --output json --query 'Command.CommandId'
 ```
@@ -49,7 +49,7 @@ Capture two snapshots 15-30s apart:
 
 ```bash
 AWS_PROFILE=rafik aws ssm send-command \
-  --instance-ids "i-04fb74e5b95fdc098" \
+  --instance-ids "i-0431a0aa517edf582" \
   --document-name "AWS-RunShellScript" \
   --parameters 'commands=["sudo su - ec2-user -c '\''tmux capture-pane -pt bot-p2:0 -S -120 | grep -E \"WS Market:|WS User:|WS Crypto:|Market channels:|Spot:\"'\''"]' \
   --region eu-west-1 \
@@ -67,7 +67,7 @@ Fetch recent logs:
 
 ```bash
 AWS_PROFILE=rafik aws ssm send-command \
-  --instance-ids "i-04fb74e5b95fdc098" \
+  --instance-ids "i-0431a0aa517edf582" \
   --document-name "AWS-RunShellScript" \
   --parameters 'commands=["sudo su - ec2-user -c '\''tail -n 260 /opt/polymarket-bot/data/bot_p2.log'\''"]' \
   --region eu-west-1 \
@@ -92,7 +92,7 @@ Look for:
 - **Stale and not recovering**:
   - Channel ages keep growing, spot frozen, no successful reconnect.
   - Recommend controlled restart:
-    - `sudo systemctl restart polymarket-bot`
+    - `sudo systemctl restart polymarket-bot2`
   - Re-check Step 2 immediately after restart.
 
 ## Output format

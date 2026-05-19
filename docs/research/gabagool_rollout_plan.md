@@ -29,7 +29,7 @@ In [gabagool_adapter.py](src/strategy/gabagool_adapter.py) line 32, change `fee_
 
 **Changes**:
 
-- Remove `--dry-run` from the gabagool service file ([deploy/polymarket-bot-p1-gabagool.service](deploy/polymarket-bot-p1-gabagool.service))
+- Remove `--dry-run` from the bot1 service file ([deploy/polymarket-bot1.service](../../deploy/polymarket-bot1.service))
 - Remove `--fill-mode book` (live mode uses real UserWS fills)
 - Keep everything else identical: BTC only, 15m only, profile 1
 - Set conservative risk limits in `.env`:
@@ -105,7 +105,7 @@ P1_MAX_TOTAL_EXPOSURE=200
 1. **[src/strategy/gabagool_adapter.py](src/strategy/gabagool_adapter.py)**: Make `GabagoolConfig` fields env-driven (read from `P1_GABAGOOL`_* env vars) so you can tune without redeploying code:
   - `base_order_size`, `max_pair_cost`, `max_imbalance`, `probe_size_factor`, `fee_bps`
 2. **[src/execution/risk_manager.py](src/execution/risk_manager.py)**: Wire `record_fill()` into the live trading loop -- currently `MAX_DAILY_LOSS` circuit breaker is **never triggered** because `record_fill` is never called. This is a safety gap that must be fixed before live.
-3. **[deploy/polymarket-bot-p1-gabagool.service](deploy/polymarket-bot-p1-gabagool.service)**: Update the ExecStart command to remove `--dry-run` and `--fill-mode book`.
+3. **[deploy/polymarket-bot1.service](../../deploy/polymarket-bot1.service)**: Update the ExecStart command to remove `--dry-run` and `--fill-mode book`.
 
 ---
 

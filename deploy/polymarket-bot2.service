@@ -1,5 +1,5 @@
 [Unit]
-Description=Polymarket Bot Profile 2 (tmux)
+Description=Polymarket Bot 2 - Profile 2 Crypto Post-Expiry (tmux)
 After=network.target litestream.service
 Requires=litestream.service
 
@@ -14,7 +14,7 @@ Environment=P2_PROXIMITY_MIN_DISTANCE=0.00005
 
 ExecStart=/usr/bin/tmux new-session -d -s bot-p2 -e "HOME=/home/ec2-user" \
   '/opt/polymarket-bot/.venv/bin/python main.py run --markets BTC ETH SOL XRP DOGE HYPE BNB --durations 5 15 60 240 1440 --price-threshold 0.99 --profile 2 --strategy post_expiry --claim 5 --dashboard; exec bash'
-ExecStop=/usr/bin/tmux kill-session -t bot-p2
+ExecStop=/usr/bin/bash -lc '/usr/bin/tmux kill-session -t bot-p2 || true'
 
 Restart=always
 RestartSec=10

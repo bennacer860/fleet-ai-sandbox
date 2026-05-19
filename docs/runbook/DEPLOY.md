@@ -91,7 +91,7 @@ After updating SSM parameters, refresh them on the running instance:
 aws ssm send-command \
   --instance-ids "$INSTANCE_ID" --region eu-west-1 \
   --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["cd /opt/polymarket-bot && aws ssm get-parameters-by-path --path /polymarket-bot/ --with-decryption --region eu-west-1 --query \"Parameters[*].[Name,Value]\" --output text | while read -r name value; do key=$(basename \"$name\"); sed -i \"/^$key=/d\" .env; echo \"$key=$value\" >> .env; done && sudo systemctl restart polymarket-bot && sudo systemctl restart polymarket-bot-p1-gabagool"]'
+  --parameters 'commands=["cd /opt/polymarket-bot && aws ssm get-parameters-by-path --path /polymarket-bot/ --with-decryption --region eu-west-1 --query \"Parameters[*].[Name,Value]\" --output text | while read -r name value; do key=$(basename \"$name\"); sed -i \"/^$key=/d\" .env; echo \"$key=$value\" >> .env; done && sudo systemctl restart polymarket-bot2"]'
 ```
 
 ---
@@ -139,7 +139,7 @@ Push your changes to GitHub, then run the deploy script:
 This connects to the instance via SSM and runs:
 1. `git pull` to fetch the latest code
 2. `pip install -r requirements.txt` to update dependencies
-3. `systemctl restart polymarket-bot` and `systemctl restart polymarket-bot-p1-gabagool` to restart both profiles
+3. `systemctl restart polymarket-bot2` to restart bot2, while bot1 remains disabled unless explicitly enabled
 
 ### Manual deploy (if the script fails)
 
@@ -152,8 +152,11 @@ sudo su - ec2-user
 cd /opt/polymarket-bot
 git pull
 .venv/bin/pip install -r requirements.txt
-sudo systemctl restart polymarket-bot
-sudo systemctl restart polymarket-bot-p1-gabagool
+sudo cp deploy/polymarket-bot1.service deploy/polymarket-bot2.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable polymarket-bot2
+sudo systemctl disable --now polymarket-bot1
+sudo systemctl restart polymarket-bot2
 ```
 
 ---
@@ -175,12 +178,12 @@ Detach without stopping the bot: press `Ctrl+B`, then `D`.
 
 ## 5. Systemd Services
 
-The bot runs as four systemd services:
+The bot runs as explicit per-bot systemd services plus supporting services:
 
 | Service | Description | Config file |
 |---------|-------------|-------------|
-| `polymarket-bot` | Profile 2 (`post_expiry`) inside tmux session `bot-p2` | `deploy/polymarket-bot.service` |
-| `polymarket-bot-p1-gabagool` | Profile 1 (`gabagool`) inside tmux session `bot-p1` | `deploy/polymarket-bot-p1-gabagool.service` |
+| `polymarket-bot2` | Bot2/profile 2 (`post_expiry`) inside tmux session `bot-p2` | `deploy/polymarket-bot2.service` |
+| `polymarket-bot1` | Bot1/profile 1 stocks (`post_expiry`) inside tmux session `bot-p1` | `deploy/polymarket-bot1.service` |
 | `litestream` | Continuous SQLite replication to S3 | `deploy/litestream.service` |
 | `log-sync.timer` | Hourly archival of rotated logs to S3 | `deploy/log-sync.timer` |
 
@@ -188,17 +191,17 @@ Common systemd commands (run on the instance):
 
 ```bash
 # Check status
-sudo systemctl status polymarket-bot
-sudo systemctl status polymarket-bot-p1-gabagool
+sudo systemctl status polymarket-bot2
+sudo systemctl status polymarket-bot1
 sudo systemctl status litestream
 
 # Restart
-sudo systemctl restart polymarket-bot
-sudo systemctl restart polymarket-bot-p1-gabagool
+sudo systemctl restart polymarket-bot2
+sudo systemctl restart polymarket-bot1
 
 # View logs (systemd journal)
-sudo journalctl -u polymarket-bot --since "30 min ago" -f
-sudo journalctl -u polymarket-bot-p1-gabagool --since "30 min ago" -f
+sudo journalctl -u polymarket-bot2 --since "30 min ago" -f
+sudo journalctl -u polymarket-bot1 --since "30 min ago" -f
 
 # View bot's own log file (more detailed)
 tail -100 /opt/polymarket-bot/data/bot_p2.log
@@ -246,7 +249,7 @@ This happens automatically during bootstrap (`user_data.sh`), but can be run man
 
 ## 7. Bot Configuration
 
-Profile 2 runtime configuration is set in `deploy/polymarket-bot.service`:
+Bot2/profile 2 runtime configuration is set in `deploy/polymarket-bot2.service`:
 
 ```
 python main.py run \
@@ -269,8 +272,8 @@ python main.py run \
 | `--claim` | Auto-claim winning positions every N seconds |
 | `--dashboard` | Enable the Rich TUI dashboard |
 
-Profile 1 (`gabagool`) runtime configuration is set in `deploy/polymarket-bot-p1-gabagool.service`.
-To change either profile, edit the relevant service file, commit, push, and redeploy.
+Bot1/profile 1 runtime configuration is set in `deploy/polymarket-bot1.service`.
+To change either bot, edit the relevant service file, commit, push, and redeploy.
 
 ---
 

@@ -10,12 +10,12 @@ description: >-
 ## Prerequisites
 
 - AWS CLI configured with `AWS_PROFILE=rafik`
-- Instance ID: `i-04fb74e5b95fdc098`
+- Instance ID: `i-0431a0aa517edf582`
 - Region: `eu-west-1`
 - Bot runs at `/opt/polymarket-bot` as `ec2-user`
 - Services:
-  - `polymarket-bot.service` (profile 2, crypto only, tmux session `bot-p2`)
-  - `polymarket-bot-p1-end-market.service` (profile 1, stocks only, tmux session `bot-p1`)
+  - `polymarket-bot2.service` (bot2/profile 2, crypto only, tmux session `bot-p2`)
+  - `polymarket-bot1.service` (bot1/profile 1, stocks, tmux session `bot-p1`)
 
 ## Deployment Steps
 
@@ -30,9 +30,9 @@ Run the deployment as a non-interactive SSM command (requires `required_permissi
 
 ```bash
 AWS_PROFILE=rafik aws ssm send-command \
-  --instance-ids "i-04fb74e5b95fdc098" \
+  --instance-ids "i-0431a0aa517edf582" \
   --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["sudo su - ec2-user -c '\''cd /opt/polymarket-bot && git pull && .venv/bin/pip install -r requirements.txt -q && sudo cp deploy/polymarket-bot.service /etc/systemd/system/ && sudo cp deploy/polymarket-bot-p1-end-market.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable polymarket-bot polymarket-bot-p1-end-market && tmux kill-session -t bot || true && sudo systemctl restart polymarket-bot && sudo systemctl restart polymarket-bot-p1-end-market && echo Deploy complete && sleep 3 && sudo systemctl status polymarket-bot --no-pager && sudo systemctl status polymarket-bot-p1-end-market --no-pager'\''"]' \
+  --parameters 'commands=["sudo su - ec2-user -c '\''cd /opt/polymarket-bot && git pull && .venv/bin/pip install -r requirements.txt -q && sudo cp deploy/polymarket-bot1.service /etc/systemd/system/ && sudo cp deploy/polymarket-bot2.service /etc/systemd/system/ && sudo systemctl disable --now polymarket-bot polymarket-bot-p1-end-market || true && sudo rm -f /etc/systemd/system/polymarket-bot.service /etc/systemd/system/polymarket-bot-p1-end-market.service && sudo systemctl daemon-reload && sudo systemctl enable polymarket-bot2 && sudo systemctl disable --now polymarket-bot1 || true && tmux kill-session -t bot || true && tmux kill-session -t bot-p1 || true && sudo systemctl restart polymarket-bot2 && echo Deploy complete && sleep 3 && sudo systemctl status polymarket-bot2 --no-pager && sudo systemctl status polymarket-bot1 --no-pager || true'\''"]' \
   --region eu-west-1 \
   --comment "Deploy from Cursor" \
   --output json --query 'Command.CommandId'
@@ -47,7 +47,7 @@ Wait 10-15 seconds, then check the result:
 ```bash
 AWS_PROFILE=rafik aws ssm get-command-invocation \
   --command-id "<COMMAND_ID>" \
-  --instance-id "i-04fb74e5b95fdc098" \
+  --instance-id "i-0431a0aa517edf582" \
   --region eu-west-1 \
   --query '{Status: Status, Output: StandardOutputContent, Error: StandardErrorContent}' \
   --output json
@@ -57,7 +57,8 @@ AWS_PROFILE=rafik aws ssm get-command-invocation \
 
 Check for:
 - `"Status": "Success"` in the response
-- `Active: active` for both services in the systemctl output (`running` for profile 2, `exited` for profile 1 helper unit)
+- `Active: active` for `polymarket-bot2`
+- `polymarket-bot1` is disabled/stopped unless profile 1 was intentionally enabled
 - No errors in `StandardErrorContent` (git fetch messages in stderr are normal)
 
 Report the deployment result to the user.
@@ -77,7 +78,7 @@ For any command on the instance (DB queries, log checks, status), use:
 
 ```bash
 AWS_PROFILE=rafik aws ssm send-command \
-  --instance-ids "i-04fb74e5b95fdc098" \
+  --instance-ids "i-0431a0aa517edf582" \
   --document-name "AWS-RunShellScript" \
   --parameters 'commands=["sudo su - ec2-user -c '\''<COMMAND>'\''"]' \
   --region eu-west-1 \

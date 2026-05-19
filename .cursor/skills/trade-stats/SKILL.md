@@ -17,7 +17,7 @@ trade activity, fill counts by source, and P&L.
 ## Environment
 
 - AWS profile: `rafik`
-- Instance ID: `i-04fb74e5b95fdc098`
+- Instance ID: `i-0431a0aa517edf582`
 - Region: `eu-west-1`
 - App path: `/opt/polymarket-bot`
 - Database: `data/bot_p2.db`
@@ -41,7 +41,7 @@ PYEOF
 # Step 2 — send via SSM (substitute $B64 with the base64 string)
 B64="<paste base64>"
 AWS_PROFILE=rafik aws ssm send-command \
-  --instance-ids "i-04fb74e5b95fdc098" \
+  --instance-ids "i-0431a0aa517edf582" \
   --document-name "AWS-RunShellScript" \
   --parameters "{\"commands\":[\"sudo su - ec2-user -c 'cd /opt/polymarket-bot && echo $B64 | base64 -d > /tmp/q.py && .venv/bin/python /tmp/q.py'\"]}" \
   --region eu-west-1 \
@@ -50,7 +50,7 @@ AWS_PROFILE=rafik aws ssm send-command \
 # Step 3 — fetch result (wait ~8s)
 AWS_PROFILE=rafik aws ssm get-command-invocation \
   --command-id "<COMMAND_ID>" \
-  --instance-id "i-04fb74e5b95fdc098" \
+  --instance-id "i-0431a0aa517edf582" \
   --region eu-west-1 \
   --query '{Status: Status, Output: StandardOutputContent, Error: StandardErrorContent}' \
   --output json

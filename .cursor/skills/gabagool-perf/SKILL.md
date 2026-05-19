@@ -31,7 +31,7 @@ Infer values from the user's request. Examples:
 ## Environment
 
 - AWS profile: `rafik`
-- Instance ID: `i-04fb74e5b95fdc098`
+- Instance ID: `i-0431a0aa517edf582`
 - Region: `eu-west-1`
 - App path: `/opt/polymarket-bot`
 - Python: `.venv/bin/python`
@@ -47,7 +47,7 @@ base64 < .cursor/skills/gabagool-perf/scripts/pair_perf.py > /tmp/gab_b64.txt
 # Step 2 — send via SSM
 B64=$(cat /tmp/gab_b64.txt | tr -d '\n')
 AWS_PROFILE=rafik aws ssm send-command \
-  --instance-ids "i-04fb74e5b95fdc098" \
+  --instance-ids "i-0431a0aa517edf582" \
   --document-name "AWS-RunShellScript" \
   --parameters "{\"commands\":[\"sudo su - ec2-user -c 'cd /opt/polymarket-bot && echo $B64 | base64 -d > /tmp/q.py && .venv/bin/python /tmp/q.py --profile PROFILE --hours HOURS'\"]}" \
   --region eu-west-1 \
@@ -56,7 +56,7 @@ AWS_PROFILE=rafik aws ssm send-command \
 # Step 3 — fetch result (wait ~10s)
 AWS_PROFILE=rafik aws ssm get-command-invocation \
   --command-id "<COMMAND_ID>" \
-  --instance-id "i-04fb74e5b95fdc098" \
+  --instance-id "i-0431a0aa517edf582" \
   --region eu-west-1 \
   --query '{Status: Status, Output: StandardOutputContent, Error: StandardErrorContent}' \
   --output json

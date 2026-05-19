@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.tmp/
 bids_*.csv
 bid_analysis_*.png
 test_fifteen_min.py

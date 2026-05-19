@@ -91,7 +91,6 @@ class MarketWebSocket:
         self.best_prices: dict[str, dict[str, float]] = {}
         self.order_books: dict[str, dict[str, tuple[tuple[float, float], ...]]] = {}
         self.last_trade_prices: list[dict[str, Any]] = []
-
         self._initial_slugs = initial_slugs or []
         self._websocket: Optional[websockets.WebSocketClientProtocol] = None
         self._running = False

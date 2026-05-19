@@ -10,6 +10,16 @@ echo "Starting Polymarket Bot Bootstrap..."
 dnf update -y
 dnf install -y git python3.11 python3.11-pip tmux jq
 
+# The bot can briefly spike during market discovery/imports. Swap keeps SSM
+# responsive on small burstable instances while systemd caps protect the host.
+if [ ! -f /swapfile ]; then
+    fallocate -l 1G /swapfile
+    chmod 600 /swapfile
+    mkswap /swapfile
+fi
+swapon /swapfile || true
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
 # 2. Install Litestream (ARM64)
 echo "Installing Litestream..."
 curl -L https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-arm64.tar.gz -o litestream.tar.gz
@@ -23,7 +33,7 @@ chown ec2-user:ec2-user $APP_DIR
 
 # 4. Clone repository
 echo "Cloning repository..."
-sudo -u ec2-user git clone -b feature/aws-deployment https://github.com/bennacer860/polymarket-bot-sample.git $APP_DIR
+sudo -u ec2-user git clone -b "${repo_branch}" https://github.com/bennacer860/polymarket-bot-sample.git $APP_DIR
 
 # 5. Fetch secrets from SSM Parameter Store and create .env
 echo "Fetching secrets from SSM..."
@@ -50,8 +60,8 @@ sudo -u ec2-user .venv/bin/pip install -r requirements.txt
 
 # 7. Copy systemd services and litestream config
 echo "Configuring services..."
-cp $APP_DIR/deploy/polymarket-bot.service /etc/systemd/system/
-cp $APP_DIR/deploy/polymarket-bot-p1-end-market.service /etc/systemd/system/
+cp $APP_DIR/deploy/polymarket-bot1.service /etc/systemd/system/
+cp $APP_DIR/deploy/polymarket-bot2.service /etc/systemd/system/
 cp $APP_DIR/deploy/litestream.service /etc/systemd/system/
 mkdir -p /etc/litestream
 cp $APP_DIR/deploy/litestream.yml /etc/litestream/litestream.yml
@@ -81,9 +91,13 @@ systemctl enable litestream
 systemctl start litestream
 systemctl enable log-sync.timer
 systemctl start log-sync.timer
-systemctl enable polymarket-bot
-systemctl start polymarket-bot
-systemctl enable polymarket-bot-p1-end-market
-systemctl start polymarket-bot-p1-end-market
+systemctl enable polymarket-bot2
+systemctl start polymarket-bot2
+if [ "${enable_profile1}" = "true" ]; then
+    systemctl enable polymarket-bot1
+    systemctl start polymarket-bot1
+else
+    systemctl disable --now polymarket-bot1 || true
+fi
 
 echo "Bootstrap complete!"

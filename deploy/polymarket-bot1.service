@@ -1,5 +1,5 @@
 [Unit]
-Description=Polymarket Bot Profile 1 Stocks (tmux)
+Description=Polymarket Bot 1 - Profile 1 Stocks (tmux)
 After=network.target litestream.service
 Requires=litestream.service
 

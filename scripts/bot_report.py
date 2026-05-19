@@ -20,7 +20,7 @@ import sys
 import time
 
 AWS_PROFILE = "rafik"
-INSTANCE_ID = "i-04fb74e5b95fdc098"
+INSTANCE_ID = "i-0431a0aa517edf582"
 REGION = "eu-west-1"
 APP_PATH = "/opt/polymarket-bot"
 VENV_PYTHON = ".venv/bin/python"

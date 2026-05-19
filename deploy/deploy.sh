@@ -30,15 +30,18 @@ sudo su - ec2-user -c '
     .venv/bin/pip install -r requirements.txt
     
     echo "Installing systemd units..."
-    sudo cp deploy/polymarket-bot.service /etc/systemd/system/
-    sudo cp deploy/polymarket-bot-p1-end-market.service /etc/systemd/system/
+    sudo cp deploy/polymarket-bot1.service /etc/systemd/system/
+    sudo cp deploy/polymarket-bot2.service /etc/systemd/system/
+    sudo systemctl disable --now polymarket-bot polymarket-bot-p1-end-market || true
+    sudo rm -f /etc/systemd/system/polymarket-bot.service /etc/systemd/system/polymarket-bot-p1-end-market.service
     sudo systemctl daemon-reload
-    sudo systemctl enable polymarket-bot polymarket-bot-p1-end-market
+    sudo systemctl enable polymarket-bot2
+    sudo systemctl disable --now polymarket-bot1 || true
 
     # Clean up any legacy sessions from previous layouts.
     sudo -u ec2-user tmux kill-session -t bot || true
-    sudo -u ec2-user tmux -L bot-p2 kill-session -t bot-p2 || true
-    sudo -u ec2-user tmux -L bot-p1 kill-session -t bot-p1 || true
+    sudo -u ec2-user tmux kill-session -t bot-p2 || true
+    sudo -u ec2-user tmux kill-session -t bot-p1 || true
 
     echo "Updating Litestream config..."
     BUCKET=$(grep -oP "bucket: \K\S+" /etc/litestream/litestream.yml | head -1)
@@ -46,14 +49,13 @@ sudo su - ec2-user -c '
     sudo sed -i "s/\${S3_BUCKET}/$BUCKET/g" /etc/litestream/litestream.yml
     sudo systemctl restart litestream
 
-    echo "Restarting bot services..."
-    sudo systemctl restart polymarket-bot
-    sudo systemctl restart polymarket-bot-p1-end-market
+    echo "Restarting bot2 and keeping bot1 down..."
+    sudo systemctl restart polymarket-bot2
+    sudo systemctl stop polymarket-bot1 || true
     
     echo "Deployment complete! The bot is restarting."
     echo "To view profile dashboards, connect via SSM and run:"
-    echo "  tmux attach -t bot-p2   # post_expiry (profile 2)"
-    echo "  tmux attach -t bot-p1   # end_market (profile 1)"
+    echo "  tmux attach -t bot-p2   # bot2 post_expiry (profile 2)"
 '
 EOF
 )
@@ -70,4 +72,4 @@ aws ssm send-command \
 echo "Deployment triggered successfully!"
 echo "To connect to the instance and view the dashboard, run:"
 echo "aws ssm start-session --target $INSTANCE_ID --region $REGION"
-echo "Then type: tmux attach -t bot-p2 (or bot-p1)"
+echo "Then type: tmux attach -t bot-p2"

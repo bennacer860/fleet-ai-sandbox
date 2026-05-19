@@ -209,10 +209,10 @@ data "aws_ami" "al2023_arm64" {
 }
 
 resource "aws_instance" "bot_instance" {
-  ami                  = data.aws_ami.al2023_arm64.id
-  instance_type        = var.instance_type
-  subnet_id            = aws_subnet.bot_subnet.id
-  iam_instance_profile = aws_iam_instance_profile.bot_profile.name
+  ami                    = data.aws_ami.al2023_arm64.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.bot_subnet.id
+  iam_instance_profile   = aws_iam_instance_profile.bot_profile.name
   vpc_security_group_ids = [aws_security_group.bot_sg.id]
 
   # Optional Spot Instance configuration
@@ -233,9 +233,11 @@ resource "aws_instance" "bot_instance" {
   }
 
   user_data = templatefile("${path.module}/user_data.sh", {
-    ssm_prefix = var.ssm_parameter_prefix
-    region     = var.aws_region
-    s3_bucket  = aws_s3_bucket.bot_backups.id
+    ssm_prefix      = var.ssm_parameter_prefix
+    region          = var.aws_region
+    s3_bucket       = aws_s3_bucket.bot_backups.id
+    repo_branch     = var.repo_branch
+    enable_profile1 = var.enable_profile1
   })
 
   tags = {

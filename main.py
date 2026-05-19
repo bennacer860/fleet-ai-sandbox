@@ -329,7 +329,6 @@ def main() -> int:
         "--stocks", nargs="+", default=[],
         help="Stock/ETF tickers for daily open/close markets (e.g. SPX TSLA AAPL)",
     )
-
     # ── health ─────────────────────────────────────────────────────────────
     health_parser = sub.add_parser("health", help="Print current health status")
     health_parser.add_argument(
