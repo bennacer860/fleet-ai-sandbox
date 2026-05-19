@@ -280,6 +280,14 @@ class MarketWebSocketPool:
         return self._primary.last_trade_prices
 
     @property
+    def _books_filtered(self) -> int:
+        return sum(c._books_filtered for c in self._connections)
+
+    @property
+    def _books_processed(self) -> int:
+        return sum(c._books_processed for c in self._connections)
+
+    @property
     def _primary(self) -> MarketWebSocket:
         """The primary connection used for shared state lookups."""
         return self._connections[self._primary_idx]
