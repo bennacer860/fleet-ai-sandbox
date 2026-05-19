@@ -49,10 +49,8 @@ from .markets.fifteen_min import (
     detect_duration_from_slug,
     extract_market_end_ts,
     extract_market_from_slug,
-    get_current_interval_utc,
-    get_market_slug,
-    get_next_interval_utc,
 )
+from .subscription_manager import SubscriptionManager
 from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.proximity import (
@@ -105,10 +103,6 @@ GRACE_PERIOD_SECONDS = 5 * 60
 BALANCE_REFRESH_INTERVAL_S = 30
 TELEGRAM_SUMMARY_INTERVAL_S = 20 * 60  # periodic Telegram digest
 
-# Lazy subscription: only subscribe to markets with duration >= this
-# threshold when they are within LAZY_SUB_LEAD_S of expiry.
-LAZY_SUB_MIN_DURATION = 30   # minutes — applies to 30m, 60m, etc.
-LAZY_SUB_LEAD_S = 15 * 60    # subscribe 15 minutes before expiry
 
 
 class Bot:
@@ -144,17 +138,13 @@ class Bot:
         self._market_selections = market_selections or []
         self._durations = durations or sorted(SUPPORTED_DURATIONS)
         self._stock_tickers: list[str] = [t.upper() for t in (stock_tickers or [])]
-        self._stock_tracked: set[str] = set()
 
-        self._monitored_ts: dict[int, dict[str, set[int]]] = {
-            dur: {sel: set() for sel in self._market_selections}
-            for dur in self._durations
-        }
-
-        self._deferred_ts: dict[int, dict[str, set[int]]] = {
-            dur: {sel: set() for sel in self._market_selections}
-            for dur in self._durations
-        }
+        self._subscription_manager = SubscriptionManager(
+            durations=self._durations,
+            market_selections=list(self._market_selections),
+            stock_tickers=self._stock_tickers,
+            grace_period_s=GRACE_PERIOD_SECONDS,
+        )
 
         self.event_bus = EventBus()
         self._display_proximity = _build_proximity_calculator(strategy_name)
@@ -331,7 +321,7 @@ class Bot:
 
         if self.dashboard:
             self.dashboard.set_coverage_refs(
-                monitored_ts=self._monitored_ts,
+                monitored_ts=self._subscription_manager.monitored_ts,
                 durations=self._durations,
                 market_selections=self._market_selections,
             )
@@ -906,6 +896,14 @@ class Bot:
         self._strategy_ctx.crypto_price_ts = dict(self.crypto_ws.last_update_ts)
         self._strategy_ctx.external_data = {}
 
+    def get_context(self) -> StrategyContext:
+        """Return a fresh StrategyContext snapshot.
+
+        Implements the ContextSource protocol for use with StrategyDispatcher.
+        """
+        self._update_context()
+        return self._strategy_ctx
+
     # ── Metrics collectors ────────────────────────────────────────────────
 
     async def _metrics_tick_size(self, event: TickSizeChange) -> None:
@@ -1002,219 +1000,29 @@ class Bot:
 
     # ── Subscription management (market rolling) ───────────────────────────
 
-    def _seed_monitored_timestamps(self) -> None:
-        """Populate _monitored_ts and _deferred_ts from the initial state so the 
-        subscription manager knows which windows are already tracked."""
-        now = int(time.time())
-        for dur in self._durations:
-            cur_ts = get_current_interval_utc(dur)
-            nxt_ts = get_next_interval_utc(dur)
-            
-            use_lazy = dur >= LAZY_SUB_MIN_DURATION
-            interval_s = dur * 60
-
-            seeds = [cur_ts, nxt_ts]
-            if not use_lazy:
-                prev_ts = cur_ts - interval_s
-                prev_end = prev_ts + interval_s
-                if now <= prev_end + GRACE_PERIOD_SECONDS:
-                    seeds.insert(0, prev_ts)
-
-            for sel in self._market_selections:
-                for ts in seeds:
-                    end_time = ts + interval_s
-                    time_to_expiry = end_time - now
-
-                    if time_to_expiry < -GRACE_PERIOD_SECONDS:
-                        continue
-                    
-                    if use_lazy and time_to_expiry > LAZY_SUB_LEAD_S:
-                        self._deferred_ts[dur][sel].add(ts)
-                    else:
-                        self._monitored_ts[dur][sel].add(ts)
-
     async def _manage_subscriptions(self) -> None:
-        """Periodically add new market windows and prune expired ones."""
+        """Periodically add new market windows and prune expired ones.
+
+        Delegates logic to SubscriptionManager; handles I/O side effects here.
+        """
         while True:
             await asyncio.sleep(SUB_CHECK_INTERVAL)
-            for dur in self._durations:
-                await self._manage_subscriptions_for_duration(dur)
+            delta = self._subscription_manager.tick(
+                now_ts=time.time(),
+                market_active=dict(self.market_ws.market_active),
+            )
 
-    async def _manage_subscriptions_for_duration(self, duration: int) -> None:
-        interval_seconds = duration * 60
-        cur_ts = get_current_interval_utc(duration)
-        nxt_ts = get_next_interval_utc(duration)
-        prev_ts = cur_ts - interval_seconds
-        now = int(time.time())
-
-        use_lazy = duration >= LAZY_SUB_MIN_DURATION
-
-        # For short-duration markets, also check the previous window to
-        # catch any that were missed if the loop was delayed.
-        candidate_timestamps = [cur_ts, nxt_ts]
-        if not use_lazy:
-            prev_end = prev_ts + interval_seconds
-            if now <= prev_end + GRACE_PERIOD_SECONDS:
-                candidate_timestamps.insert(0, prev_ts)
-
-        slugs_to_add: list[str] = []
-        slugs_to_remove: list[str] = []
-
-        for sel in self._market_selections:
-            tracked = self._monitored_ts[duration][sel]
-            deferred = self._deferred_ts[duration][sel]
-
-            for ts in candidate_timestamps:
-                if ts in tracked or ts in deferred:
-                    continue
-
-                end_time = ts + interval_seconds
-                time_to_expiry = end_time - now
-
-                if time_to_expiry < -GRACE_PERIOD_SECONDS:
-                    continue
-
-                if ts == nxt_ts:
-                    label = "next"
-                elif ts == prev_ts:
-                    label = "catchup"
-                else:
-                    label = "current"
-
-                if use_lazy and time_to_expiry > LAZY_SUB_LEAD_S:
-                    deferred.add(ts)
-                    try:
-                        slug = get_market_slug(sel, duration, ts)
-                        display = format_slug_with_est_time(slug)
-                        logger.info(
-                            "[SUB] Deferring %s %dm market for %s: %s (%.0fm to expiry)",
-                            label, duration, sel, display, time_to_expiry / 60,
-                        )
-                    except ValueError:
-                        pass
-                    continue
-
-                try:
-                    slug = get_market_slug(sel, duration, ts)
-                    slugs_to_add.append(slug)
-                    tracked.add(ts)
-                    deferred.discard(ts)
-                    display = format_slug_with_est_time(slug)
-                    logger.info("[SUB] Adding %s %dm market for %s: %s", label, duration, sel, display)
-                except ValueError as exc:
-                    logger.error("Slug generation failed (%s/%dm %s): %s", sel, duration, label, exc)
-
-            # ── Promote deferred timestamps that are now close enough ──
-            if use_lazy:
-                newly_ready: list[int] = []
-                for ts in deferred:
-                    end_time = ts + interval_seconds
-                    time_to_expiry = end_time - now
-                    if time_to_expiry <= LAZY_SUB_LEAD_S:
-                        try:
-                            slug = get_market_slug(sel, duration, ts)
-                            slugs_to_add.append(slug)
-                            tracked.add(ts)
-                            newly_ready.append(ts)
-                            display = format_slug_with_est_time(slug)
-                            logger.info(
-                                "[SUB] Promoting deferred %dm market for %s: %s (%.0fm to expiry)",
-                                duration, sel, display, time_to_expiry / 60,
-                            )
-                        except ValueError as exc:
-                            logger.error("Slug generation failed on promotion (%s/%dm): %s", sel, duration, exc)
-                            newly_ready.append(ts)
-                for ts in newly_ready:
-                    deferred.discard(ts)
-
-            # ── Prune expired markets ──
-            expired: list[int] = []
-            for ts in tracked:
-                end_time = ts + interval_seconds
-                if now > end_time + GRACE_PERIOD_SECONDS:
-                    try:
-                        slug = get_market_slug(sel, duration, ts)
-                        if slug in self.market_ws.market_active and not self.market_ws.market_active[slug]:
-                            slugs_to_remove.append(slug)
-                            expired.append(ts)
-                            display = format_slug_with_est_time(slug)
-                            logger.info("[SUB] Removing expired %dm market for %s: %s", duration, sel, display)
-                    except ValueError:
-                        expired.append(ts)
-            for ts in expired:
-                tracked.discard(ts)
-
-            # Also clean stale deferred entries.
-            stale_deferred = [ts for ts in deferred if now > ts + interval_seconds]
-            for ts in stale_deferred:
-                deferred.discard(ts)
-
-        if slugs_to_add:
-            await self.market_ws.add_markets(slugs_to_add)
-            self._launch_prefetch(slugs_to_add)
-            if self.dashboard:
-                for slug in slugs_to_add:
-                    display = format_slug_with_est_time(slug)
-                    self.dashboard.push_event(f"📍 MARKET_ADD  {display}")
-
-        if slugs_to_remove:
-            await self.market_ws.remove_markets(slugs_to_remove)
-            for slug in slugs_to_remove:
-                self._eval_cache.pop(slug, None)
-
-    # ── Stock daily subscription management ───────────────────────────────
-
-    async def _manage_stock_subscriptions(self) -> None:
-        """Subscribe to daily stock open/close markets and rotate at date change."""
-        from datetime import date as _date
-
-        import pytz
-
-        from .markets.stocks import generate_stock_slugs_for_date
-
-        est = pytz.timezone("US/Eastern")
-
-        while True:
-            await asyncio.sleep(SUB_CHECK_INTERVAL)
-            now = int(time.time())
-
-            from datetime import datetime as _dt
-
-            today = _dt.now(est).date()
-
-            slugs_to_add: list[str] = []
-            slugs_to_remove: list[str] = []
-
-            for ticker in self._stock_tickers:
-                for slug in generate_stock_slugs_for_date(ticker, today):
-                    end_ts = extract_market_end_ts(slug)
-                    if end_ts is None:
-                        continue
-
-                    if slug in self._stock_tracked:
-                        if now > end_ts + GRACE_PERIOD_SECONDS:
-                            slugs_to_remove.append(slug)
-                            self._stock_tracked.discard(slug)
-                            logger.info("[STOCK_SUB] Removing expired stock market: %s", slug)
-                        continue
-
-                    if now > end_ts + GRACE_PERIOD_SECONDS:
-                        continue
-
-                    slugs_to_add.append(slug)
-                    self._stock_tracked.add(slug)
-                    logger.info("[STOCK_SUB] Adding stock market: %s", slug)
-
-            if slugs_to_add:
-                await self.market_ws.add_markets(slugs_to_add)
-                self._launch_prefetch(slugs_to_add)
+            if delta.slugs_to_add:
+                await self.market_ws.add_markets(list(delta.slugs_to_add))
+                self._launch_prefetch(list(delta.slugs_to_add))
                 if self.dashboard:
-                    for slug in slugs_to_add:
-                        self.dashboard.push_event(f"📍 STOCK_ADD  {slug}")
+                    for slug in delta.slugs_to_add:
+                        display = format_slug_with_est_time(slug)
+                        self.dashboard.push_event(f"📍 MARKET_ADD  {display}")
 
-            if slugs_to_remove:
-                await self.market_ws.remove_markets(slugs_to_remove)
-                for slug in slugs_to_remove:
+            if delta.slugs_to_remove:
+                await self.market_ws.remove_markets(list(delta.slugs_to_remove))
+                for slug in delta.slugs_to_remove:
                     self._eval_cache.pop(slug, None)
 
     # ── Startup housekeeping ──────────────────────────────────────────────
@@ -1363,8 +1171,15 @@ class Bot:
         # Session metrics should always be per-process-run, independent of
         # any startup reconciliation of historical positions.
         self.position_tracker.reset_session_metrics()
-        self._seed_monitored_timestamps()
-        self._launch_prefetch(self._slugs)
+
+        # Seed rolling subscriptions (crypto + stock windows)
+        rolling_slugs = self._subscription_manager.seed(time.time())
+        if rolling_slugs:
+            await self.market_ws.add_markets(rolling_slugs)
+
+        # Prefetch eval data for all initial slugs (CLI + rolling)
+        all_initial_slugs = list(self._slugs) + rolling_slugs
+        self._launch_prefetch(all_initial_slugs)
 
         for strategy in self.strategies:
             await strategy.startup()
@@ -1417,10 +1232,7 @@ class Bot:
                 asyncio.create_task(self._supervised_task("auto_claimer", self.auto_claimer.run))
             )
 
-        if self._stock_tickers:
-            self._tasks.append(
-                asyncio.create_task(self._supervised_task("stock_sub", self._manage_stock_subscriptions))
-            )
+        # Stock subscriptions are now handled by the unified _manage_subscriptions loop
 
         try:
             await asyncio.gather(*self._tasks)
