@@ -50,7 +50,12 @@ from .markets.fifteen_min import (
     extract_market_end_ts,
     extract_market_from_slug,
 )
-from .subscription_manager import SubscriptionManager
+from .subscription_manager import (
+    DEFAULT_GRACE_PERIOD_S as GRACE_PERIOD_SECONDS,
+    DEFAULT_LAZY_SUB_LEAD_S as LAZY_SUB_LEAD_S,
+    DEFAULT_LAZY_SUB_MIN_DURATION as LAZY_SUB_MIN_DURATION,
+    SubscriptionManager,
+)
 from .utils.crypto_price import set_ws_prices
 from .strategy.base import Strategy, StrategyContext
 from .strategy.proximity import (
@@ -99,9 +104,11 @@ def _build_proximity_calculator(strategy_name: str) -> ProximityCalculator:
 MAX_RETRIES = 10
 RETRY_BASE_DELAY = 5
 SUB_CHECK_INTERVAL = 10
-GRACE_PERIOD_SECONDS = 5 * 60
 BALANCE_REFRESH_INTERVAL_S = 30
 TELEGRAM_SUMMARY_INTERVAL_S = 20 * 60  # periodic Telegram digest
+
+# Re-exported for backward compatibility with main.py
+# The actual values are in subscription_manager.py
 
 
 
