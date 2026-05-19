@@ -29,6 +29,7 @@ from .execution.position_tracker import PositionTracker
 from .execution.risk_manager import RiskConfig, RiskManager
 from .gateway.crypto_ws import CryptoWebSocket
 from .gateway.market_ws import MarketWebSocket
+from .gateway.market_ws_pool import MarketWebSocketPool, POOL_SIZE as MARKET_WS_POOL_SIZE
 from .gateway.rest_client import AsyncRestClient
 from .gateway.user_ws import UserWebSocket
 from .logging_config import get_logger
@@ -219,11 +220,19 @@ class Bot:
             strategy_spec = get_strategy_spec(strategy_name)
             use_book_filter = not strategy_spec.needs_full_book_updates
 
-        self.market_ws = MarketWebSocket(
-            event_bus=self.event_bus,
-            initial_slugs=list(self._slugs),
-            book_event_filter=self._hot_tokens if use_book_filter else None,
-        )
+        if MARKET_WS_POOL_SIZE > 1:
+            self.market_ws: MarketWebSocket | MarketWebSocketPool = MarketWebSocketPool(
+                event_bus=self.event_bus,
+                initial_slugs=list(self._slugs),
+                book_event_filter=self._hot_tokens if use_book_filter else None,
+            )
+            logger.info("[BOT] Using MarketWebSocketPool with %d connections", MARKET_WS_POOL_SIZE)
+        else:
+            self.market_ws = MarketWebSocket(
+                event_bus=self.event_bus,
+                initial_slugs=list(self._slugs),
+                book_event_filter=self._hot_tokens if use_book_filter else None,
+            )
         self.user_ws = UserWebSocket(event_bus=self.event_bus)
 
         crypto_assets = list(set(self._market_selections)) or None

@@ -668,7 +668,16 @@ class Dashboard:
         else:
             lines.append("AutoClaim: [dim]OFF[/dim]")
 
-        if self._market_ws and self._market_ws.connected:
+        pool_info = ""
+        if self._market_ws and hasattr(self._market_ws, "pool_size"):
+            pool_size = self._market_ws.pool_size
+            conns_up = self._market_ws.connections_up
+            pool_info = f" [cyan]Pool {conns_up}/{pool_size}[/cyan]"
+            if self._market_ws.connected:
+                ws_market = "[green]Connected[/green]"
+            else:
+                ws_market = "[red]Disconnected[/red]"
+        elif self._market_ws and self._market_ws.connected:
             ws_market = "[green]Connected[/green]"
         elif self._market_ws:
             ws_market = "[red]Disconnected[/red]"
@@ -725,7 +734,7 @@ class Dashboard:
             ws_crypto_prices = ""
 
         lines.append(
-            f"WS Market: {ws_market} ({token_count} tokens)  "
+            f"WS Market: {ws_market}{pool_info} ({token_count} tokens)  "
             f"(reconnects: {market_reconnects} resubs: {market_resubs} keepalives: {market_keepalives})   Last msg: {msg_age}"
         )
         if self._market_ws:
@@ -738,6 +747,14 @@ class Dashboard:
                 f"price_change={_age(ages.get('price_change', -1))}  "
                 f"tick_size={_age(ages.get('tick_size_change', -1))}"
             )
+            if hasattr(self._market_ws, "metrics"):
+                m = self._market_ws.metrics
+                total_recv = sum(m.events_received.values())
+                if total_recv > 0:
+                    dup_pct = m.duplicates_dropped / total_recv * 100
+                    lines.append(
+                        f"  Pool stats: events={m.total_events} dupes={m.duplicates_dropped} ({dup_pct:.1f}%)"
+                    )
         lines.append(f"WS User:   {ws_user}")
         lines.append(f"WS Crypto: {ws_crypto}")
         if ws_crypto_prices:
