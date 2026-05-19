@@ -361,8 +361,9 @@ class Dashboard:
             if self._tick_latencies:
                 t_lats = list(self._tick_latencies)
                 avg_tick = sum(t_lats) / len(t_lats)
-                last_tick = t_lats[-1]
-                lines.append(f"Tick→Order: {last_tick:.0f}ms (avg {avg_tick:.0f}ms)")
+                min_tick = min(t_lats)
+                max_tick = max(t_lats)
+                lines.append(f"Tick→Order: min={min_tick:.0f}  avg={avg_tick:.0f}  max={max_tick:.0f}ms")
 
             if self._sign_latencies:
                 s = list(self._sign_latencies)
