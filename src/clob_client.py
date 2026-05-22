@@ -181,6 +181,12 @@ def precache_token_data(token_ids: list[str]) -> dict[str, BookSnapshot]:
                 book = client.get_order_book(token_id)
                 if book.min_order_size:
                     mos = float(book.min_order_size)
+                    # Bound cache size to prevent unbounded memory growth
+                    if len(_min_order_size_cache) >= _MIN_ORDER_SIZE_CACHE_MAX:
+                        # Remove oldest entries (first ~10%)
+                        keys_to_remove = list(_min_order_size_cache.keys())[: _MIN_ORDER_SIZE_CACHE_MAX // 10]
+                        for k in keys_to_remove:
+                            del _min_order_size_cache[k]
                     _min_order_size_cache[token_id] = mos
                 raw_bids = book.bids or []
                 raw_asks = book.asks or []
@@ -215,7 +221,9 @@ def precache_token_data(token_ids: list[str]) -> dict[str, BookSnapshot]:
 
 # ── Min order size cache ──────────────────────────────────────────────────
 
+# Bounded to prevent memory growth — holds most recently accessed tokens
 _min_order_size_cache: dict[str, float] = {}
+_MIN_ORDER_SIZE_CACHE_MAX = 500  # Max tokens to cache
 
 FALLBACK_MIN_ORDER_SIZE = 5.0
 

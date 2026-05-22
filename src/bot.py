@@ -7,6 +7,7 @@ Components communicate exclusively through the ``EventBus``.
 from __future__ import annotations
 
 import asyncio
+import gc
 import os
 import time
 from typing import Any
@@ -668,6 +669,12 @@ class Bot:
             self.dashboard.push_event(
                 f"🏁 [blue]RESOLVED[/blue]  {display_slug}  unsubscribed"
             )
+            # Clean dashboard caches to prevent memory accumulation
+            active_slugs = set(self.market_ws.market_active.keys())
+            active_tokens = set()
+            for tids in self.market_ws.token_ids.values():
+                active_tokens.update(tids)
+            self.dashboard.cleanup_market_caches(active_slugs, active_tokens)
 
         # No Telegram for market resolved (noise)
 
@@ -943,9 +950,17 @@ class Bot:
 
     async def _metrics_loop(self) -> None:
         """Periodic gauge updates for dashboard/health."""
+        gc_interval_s = 60
+        last_gc_mono = time.monotonic()
         while True:
             await asyncio.sleep(2)
             set_ws_prices(self.crypto_ws.latest_prices, self.crypto_ws.last_update_ts)
+
+            # Periodic garbage collection to prevent slow memory accumulation
+            now_mono = time.monotonic()
+            if now_mono - last_gc_mono >= gc_interval_s:
+                gc.collect()
+                last_gc_mono = now_mono
             active = sum(1 for v in self.market_ws.market_active.values() if v)
             self._metrics.set("active_markets", active)
             self._metrics.set("ws_market_connected", 1.0 if self.market_ws.connected else 0.0)

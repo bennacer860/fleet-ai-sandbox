@@ -124,6 +124,26 @@ class Dashboard:
             self._slug_display_cache[slug] = format_slug_with_est_time(slug)
         return self._slug_display_cache[slug]
 
+    def cleanup_market_caches(self, active_slugs: set[str], active_token_ids: set[str]) -> None:
+        """Remove stale entries from dashboard caches when markets are removed.
+        
+        Call this periodically (e.g. when markets expire) to prevent unbounded
+        memory growth in display caches.
+        """
+        stale_slugs = [s for s in self._slug_display_cache if s not in active_slugs]
+        for slug in stale_slugs:
+            del self._slug_display_cache[slug]
+
+        stale_tokens = [t for t in self._market_price_state if t not in active_token_ids]
+        for tid in stale_tokens:
+            del self._market_price_state[tid]
+
+        if stale_slugs or stale_tokens:
+            logger.debug(
+                "[DASHBOARD] Cleaned %d stale slugs, %d stale tokens from caches",
+                len(stale_slugs), len(stale_tokens),
+            )
+
     @staticmethod
     def _market_end_ts(slug: str) -> int:
         """Extract unix end timestamp from market slug if present."""
