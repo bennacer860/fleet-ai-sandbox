@@ -289,9 +289,16 @@ class MarketWebSocket:
                 continue
             tids = self.token_ids.pop(slug)
             tids_to_unsub.extend(tids)
+            # Clean up ALL token-keyed dictionaries to prevent memory leaks
             for tid in tids:
                 self.slug_by_token.pop(tid, None)
+                self.condition_by_token.pop(tid, None)
+                self.token_outcomes.pop(tid, None)
+                self.best_prices.pop(tid, None)
+                self.order_books.pop(tid, None)
+            # Clean up slug-keyed dictionaries
             self.market_active.pop(slug, None)
+            self.condition_ids.pop(slug, None)
             if slug in self._initial_slugs:
                 self._initial_slugs.remove(slug)
             logger.info("[MARKET_REMOVE] %s", slug)

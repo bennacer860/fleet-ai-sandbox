@@ -390,12 +390,23 @@ class MultiEventMonitor:
             token_ids = self.token_ids[slug]
             token_ids_to_unsubscribe.extend(token_ids)
 
-            # Remove from tracking
+            # Remove from tracking — clean up ALL dictionaries to prevent memory leaks
             for token_id in token_ids:
                 self.slug_by_token.pop(token_id, None)
+                self.condition_by_token.pop(token_id, None)
+                self.token_outcomes.pop(token_id, None)
+                self.last_ticker_change.pop(token_id, None)
+                self.best_prices.pop(token_id, None)
+                # Clean up previous_sizes entries for this token (keyed by asset_id_price_side)
+                keys_to_remove = [k for k in self.previous_sizes if k.startswith(f"{token_id}_")]
+                for k in keys_to_remove:
+                    del self.previous_sizes[k]
 
             self.token_ids.pop(slug, None)
             self.market_active.pop(slug, None)
+            self.condition_ids.pop(slug, None)
+            self.winning_tokens.pop(slug, None)
+            self.raw_slugs.pop(slug, None)
             if slug in self.event_slugs:
                 self.event_slugs.remove(slug)
 
