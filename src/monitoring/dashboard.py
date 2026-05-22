@@ -195,6 +195,8 @@ class Dashboard:
         # Note: We don't push general events to Telegram from here to avoid noise. 
         # Important trading events are handled with specialized formatting in bot.py.
 
+    _MAX_COUNTED_ORDER_IDS = 1000  # Bound dedup set size to prevent unbounded growth
+
     def record_filled_submission_source(
         self,
         order_id: str,
@@ -208,6 +210,13 @@ class Dashboard:
         source = submission_source or "unknown"
         self._filled_by_source[source] = self._filled_by_source.get(source, 0) + 1
         self._counted_filled_order_ids.add(order_id)
+        # Prevent unbounded growth - after max size, dedup may allow rare double-counts
+        # but that's acceptable for dashboard display purposes
+        if len(self._counted_filled_order_ids) > self._MAX_COUNTED_ORDER_IDS:
+            # Remove oldest entries (sets don't preserve order, so this is approximate)
+            to_remove = list(self._counted_filled_order_ids)[:100]
+            for oid in to_remove:
+                self._counted_filled_order_ids.discard(oid)
 
     # ── Panel builders ────────────────────────────────────────────────────
 

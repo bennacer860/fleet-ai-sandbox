@@ -95,7 +95,12 @@ class RiskManager:
         """Release exposure when a position is closed."""
         current = self._exposure_by_market.get(slug, 0.0)
         released = min(amount, current)
-        self._exposure_by_market[slug] = current - released
+        new_exposure = current - released
+        if new_exposure <= 0:
+            # Clean up slug entry when exposure is zero to prevent unbounded growth
+            self._exposure_by_market.pop(slug, None)
+        else:
+            self._exposure_by_market[slug] = new_exposure
         self._total_exposure = max(0.0, self._total_exposure - released)
 
     # ── Read-only state for dashboard ─────────────────────────────────────

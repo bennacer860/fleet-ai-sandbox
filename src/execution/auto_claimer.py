@@ -216,6 +216,12 @@ class AutoClaimer:
         if success:
             for c in to_claim:
                 self._claimed.add(c["conditionId"])
+            # Bound the claimed set to prevent unbounded growth over very long runs
+            if len(self._claimed) > 10000:
+                # Keep most recent entries (sets don't preserve order, so this is approximate)
+                to_remove = list(self._claimed)[:5000]
+                for cid in to_remove:
+                    self._claimed.discard(cid)
             return len(to_claim)
 
         return 0

@@ -298,9 +298,11 @@ class MarketWebSocket:
                 self.token_outcomes.pop(tid, None)
                 self.best_prices.pop(tid, None)
                 self.order_books.pop(tid, None)
+                self._last_top_by_token.pop(tid, None)
             # Clean up slug-keyed dictionaries
             self.market_active.pop(slug, None)
             self.condition_ids.pop(slug, None)
+            self._last_tick_size.pop(slug, None)
             if slug in self._initial_slugs:
                 self._initial_slugs.remove(slug)
             logger.info("[MARKET_REMOVE] %s", slug)
