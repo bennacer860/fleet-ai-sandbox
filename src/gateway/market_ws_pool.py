@@ -16,7 +16,7 @@ import asyncio
 import hashlib
 import os
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -276,7 +276,7 @@ class MarketWebSocketPool:
         return self._primary.order_books
 
     @property
-    def last_trade_prices(self) -> list[dict[str, Any]]:
+    def last_trade_prices(self) -> "deque[dict[str, Any]]":
         return self._primary.last_trade_prices
 
     @property

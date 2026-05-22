@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -90,7 +91,8 @@ class MarketWebSocket:
         self.token_outcomes: dict[str, str] = {}
         self.best_prices: dict[str, dict[str, float]] = {}
         self.order_books: dict[str, dict[str, tuple[tuple[float, float], ...]]] = {}
-        self.last_trade_prices: list[dict[str, Any]] = []
+        # Bounded deque to prevent unbounded memory growth from trade events
+        self.last_trade_prices: deque[dict[str, Any]] = deque(maxlen=1000)
         self._initial_slugs = initial_slugs or []
         self._websocket: Optional[websockets.WebSocketClientProtocol] = None
         self._running = False
