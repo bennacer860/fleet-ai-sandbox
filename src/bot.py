@@ -841,6 +841,11 @@ class Bot:
             return
         slug = state.intent.slug
         is_filled = state.status == OrderStatus.FILLED
+
+        # Clean up order metadata from position tracker for non-filled terminal orders
+        if not is_filled:
+            self.position_tracker.cleanup_order_meta(event.order_id)
+
         for strategy in self.strategies:
             if hasattr(strategy, "notify_order_result"):
                 strategy.notify_order_result(slug, filled=is_filled)

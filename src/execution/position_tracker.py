@@ -162,8 +162,15 @@ class PositionTracker:
     async def on_book_update(self, event: BookUpdate) -> None:
         self._best_prices[event.token_id] = event.best_bid
 
+    def cleanup_order_meta(self, order_id: str) -> None:
+        """Remove order metadata for a terminal order (rejected/expired/cancelled).
+        
+        Call this when an order reaches terminal state without a fill.
+        """
+        self._order_meta.pop(order_id, None)
+
     async def on_fill(self, event: OrderFill) -> None:
-        meta = self._order_meta.get(event.order_id)
+        meta = self._order_meta.pop(event.order_id, None)
         if not meta:
             return
 
@@ -237,6 +244,8 @@ class PositionTracker:
 
         for tid in to_close:
             self._positions.pop(tid, None)
+            # Clean up token-related caches to prevent memory accumulation
+            self._best_prices.pop(tid, None)
 
     @property
     def win_rate(self) -> float:
