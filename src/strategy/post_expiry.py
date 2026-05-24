@@ -1,14 +1,15 @@
-"""Post-expiry sweep strategy.
+"""Pre-expiry sweep strategy.
 
-Detects when a market's tick size drops to 0.001.
-Waits until just after the market's expiration time.
-Buys the most expensive token (the one that won the market).
+Detects when a market's tick size drops to 0.001 (indicating high confidence).
+Waits until just BEFORE the market's expiration time (configurable offset).
+Buys the most expensive token (the likely winner) while orderbook is still open.
 """
 
 from __future__ import annotations
 
 import time
 import asyncio
+from typing import Any
 
 from ..core.events import BookUpdate, MarketResolved, TickSizeChange
 from ..core.models import OrderIntent, Side
@@ -32,6 +33,10 @@ logger = get_logger(__name__)
 SWEEP_TICK_SIZE = "0.001"
 MAX_ORDER_PRICE = 0.999
 FALLBACK_MIN_ORDER_SIZE = 5.0
+
+# Place order this many seconds BEFORE expiry (positive = before, negative = after)
+# 0.5s before expiry catches the moment when outcome is nearly certain but orderbook is still open
+PRE_EXPIRY_OFFSET_S = 0.5
 
 DEFAULT_PRICE_THRESHOLD = 0.99
 _ASSET_PRICE_THRESHOLD: dict[str, float] = {
@@ -190,8 +195,9 @@ class PostExpirySweepStrategy(Strategy):
             return None
 
         tte = end_ts - time.time()
-        if tte > 0:
-            self.last_skip_reason = f"waiting for expiration (TTE: {tte:.1f}s)"
+        # Place order PRE_EXPIRY_OFFSET_S before expiry to catch liquidity while orderbook is still open
+        if tte > PRE_EXPIRY_OFFSET_S:
+            self.last_skip_reason = f"waiting for expiration (TTE: {tte:.1f}s, trigger at {PRE_EXPIRY_OFFSET_S}s)"
             return None
 
         best_price = eval_data["best_price"]
@@ -241,8 +247,8 @@ class PostExpirySweepStrategy(Strategy):
         safe_order_price = self._order_price if market_tick_size < 0.01 else min(self._order_price, 0.99)
 
         logger.info(
-            "[POST_EXPIRY] Expiration passed for %s. Winning outcome: %s @ %.3f → BUY %.4f x %.2f",
-            slug, best_outcome, best_price, safe_order_price, order_size,
+            "[POST_EXPIRY] Triggering for %s (TTE: %.1fs). Likely winner: %s @ %.3f → BUY %.4f x %.2f",
+            slug, tte, best_outcome, best_price, safe_order_price, order_size,
         )
 
         self._ordered_slugs.add(slug)
