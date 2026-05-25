@@ -281,7 +281,8 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
                         next_index += 1
 
                 sample_utc = _format_utc(now)
-                for trade_seq, trade in enumerate(market_ws.last_trade_prices[trade_cursor:], start=trade_cursor):
+                trade_list = list(market_ws.last_trade_prices)
+                for trade_seq, trade in enumerate(trade_list[trade_cursor:], start=trade_cursor):
                     row = {
                         "type": "trade",
                         "trade_seq": trade_seq,
