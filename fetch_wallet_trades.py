@@ -25,10 +25,10 @@ from pytz import timezone as pytz_timezone
 
 from src.logging_config import setup_logging
 from src.trade_fetcher import (
-    fetch_closed_positions,
+    compute_and_write_positions_csv,
+    fetch_market_outcomes,
     fetch_trades_for_wallet_with_meta,
     print_summary,
-    write_positions_csv,
     write_trades_csv,
 )
 
@@ -425,13 +425,15 @@ def _fetch_and_write(
     print(f"Saved:      {trades_path.resolve()}")
 
     if with_pnl:
-        positions_path = trades_path.with_stem(trades_path.stem + "_closed_positions")
-        print("Fetching closed positions for P&L...")
-        closed_positions = fetch_closed_positions(wallet)
-        print(f"  Closed positions fetched: {len(closed_positions)}")
-        n = write_positions_csv(trades, closed_positions, str(positions_path))
-        matched = sum(1 for v in closed_positions.values() if v.get("realized_pnl") != "")
-        print(f"  Positions CSV: {positions_path.resolve()} ({n} rows, {matched} with P&L)")
+        positions_path = trades_path.with_stem(trades_path.stem + "_positions")
+        unique_markets = len({t["condition_id"] for t in trades if t.get("condition_id")})
+        print(f"Fetching market outcomes for {unique_markets} unique markets...")
+        outcomes = fetch_market_outcomes(trades)
+        resolved = sum(1 for v in outcomes.values() if v["resolved"])
+        winners  = sum(1 for v in outcomes.values() if v.get("winner") is True)
+        print(f"  Resolved: {resolved} ({winners} wins, {resolved - winners} losses)  Unresolved: {len(outcomes) - resolved}")
+        n, with_pnl_count = compute_and_write_positions_csv(trades, outcomes, str(positions_path))
+        print(f"  Positions CSV: {positions_path.resolve()} ({n} rows, {with_pnl_count} with P&L)")
 
     if not no_upload:
         bucket = _resolve_bucket(s3_bucket)
@@ -521,9 +523,10 @@ Examples:
         "--with-pnl",
         action="store_true",
         help=(
-            "Also fetch /closed-positions and write a separate <label>_<start>_<end>_closed_positions.csv "
-            "with one row per condition_id containing realized_pnl, closed_avg_price, "
-            "and closed_total_bought. The trades CSV is unchanged."
+            "Fetch market outcomes from the Gamma API and write a separate "
+            "<label>_<start>_<end>_positions.csv with one row per condition_id "
+            "containing resolved P&L (pnl, winner, buy_cost, net_shares, etc.). "
+            "The trades CSV is unchanged."
         ),
     )
 

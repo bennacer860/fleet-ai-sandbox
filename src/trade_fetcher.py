@@ -2,6 +2,7 @@
 
 import csv
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any, Optional
 
@@ -44,16 +45,29 @@ CSV_COLUMNS = [
     "is_post_expiry",
 ]
 
-# Columns for the separate positions CSV written when --with-pnl is set.
+# Columns for the positions CSV written when --with-pnl is set.
 # One row per condition_id — do NOT merge into the trades CSV.
 POSITIONS_CSV_COLUMNS = [
     "condition_id",
     "event_slug",
     "outcome",
-    "realized_pnl",
-    "closed_avg_price",
-    "closed_total_bought",
+    "resolved",
+    "winner",
+    "buy_shares",
+    "buy_cost",
+    "sell_shares",
+    "sell_revenue",
+    "net_shares",
+    "net_cost",
+    "pnl",
 ]
+
+# CLOB API base URL — used for per-token last-trade-price lookups
+CLOB_API_BASE = "https://clob.polymarket.com"
+# Max concurrent workers for last-trade-price fetches
+OUTCOME_FETCH_WORKERS = 20
+# Price threshold: >= means winner, < means loser
+WINNER_PRICE_THRESHOLD = 0.9
 
 
 def format_slug_with_est_time(slug: str, timestamp_ms: Optional[int] = None) -> str:
@@ -344,106 +358,178 @@ def fetch_trades_for_wallet_with_meta(
     return all_trades, meta
 
 
-def fetch_closed_positions(wallet: str) -> dict[str, dict[str, Any]]:
+def _fetch_single_outcome(asset: str, expiry_ts: int, now_ts: int) -> dict[str, Any]:
     """
-    Fetch all closed positions for a wallet from the Polymarket Data API.
-
-    Returns a dict keyed by conditionId, each value containing:
-      - realized_pnl: actual profit/loss after settlement
-      - closed_avg_price: average price paid across all buys
-      - closed_total_bought: total shares bought
-
-    Args:
-        wallet: Polymarket proxy wallet address (0x...)
+    Fetch the last-trade-price for one asset token from the CLOB API.
 
     Returns:
-        Dict mapping conditionId -> closed position fields.
+        {resolved: bool, winner: bool | None, last_price: float | None}
     """
-    url = f"{DATA_API_BASE}/closed-positions"
-    positions: dict[str, dict[str, Any]] = {}
-    offset = 0
-    limit = 500
+    if expiry_ts and now_ts < expiry_ts:
+        return {"resolved": False, "winner": None, "last_price": None}
 
-    logger.info("Fetching closed positions for wallet=%s", wallet)
-
-    while True:
-        params = {"user": wallet, "limit": limit, "offset": offset}
-        try:
-            resp = requests.get(url, params=params, timeout=60)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as exc:
-            logger.warning("Failed to fetch closed positions at offset=%d: %s", offset, exc)
-            break
-
-        data = resp.json()
-        if not data:
-            break
-
-        for pos in data:
-            condition_id = pos.get("conditionId") or pos.get("condition_id")
-            if not condition_id:
-                continue
-            positions[condition_id] = {
-                "realized_pnl": pos.get("realizedPnl", ""),
-                "closed_avg_price": pos.get("avgPrice", ""),
-                "closed_total_bought": pos.get("totalBought", ""),
-            }
-
-        logger.info("Closed positions fetched so far: %d (offset=%d)", len(positions), offset)
-
-        if len(data) < limit:
-            break
-        offset += limit
-        time.sleep(RATE_LIMIT_DELAY)
-
-    logger.info("Total closed positions fetched: %d", len(positions))
-    return positions
+    url = f"{CLOB_API_BASE}/last-trade-price"
+    try:
+        resp = requests.get(url, params={"token_id": asset}, timeout=10)
+        if resp.status_code != 200:
+            return {"resolved": True, "winner": None, "last_price": None}
+        price = float(resp.json().get("price", -1))
+        winner: bool | None = None
+        if price >= WINNER_PRICE_THRESHOLD:
+            winner = True
+        elif price >= 0:
+            winner = False
+        return {"resolved": True, "winner": winner, "last_price": price}
+    except Exception as exc:
+        logger.debug("last-trade-price failed for asset %s: %s", asset[:20], exc)
+        return {"resolved": True, "winner": None, "last_price": None}
 
 
-def write_positions_csv(
-    trades: list[dict[str, Any]],
-    closed_positions: dict[str, dict[str, Any]],
-    output_path: str,
-) -> int:
+def fetch_market_outcomes(trades: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """
-    Write a positions CSV with one row per condition_id, joined with P&L data.
+    Fetch market resolution outcomes for all positions in a trades list.
 
-    Each row represents one market position and contains the condition_id,
-    event_slug, outcome, and realized P&L from /closed-positions.  Positions
-    not returned by the API (still open) have empty P&L fields.
+    Uses the CLOB API ``last-trade-price`` endpoint per asset token.
+    Requests run concurrently (OUTCOME_FETCH_WORKERS threads) for speed.
+
+    After a market expires, the winning token's last traded price is ~1.0
+    and the losing token's price is ~0.0.  Any price >= WINNER_PRICE_THRESHOLD
+    is treated as a win.
 
     Args:
-        trades: List of enriched trade dicts (used to resolve event_slug/outcome).
-        closed_positions: Dict returned by fetch_closed_positions().
+        trades: List of enriched trade dicts containing ``condition_id``,
+                ``asset``, and ``expiry_ts``.
+
+    Returns:
+        Dict mapping condition_id -> {resolved: bool, winner: bool | None}
+    """
+    now_ts = int(time.time())
+
+    # Build one representative asset + expiry per condition_id (any trade will do)
+    cid_to_meta: dict[str, dict[str, Any]] = {}
+    for trade in trades:
+        cid = trade.get("condition_id", "")
+        if cid and cid not in cid_to_meta:
+            cid_to_meta[cid] = {
+                "asset": str(trade.get("asset", "")),
+                "expiry_ts": int(trade.get("expiry_ts") or 0),
+            }
+
+    logger.info(
+        "Fetching market outcomes via CLOB last-trade-price: %d unique markets, "
+        "%d workers",
+        len(cid_to_meta), OUTCOME_FETCH_WORKERS,
+    )
+
+    outcomes: dict[str, dict[str, Any]] = {}
+
+    with ThreadPoolExecutor(max_workers=OUTCOME_FETCH_WORKERS) as pool:
+        future_to_cid = {
+            pool.submit(
+                _fetch_single_outcome,
+                meta["asset"],
+                meta["expiry_ts"],
+                now_ts,
+            ): cid
+            for cid, meta in cid_to_meta.items()
+        }
+        for future in as_completed(future_to_cid):
+            cid = future_to_cid[future]
+            result = future.result()
+            outcomes[cid] = {"resolved": result["resolved"], "winner": result["winner"]}
+
+    resolved = sum(1 for v in outcomes.values() if v["resolved"])
+    winners  = sum(1 for v in outcomes.values() if v.get("winner") is True)
+    losers   = sum(1 for v in outcomes.values() if v.get("winner") is False)
+    logger.info(
+        "Outcomes: %d resolved (%d wins, %d losses), %d unresolved",
+        resolved, winners, losers, len(outcomes) - resolved,
+    )
+    return outcomes
+
+
+def compute_and_write_positions_csv(
+    trades: list[dict[str, Any]],
+    market_outcomes: dict[str, dict[str, Any]],
+    output_path: str,
+) -> tuple[int, int]:
+    """
+    Compute per-position P&L from trades + Gamma market outcomes and write CSV.
+
+    For each condition_id:
+      - Aggregate buy cost, buy shares, sell revenue, sell shares from trades.
+      - Look up whether the outcome token won (winner=True → settles at $1,
+        winner=False → settles at $0).
+      - P&L = sell_revenue - buy_cost + net_shares * settlement_price
+
+    Positions whose market is not yet resolved have pnl left empty.
+
+    Args:
+        trades: List of enriched trade dicts.
+        market_outcomes: Dict returned by fetch_market_outcomes().
         output_path: File path for the output CSV.
 
     Returns:
-        Number of rows written.
+        Tuple of (total_rows_written, rows_with_resolved_pnl).
     """
-    # Build one representative row per condition_id from the trades
-    seen: dict[str, dict[str, Any]] = {}
+    # Aggregate trades per condition_id
+    positions: dict[str, dict[str, Any]] = {}
     for trade in trades:
         cid = trade.get("condition_id", "")
-        if cid and cid not in seen:
-            seen[cid] = {
+        if not cid:
+            continue
+        if cid not in positions:
+            positions[cid] = {
                 "condition_id": cid,
                 "event_slug": trade.get("event_slug", ""),
                 "outcome": trade.get("outcome", ""),
+                "buy_shares": 0.0,
+                "buy_cost": 0.0,
+                "sell_shares": 0.0,
+                "sell_revenue": 0.0,
             }
+        pos = positions[cid]
+        size = float(trade.get("size", 0))
+        value = float(trade.get("usdc_value", 0))
+        if trade.get("side") == "BUY":
+            pos["buy_shares"] += size
+            pos["buy_cost"] += value
+        else:
+            pos["sell_shares"] += size
+            pos["sell_revenue"] += value
 
     rows = []
-    for cid, meta in seen.items():
-        pos = closed_positions.get(cid, {})
+    resolved_count = 0
+    for cid, pos in positions.items():
+        net_shares = pos["buy_shares"] - pos["sell_shares"]
+        net_cost = pos["buy_cost"] - pos["sell_revenue"]
+
+        outcome_data = market_outcomes.get(cid, {})
+        resolved = outcome_data.get("resolved", False)
+        winner = outcome_data.get("winner")  # True / False / None
+
+        if resolved and winner is not None:
+            settlement = 1.0 if winner else 0.0
+            pnl = round(pos["sell_revenue"] - pos["buy_cost"] + net_shares * settlement, 6)
+            resolved_count += 1
+        else:
+            pnl = ""
+
         rows.append({
             "condition_id": cid,
-            "event_slug": meta["event_slug"],
-            "outcome": meta["outcome"],
-            "realized_pnl": pos.get("realized_pnl", ""),
-            "closed_avg_price": pos.get("closed_avg_price", ""),
-            "closed_total_bought": pos.get("closed_total_bought", ""),
+            "event_slug": pos["event_slug"],
+            "outcome": pos["outcome"],
+            "resolved": resolved,
+            "winner": winner if resolved else "",
+            "buy_shares": round(pos["buy_shares"], 6),
+            "buy_cost": round(pos["buy_cost"], 6),
+            "sell_shares": round(pos["sell_shares"], 6),
+            "sell_revenue": round(pos["sell_revenue"], 6),
+            "net_shares": round(net_shares, 6),
+            "net_cost": round(net_cost, 6),
+            "pnl": pnl,
         })
 
-    # Sort by event_slug for readability
     rows.sort(key=lambda r: r["event_slug"])
 
     with open(output_path, "w", newline="") as f:
@@ -451,12 +537,11 @@ def write_positions_csv(
         writer.writeheader()
         writer.writerows(rows)
 
-    matched = sum(1 for r in rows if r["realized_pnl"] != "")
     logger.info(
-        "Wrote %d positions to %s (%d matched closed-position P&L)",
-        len(rows), output_path, matched,
+        "Wrote %d positions to %s (%d resolved with P&L)",
+        len(rows), output_path, resolved_count,
     )
-    return len(rows)
+    return len(rows), resolved_count
 
 
 def write_trades_csv(trades: list[dict[str, Any]], output_path: str) -> None:
