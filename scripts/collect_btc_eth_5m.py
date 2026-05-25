@@ -41,10 +41,9 @@ from src.markets.fifteen_min import (
 
 logger = get_logger(__name__)
 
-_DURATION_MINUTES = 5
-_DURATION_SECONDS = _DURATION_MINUTES * 60
+_DEFAULT_DURATION_MINUTES = 5
 _DEFAULT_MARKETS: tuple[MarketSelection, ...] = ("BTC", "ETH")
-_DEFAULT_S3_PREFIX = "collectors/btc_eth_5m"
+_DEFAULT_S3_PREFIX = "collectors/btc_eth"
 
 
 @dataclass(frozen=True)
@@ -56,6 +55,7 @@ class WindowPlan:
 @dataclass(frozen=True)
 class RunConfig:
     n_events: int
+    duration_minutes: int
     interval_seconds: float
     book_depth: int
     output_dir: Path
@@ -75,18 +75,18 @@ def _format_utc(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def _plan_windows(n_events: int) -> list[WindowPlan]:
-    first = get_current_interval_utc(_DURATION_MINUTES)
-    # Explicitly call existing helper for parity with runtime code paths.
-    _ = get_next_interval_utc(_DURATION_MINUTES)
+def _plan_windows(n_events: int, duration_minutes: int) -> list[WindowPlan]:
+    duration_seconds = duration_minutes * 60
+    first = get_current_interval_utc(duration_minutes)
+    _ = get_next_interval_utc(duration_minutes)
     plans: list[WindowPlan] = []
     for i in range(n_events):
-        ts = first + i * _DURATION_SECONDS
+        ts = first + i * duration_seconds
         plans.append(
             WindowPlan(
                 timestamp=ts,
                 slugs={
-                    market: get_market_slug(market, _DURATION_MINUTES, ts)
+                    market: get_market_slug(market, duration_minutes, ts)
                     for market in _DEFAULT_MARKETS
                 },
             )
@@ -114,9 +114,9 @@ def _resolve_region(explicit: str) -> str:
     return "eu-west-1"
 
 
-def _build_output_path(output_dir: Path, n_events: int) -> Path:
+def _build_output_path(output_dir: Path, n_events: int, duration_minutes: int) -> Path:
     start = _utc_now().strftime("%Y%m%dT%H%M%SZ")
-    return output_dir / f"btc_eth_5m_{start}_N{n_events}.jsonl.gz"
+    return output_dir / f"btc_eth_{duration_minutes}m_{start}_N{n_events}.jsonl.gz"
 
 
 def _build_s3_key(prefix: str, file_name: str, when_utc: datetime | None = None) -> str:
@@ -169,6 +169,7 @@ def _build_run_config(args: argparse.Namespace) -> RunConfig:
         _require_aws_cli()
     return RunConfig(
         n_events=args.n_events,
+        duration_minutes=args.duration,
         interval_seconds=args.interval_seconds,
         book_depth=args.book_depth,
         output_dir=Path(args.output_dir),
@@ -181,14 +182,15 @@ def _build_run_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _window_meta(plans: list[WindowPlan]) -> list[dict[str, Any]]:
+def _window_meta(plans: list[WindowPlan], duration_minutes: int) -> list[dict[str, Any]]:
+    duration_seconds = duration_minutes * 60
     rows: list[dict[str, Any]] = []
     for p in plans:
         rows.append(
             {
                 "timestamp": p.timestamp,
                 "start_utc": _format_utc(p.timestamp),
-                "end_utc": _format_utc(p.timestamp + _DURATION_SECONDS),
+                "end_utc": _format_utc(p.timestamp + duration_seconds),
                 "slugs": p.slugs,
             }
         )
@@ -208,18 +210,19 @@ def _top_size(levels: tuple[tuple[float, float], ...]) -> float | None:
 
 
 async def _collect(cfg: RunConfig) -> dict[str, Any]:
-    plans = _plan_windows(cfg.n_events)
+    duration_seconds = cfg.duration_minutes * 60
+    plans = _plan_windows(cfg.n_events, cfg.duration_minutes)
     if cfg.dry_run:
         return {
             "dry_run": True,
-            "duration_minutes": _DURATION_MINUTES,
+            "duration_minutes": cfg.duration_minutes,
             "interval_seconds": cfg.interval_seconds,
             "book_depth": cfg.book_depth,
-            "windows": _window_meta(plans),
+            "windows": _window_meta(plans, cfg.duration_minutes),
         }
 
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = _build_output_path(cfg.output_dir, cfg.n_events)
+    output_path = _build_output_path(cfg.output_dir, cfg.n_events, cfg.duration_minutes)
 
     active_indexes: list[int] = list(range(min(2, len(plans))))
     next_index = len(active_indexes)
@@ -247,12 +250,12 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
             meta = {
                 "type": "meta",
                 "run_started_utc": _format_utc(start_wall),
-                "duration_minutes": _DURATION_MINUTES,
+                "duration_minutes": cfg.duration_minutes,
                 "interval_seconds": cfg.interval_seconds,
                 "book_depth": cfg.book_depth,
                 "markets": list(_DEFAULT_MARKETS),
                 "n_events": cfg.n_events,
-                "windows": _window_meta(plans),
+                "windows": _window_meta(plans, cfg.duration_minutes),
             }
             fh.write(json.dumps(meta) + "\n")
             rows_written += 1
@@ -264,7 +267,7 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
                 # Rotate completed windows and add next planned windows.
                 rotate_out: list[int] = []
                 for idx in list(active_indexes):
-                    if now_int >= plans[idx].timestamp + _DURATION_SECONDS:
+                    if now_int >= plans[idx].timestamp + duration_seconds:
                         rotate_out.append(idx)
                 for idx in rotate_out:
                     if idx in active_indexes:
@@ -375,15 +378,17 @@ async def _collect(cfg: RunConfig) -> dict[str, Any]:
         "output_path": str(output_path),
         "output_bytes": output_path.stat().st_size if output_path.exists() else 0,
         "s3_uri": s3_uri,
-        "windows": _window_meta(plans),
+        "windows": _window_meta(plans, cfg.duration_minutes),
     }
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Collect BTC/ETH 5m top-of-book, depth, and trade samples for next N rolling windows."
+        description="Collect BTC/ETH top-of-book, depth, and trade samples for next N rolling windows."
     )
-    parser.add_argument("--n-events", type=int, default=2, help="Number of rolling 5m windows to complete.")
+    parser.add_argument("--n-events", type=int, default=2, help="Number of rolling windows to complete.")
+    parser.add_argument("--duration", type=int, default=5, choices=[5, 15, 60],
+                        help="Window duration in minutes (5, 15, or 60). Default: 5.")
     parser.add_argument("--interval-seconds", type=float, default=0.25, help="Sampling interval in seconds.")
     parser.add_argument("--book-depth", type=int, default=10, help="Number of bid/ask levels to persist per sample.")
     parser.add_argument("--output-dir", default="data/collectors", help="Directory for output artifact.")
