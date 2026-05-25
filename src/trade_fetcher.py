@@ -184,14 +184,14 @@ def fetch_trades_for_wallet_with_meta(
     )
 
     while True:
-        url = f"{DATA_API_BASE}/trades"
+        # Use /activity endpoint - it properly filters by user (unlike /trades which ignores user param)
+        url = f"{DATA_API_BASE}/activity"
         params = {
             "user": wallet,
             "limit": DEFAULT_LIMIT,
             "offset": offset,
-            "start": start_ts,
-            "end": end_ts,
-            "takerOnly": "false",
+            "startTime": start_ts,
+            "endTime": end_ts,
         }
 
         logger.info("Requesting trades: offset=%d, limit=%d, start=%d, end=%d", offset, DEFAULT_LIMIT, start_ts, end_ts)
@@ -224,8 +224,12 @@ def fetch_trades_for_wallet_with_meta(
             break
 
         for trade in data:
-            # Parse timestamp — API returns ISO string or Unix seconds
-            raw_ts = trade.get("matchTime") or trade.get("timestamp") or trade.get("createdAt")
+            # /activity endpoint returns multiple types - only process TRADE
+            if trade.get("type") != "TRADE":
+                continue
+
+            # Parse timestamp — /activity returns Unix seconds in 'timestamp'
+            raw_ts = trade.get("timestamp")
             if raw_ts is None:
                 continue
 
@@ -263,13 +267,16 @@ def fetch_trades_for_wallet_with_meta(
                 continue
 
             size = float(trade.get("size", 0))
+            # /activity provides usdcSize directly
+            usdc_value = float(trade.get("usdcSize", 0)) or round(price * size, 6)
 
             # Build ISO and EST timestamps
             dt_utc = datetime.fromtimestamp(trade_ts, tz=utc_tz)
             dt_est = dt_utc.astimezone(est_tz)
 
             # Format event_slug and check for post-expiry
-            raw_slug = trade.get("market_slug") or trade.get("slug") or ""
+            # /activity provides eventSlug and slug
+            raw_slug = trade.get("eventSlug") or trade.get("slug") or ""
             event_slug = ""
             expiry_ts = None
             is_post_expiry = False
@@ -281,15 +288,15 @@ def fetch_trades_for_wallet_with_meta(
                     is_post_expiry = True
 
             enriched = {
-                "id": trade.get("id", ""),
+                "id": trade.get("transactionHash", ""),  # /activity doesn't have 'id', use tx hash
                 "timestamp": trade_ts,
                 "timestamp_iso": dt_utc.strftime("%Y-%m-%d %H:%M:%S"),
                 "timestamp_est": dt_est.strftime("%Y-%m-%d %H:%M:%S"),
-                "wallet": wallet,
+                "wallet": trade.get("proxyWallet", wallet),
                 "side": trade.get("side", ""),
                 "price": price,
                 "size": size,
-                "usdc_value": round(price * size, 6),
+                "usdc_value": usdc_value,
                 "asset": trade.get("asset", ""),
                 "condition_id": trade.get("conditionId", ""),
                 "outcome": trade.get("outcome", ""),
