@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Test the right way to look up Polymarket market outcomes for a condition_id / asset token."""
 import json
-import csv
 import requests
 
 # --- Pick a known condition_id from the trades file ---
@@ -34,22 +33,28 @@ print("\n=== Data API: /last-trade-price?token=<asset_token> ===")
 r = requests.get(f"{DATA}/last-trade-price", params={"token": ASSET_TOKEN}, timeout=15)
 print(f"  status={r.status_code}  body={r.text[:300]}")
 
-print("\n=== Gamma API: recent closed crypto up/down market structure ===")
-# Search for a recently closed BTC up/down market to see outcomePrices
-r = requests.get(f"{GAMMA}/markets",
-    params={"closed": "true", "tag_slug": "crypto", "limit": 5, "_order": "startDate:desc"},
+print("\n=== CLOB API: last-trade-price ===")
+for endpoint in [
+    f"https://clob.polymarket.com/last-trade-price?token_id={ASSET_TOKEN}",
+    f"https://clob.polymarket.com/prices-history?market={ASSET_TOKEN}&interval=all&fidelity=1",
+]:
+    r = requests.get(endpoint, timeout=15)
+    print(f"  {endpoint[:70]}")
+    print(f"  status={r.status_code}  body={r.text[:200]}\n")
+
+print("\n=== Gamma API: BTC up/down market by slug ===")
+# Use a slug we know exists from our trades
+slug = "btc-updown-15m-1778904900"  # raw slug format from the API
+for slug_try in [slug, "btc-updown-15m", "btc-15min-up-or-down"]:
+    r = requests.get(f"{GAMMA}/markets", params={"slug": slug_try, "limit": 3}, timeout=15)
+    data = r.json() if r.status_code == 200 else []
+    print(f"  slug={slug_try}: status={r.status_code} count={len(data)}")
+    if data:
+        m = data[0]
+        print(f"    conditionId={m.get('conditionId','')[:40]} closed={m.get('closed')} outcomePrices={m.get('outcomePrices')}")
+
+print("\n=== Data API: /trades for a specific condition_id (get last price) ===")
+r = requests.get(f"{DATA}/trades",
+    params={"market": CONDITION_ID, "limit": 5},
     timeout=15)
-data = r.json() if r.status_code == 200 else []
-print(f"  status={r.status_code}  count={len(data)}")
-for m in data:
-    slug = m.get("slug", "")
-    if "up" in slug or "updown" in slug or "btc" in slug.lower():
-        print(f"\n  slug={slug}")
-        print(f"  conditionId={m.get('conditionId')}")
-        print(f"  closed={m.get('closed')}  outcomePrices={m.get('outcomePrices')}")
-        print(f"  outcomes={m.get('outcomes')}")
-        print(f"  clobTokenIds={m.get('clobTokenIds','')[:80]}")
-        break
-else:
-    m = data[0] if data else {}
-    print(f"  slug={m.get('slug')} closed={m.get('closed')} outcomePrices={m.get('outcomePrices')}")
+print(f"  status={r.status_code}  body={r.text[:400]}")
