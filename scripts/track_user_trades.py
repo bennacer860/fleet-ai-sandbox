@@ -88,16 +88,105 @@ def parse_duration(raw: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_handle_to_wallet(handle: str) -> str:
+    """Resolve a Polymarket @handle to a proxy wallet address via profile page scraping.
+
+    The Data API ``user`` parameter only filters by ``0x`` wallet address;
+    passing an ``@handle`` returns *all* market trades unfiltered.  This
+    function fetches the profile page, parses the Next.js JSON payload, and
+    extracts the ``proxyWallet`` / ``proxyAddress`` field.
+    """
+    import json
+    import re
+
+    import requests as _requests
+
+    slug = handle.lstrip("@")
+    url = f"https://polymarket.com/@{slug}"
+    logger.info("Resolving @%s → wallet via %s", slug, url)
+    try:
+        resp = _requests.get(url, timeout=15, allow_redirects=True)
+        resp.raise_for_status()
+    except _requests.RequestException:
+        logger.exception("Failed to fetch profile page for @%s", slug)
+        return handle  # fall back to raw handle
+
+    m = re.search(
+        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text
+    )
+    if not m:
+        logger.warning("No __NEXT_DATA__ in profile page for @%s", slug)
+        return handle
+
+    try:
+        data = json.loads(m.group(1))
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse __NEXT_DATA__ JSON for @%s", slug)
+        return handle
+
+    props = data.get("props", {}).get("pageProps", {})
+
+    for key in ("proxyAddress", "baseAddress", "primaryAddress"):
+        addr = props.get(key, "")
+        if addr and addr.startswith("0x"):
+            logger.info("Resolved @%s → %s (via pageProps.%s)", slug, addr, key)
+            return addr
+
+    # Fall back: search nested queries for proxyWallet
+    def _find_wallet(obj):
+        if isinstance(obj, dict):
+            pw = obj.get("proxyWallet", "")
+            if pw and pw.startswith("0x"):
+                return pw
+            for v in obj.values():
+                result = _find_wallet(v)
+                if result:
+                    return result
+        elif isinstance(obj, list):
+            for v in obj:
+                result = _find_wallet(v)
+                if result:
+                    return result
+        return None
+
+    wallet = _find_wallet(data)
+    if wallet:
+        logger.info("Resolved @%s → %s (via nested proxyWallet)", slug, wallet)
+        return wallet
+
+    logger.warning("Could not resolve @%s to a wallet address", slug)
+    return handle
+
+
 def normalize_user_identifier(user: str) -> str:
-    """Normalize wallet/handle/profile URL into a Data API user identifier."""
+    """Normalize wallet/handle/profile URL into a Data API wallet address.
+
+    The Polymarket Data API ``user`` param only filters correctly when given a
+    ``0x…`` proxy-wallet address.  Passing an ``@handle`` silently returns
+    **all** market trades.  This function detects handles and profile URLs and
+    resolves them to wallet addresses via the profile page.
+    """
     raw = user.strip()
+
+    # Profile URL → extract handle or wallet from path
     if raw.startswith("http://") or raw.startswith("https://"):
         parsed = urlparse(raw)
         path = parsed.path.strip("/")
         if path.startswith("@"):
+            raw = path
+        elif path.startswith("0x"):
             return path
-        if path:
-            return path
+        elif path:
+            raw = path
+
+    # If it's already a wallet address, return as-is
+    if raw.startswith("0x") and len(raw) == 42:
+        return raw
+
+    # Handle: resolve to wallet
+    if raw.startswith("@") or (len(raw) > 2 and not raw.startswith("0x")):
+        return _resolve_handle_to_wallet(raw)
+
     return raw
 
 
