@@ -44,6 +44,17 @@ CSV_COLUMNS = [
     "is_post_expiry",
 ]
 
+# Columns for the separate positions CSV written when --with-pnl is set.
+# One row per condition_id — do NOT merge into the trades CSV.
+POSITIONS_CSV_COLUMNS = [
+    "condition_id",
+    "event_slug",
+    "outcome",
+    "realized_pnl",
+    "closed_avg_price",
+    "closed_total_bought",
+]
+
 
 def format_slug_with_est_time(slug: str, timestamp_ms: Optional[int] = None) -> str:
     """
@@ -333,6 +344,121 @@ def fetch_trades_for_wallet_with_meta(
     return all_trades, meta
 
 
+def fetch_closed_positions(wallet: str) -> dict[str, dict[str, Any]]:
+    """
+    Fetch all closed positions for a wallet from the Polymarket Data API.
+
+    Returns a dict keyed by conditionId, each value containing:
+      - realized_pnl: actual profit/loss after settlement
+      - closed_avg_price: average price paid across all buys
+      - closed_total_bought: total shares bought
+
+    Args:
+        wallet: Polymarket proxy wallet address (0x...)
+
+    Returns:
+        Dict mapping conditionId -> closed position fields.
+    """
+    url = f"{DATA_API_BASE}/closed-positions"
+    positions: dict[str, dict[str, Any]] = {}
+    offset = 0
+    limit = 500
+
+    logger.info("Fetching closed positions for wallet=%s", wallet)
+
+    while True:
+        params = {"user": wallet, "limit": limit, "offset": offset}
+        try:
+            resp = requests.get(url, params=params, timeout=60)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            logger.warning("Failed to fetch closed positions at offset=%d: %s", offset, exc)
+            break
+
+        data = resp.json()
+        if not data:
+            break
+
+        for pos in data:
+            condition_id = pos.get("conditionId") or pos.get("condition_id")
+            if not condition_id:
+                continue
+            positions[condition_id] = {
+                "realized_pnl": pos.get("realizedPnl", ""),
+                "closed_avg_price": pos.get("avgPrice", ""),
+                "closed_total_bought": pos.get("totalBought", ""),
+            }
+
+        logger.info("Closed positions fetched so far: %d (offset=%d)", len(positions), offset)
+
+        if len(data) < limit:
+            break
+        offset += limit
+        time.sleep(RATE_LIMIT_DELAY)
+
+    logger.info("Total closed positions fetched: %d", len(positions))
+    return positions
+
+
+def write_positions_csv(
+    trades: list[dict[str, Any]],
+    closed_positions: dict[str, dict[str, Any]],
+    output_path: str,
+) -> int:
+    """
+    Write a positions CSV with one row per condition_id, joined with P&L data.
+
+    Each row represents one market position and contains the condition_id,
+    event_slug, outcome, and realized P&L from /closed-positions.  Positions
+    not returned by the API (still open) have empty P&L fields.
+
+    Args:
+        trades: List of enriched trade dicts (used to resolve event_slug/outcome).
+        closed_positions: Dict returned by fetch_closed_positions().
+        output_path: File path for the output CSV.
+
+    Returns:
+        Number of rows written.
+    """
+    # Build one representative row per condition_id from the trades
+    seen: dict[str, dict[str, Any]] = {}
+    for trade in trades:
+        cid = trade.get("condition_id", "")
+        if cid and cid not in seen:
+            seen[cid] = {
+                "condition_id": cid,
+                "event_slug": trade.get("event_slug", ""),
+                "outcome": trade.get("outcome", ""),
+            }
+
+    rows = []
+    for cid, meta in seen.items():
+        pos = closed_positions.get(cid, {})
+        rows.append({
+            "condition_id": cid,
+            "event_slug": meta["event_slug"],
+            "outcome": meta["outcome"],
+            "realized_pnl": pos.get("realized_pnl", ""),
+            "closed_avg_price": pos.get("closed_avg_price", ""),
+            "closed_total_bought": pos.get("closed_total_bought", ""),
+        })
+
+    # Sort by event_slug for readability
+    rows.sort(key=lambda r: r["event_slug"])
+
+    with open(output_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=POSITIONS_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    matched = sum(1 for r in rows if r["realized_pnl"] != "")
+    logger.info(
+        "Wrote %d positions to %s (%d matched closed-position P&L)",
+        len(rows), output_path, matched,
+    )
+    return len(rows)
+
+
 def write_trades_csv(trades: list[dict[str, Any]], output_path: str) -> None:
     """
     Write enriched trade records to a CSV file.
@@ -342,7 +468,7 @@ def write_trades_csv(trades: list[dict[str, Any]], output_path: str) -> None:
         output_path: File path for the output CSV.
     """
     with open(output_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(trades)
 

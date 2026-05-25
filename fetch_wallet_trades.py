@@ -25,8 +25,10 @@ from pytz import timezone as pytz_timezone
 
 from src.logging_config import setup_logging
 from src.trade_fetcher import (
+    fetch_closed_positions,
     fetch_trades_for_wallet_with_meta,
     print_summary,
+    write_positions_csv,
     write_trades_csv,
 )
 
@@ -344,29 +346,131 @@ def _fetch_trades_adaptive(
     return merged, stats
 
 
+def _label_for_wallet(raw: str) -> str:
+    """Return a short, filename-safe label for a wallet identifier.
+
+    @ivy56          → ivy56
+    0xddb062...     → 0xddb062 (first 8 chars)
+    https://…/@ivy56 → ivy56
+    """
+    clean = raw.strip()
+    # Profile URL — extract the trailing handle or address segment
+    if clean.startswith("http://") or clean.startswith("https://"):
+        segment = clean.rstrip("/").split("/")[-1]
+        clean = segment
+
+    if clean.startswith("@"):
+        return clean[1:]
+    if clean.startswith("0x"):
+        return clean[:8]
+    return clean
+
+
+def _build_output_path(output_dir: str, label: str, start_date: str, end_date: str) -> Path:
+    """Return  <output_dir>/<label>_<start>_<end>.csv"""
+    stem = f"{label}_{start_date}_{end_date}"
+    return Path(output_dir) / f"{stem}.csv"
+
+
+def _fetch_and_write(
+    wallet_raw: str,
+    start_date: str,
+    end_date: str,
+    start_ts: int,
+    end_ts: int,
+    output_dir: str,
+    min_price: float | None,
+    min_window_seconds: int,
+    allow_partial: bool,
+    with_pnl: bool,
+    no_upload: bool,
+    s3_bucket: str,
+    s3_prefix: str,
+    s3_region: str,
+) -> int:
+    """Fetch trades for one wallet and write CSV(s). Returns 0 on success."""
+    label = _label_for_wallet(wallet_raw)
+    wallet = normalize_user_identifier(wallet_raw)
+
+    trades_path = _build_output_path(output_dir, label, start_date, end_date)
+    trades_path.parent.mkdir(parents=True, exist_ok=True)
+
+    est_tz = pytz_timezone("US/Eastern")
+    start_dt = datetime.fromtimestamp(start_ts, tz=est_tz)
+    end_dt = datetime.fromtimestamp(end_ts, tz=est_tz)
+
+    print(f"\n{'='*60}")
+    print(f"User:       {wallet_raw}  →  {wallet}")
+    print(f"Date range: {start_dt:%Y-%m-%d} — {end_dt:%Y-%m-%d} EST")
+    if min_price is not None:
+        print(f"Min price:  {min_price}")
+    print(f"Output:     {trades_path}")
+
+    trades, adaptive_stats = _fetch_trades_adaptive(
+        wallet=wallet,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        min_price=min_price,
+        min_window_seconds=min_window_seconds,
+        allow_partial=allow_partial,
+    )
+    trades.sort(key=lambda t: int(t.get("timestamp", 0)))
+    print(
+        f"Fetched {len(trades)} trades "
+        f"(windows={adaptive_stats['windows_fetched']}, "
+        f"splits={adaptive_stats['windows_split']})"
+    )
+
+    write_trades_csv(trades, str(trades_path))
+    print(f"Saved:      {trades_path.resolve()}")
+
+    if with_pnl:
+        positions_path = trades_path.with_stem(trades_path.stem + "_positions")
+        print("Fetching closed positions for P&L...")
+        closed_positions = fetch_closed_positions(wallet)
+        print(f"  Closed positions fetched: {len(closed_positions)}")
+        n = write_positions_csv(trades, closed_positions, str(positions_path))
+        matched = sum(1 for v in closed_positions.values() if v.get("realized_pnl") != "")
+        print(f"  Positions CSV: {positions_path.resolve()} ({n} rows, {matched} with P&L)")
+
+    if not no_upload:
+        bucket = _resolve_bucket(s3_bucket)
+        if not bucket:
+            raise RuntimeError(
+                "S3 upload enabled but no bucket configured. Set --s3-bucket or env "
+                "COLLECTOR_S3_BUCKET/LOG_SYNC_S3_BUCKET/S3_BUCKET."
+            )
+        _require_aws_cli()
+        region = _resolve_region(s3_region)
+        s3_key = _build_s3_key(s3_prefix, trades_path.name)
+        s3_uri = _upload_with_retries(str(trades_path), bucket, s3_key, region)
+        print(f"Uploaded:   {s3_uri}")
+
+    print_summary(trades)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Fetch Polymarket wallet trade history and export to CSV.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Fetch all trades for a wallet on a specific day
-  python fetch_wallet_trades.py --wallet 0xABC... --start 2026-02-20
+  # Single wallet, last 10 days
+  python fetch_wallet_trades.py --wallet @ivy56 --days 10
 
-  # Fetch trades in a date range with min price filter
-  python fetch_wallet_trades.py --wallet 0xABC... --start 2026-02-19 --end 2026-02-20 --min-price 0.95
+  # Multiple wallets, explicit date range, saved to data/
+  python fetch_wallet_trades.py --wallet @ivy56 @certova --start 2026-05-16 --end 2026-05-25 --output data/
 
-  # Fetch the last 7 days for a profile handle
-  python fetch_wallet_trades.py --wallet @pbot-6 --days 7
-
-  # Save to a custom output file
-  python fetch_wallet_trades.py --wallet 0xABC... --start 2026-02-20 --output my_trades.csv
+  # Also write per-market P&L files
+  python fetch_wallet_trades.py --wallet @ivy56 @certova --days 10 --output data/ --with-pnl --no-upload
         """,
     )
     parser.add_argument(
         "--wallet",
         required=True,
-        help="Polymarket user identifier: wallet (0x...), handle (@name), or profile URL",
+        nargs="+",
+        help="One or more Polymarket identifiers: wallet (0x...), handle (@name), or profile URL",
     )
     parser.add_argument(
         "--start",
@@ -377,17 +481,20 @@ Examples:
         "--days",
         type=int,
         default=None,
-        help="Lookback window in days ending at --end (or today if --end omitted). Example: --days 7",
+        help="Lookback window in days ending at --end (or today if omitted). Example: --days 10",
     )
     parser.add_argument(
         "--end",
         default=None,
-        help="End date (inclusive, YYYY-MM-DD in EST). Defaults to same as start date (or today with --days).",
+        help="End date (inclusive, YYYY-MM-DD in EST). Defaults to today when using --days.",
     )
     parser.add_argument(
         "--output",
-        default="wallet_trades.csv",
-        help="Output CSV file path (default: wallet_trades.csv)",
+        default="data/",
+        help=(
+            "Output directory for CSV files (default: data/). "
+            "Files are named <label>_<start>_<end>.csv automatically."
+        ),
     )
     parser.add_argument(
         "--min-price",
@@ -410,13 +517,22 @@ Examples:
         default=15,
         help="Smallest adaptive split window when pagination truncates (default: 15).",
     )
+    parser.add_argument(
+        "--with-pnl",
+        action="store_true",
+        help=(
+            "Also fetch /closed-positions and write a separate <label>_<start>_<end>_positions.csv "
+            "with one row per condition_id containing realized_pnl, closed_avg_price, "
+            "and closed_total_bought. The trades CSV is unchanged."
+        ),
+    )
 
     args = parser.parse_args()
-
     setup_logging()
-    user_identifier = normalize_user_identifier(args.wallet)
 
-    # Parse date range
+    if args.min_window_minutes <= 0:
+        parser.error("--min-window-minutes must be > 0")
+
     try:
         start_date, end_date = resolve_date_range(args)
     except ValueError as exc:
@@ -425,61 +541,34 @@ Examples:
     start_ts = parse_date(start_date)
     end_ts = parse_date_end(end_date)
 
-    est_tz = pytz_timezone("US/Eastern")
-    start_dt = datetime.fromtimestamp(start_ts, tz=est_tz)
-    end_dt = datetime.fromtimestamp(end_ts, tz=est_tz)
-
-    print(f"User:       {user_identifier}")
-    print(f"Date range: {start_dt:%Y-%m-%d %H:%M:%S} — {end_dt:%Y-%m-%d %H:%M:%S} EST")
-    if args.min_price is not None:
-        print(f"Min price:  {args.min_price}")
-    print(f"Output:     {args.output}")
+    print(f"Date range: {start_date} — {end_date} EST")
+    print(f"Output dir: {Path(args.output).resolve()}")
     print(f"S3 upload:  {'disabled' if args.no_upload else 'enabled'}")
-    print()
 
-    if args.min_window_minutes <= 0:
-        parser.error("--min-window-minutes must be > 0")
-
-    # Fetch trades with adaptive recursive splitting if API pagination truncates.
-    trades, adaptive_stats = _fetch_trades_adaptive(
-        wallet=user_identifier,
-        start_ts=start_ts,
-        end_ts=end_ts,
-        min_price=args.min_price,
-        min_window_seconds=args.min_window_minutes * 60,
-        allow_partial=args.allow_partial,
-    )
-    trades.sort(key=lambda t: int(t.get("timestamp", 0)))
-    print(f"Fetched {len(trades)} filtered trades.")
-    print(
-        "Adaptive fetch stats: "
-        f"windows_fetched={adaptive_stats['windows_fetched']}, "
-        f"windows_split={adaptive_stats['windows_split']}, "
-        f"truncated_windows={adaptive_stats['windows_truncated']}, "
-        f"max_depth={adaptive_stats['max_depth']}"
-    )
-
-    # Write CSV
-    write_trades_csv(trades, args.output)
-    print(f"Saved CSV:   {Path(args.output).resolve()}")
-
-    if not args.no_upload:
-        bucket = _resolve_bucket(args.s3_bucket)
-        if not bucket:
-            raise RuntimeError(
-                "S3 upload enabled but no bucket configured. Set --s3-bucket or env "
-                "COLLECTOR_S3_BUCKET/LOG_SYNC_S3_BUCKET/S3_BUCKET."
+    exit_code = 0
+    for wallet_raw in args.wallet:
+        try:
+            _fetch_and_write(
+                wallet_raw=wallet_raw,
+                start_date=start_date,
+                end_date=end_date,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                output_dir=args.output,
+                min_price=args.min_price,
+                min_window_seconds=args.min_window_minutes * 60,
+                allow_partial=args.allow_partial,
+                with_pnl=args.with_pnl,
+                no_upload=args.no_upload,
+                s3_bucket=args.s3_bucket,
+                s3_prefix=args.s3_prefix,
+                s3_region=args.s3_region,
             )
-        _require_aws_cli()
-        region = _resolve_region(args.s3_region)
-        s3_key = _build_s3_key(args.s3_prefix, Path(args.output).name)
-        s3_uri = _upload_with_retries(args.output, bucket, s3_key, region)
-        print(f"Uploaded:    {s3_uri}")
+        except Exception as exc:
+            print(f"\nERROR processing {wallet_raw}: {exc}")
+            exit_code = 1
 
-    # Print summary
-    print_summary(trades)
-
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
