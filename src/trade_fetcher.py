@@ -190,8 +190,8 @@ def fetch_trades_for_wallet_with_meta(
             "user": wallet,
             "limit": DEFAULT_LIMIT,
             "offset": offset,
-            "startTime": start_ts,
-            "endTime": end_ts,
+            "start": start_ts,
+            "end": end_ts,
         }
 
         logger.info("Requesting trades: offset=%d, limit=%d, start=%d, end=%d", offset, DEFAULT_LIMIT, start_ts, end_ts)
