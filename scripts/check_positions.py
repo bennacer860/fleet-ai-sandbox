@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Quick summary of a _positions.csv file."""
-import sys
+"""Quick summary of a _positions.csv file. Stdlib only — no pandas required."""
+import csv
 import glob
-import pandas as pd
+import sys
+from collections import defaultdict
 
-# Find the latest positions file
 files = sorted(glob.glob("data/*_positions.csv"))
 path = sys.argv[1] if len(sys.argv) > 1 else (files[-1] if files else None)
 if not path:
@@ -12,37 +12,53 @@ if not path:
     sys.exit(1)
 
 print(f"File: {path}")
-pos = pd.read_csv(path)
-pos["pnl"] = pd.to_numeric(pos["pnl"], errors="coerce")
-pos["buy_cost"] = pd.to_numeric(pos["buy_cost"], errors="coerce")
-pos["sell_revenue"] = pd.to_numeric(pos["sell_revenue"], errors="coerce")
 
-resolved = pos[pos["pnl"].notna()]
-unresolved = pos[pos["pnl"].isna()]
+rows = []
+with open(path) as f:
+    for row in csv.DictReader(f):
+        rows.append(row)
 
-print(f"\nTotal positions:    {len(pos)}")
-print(f"Resolved w/ P&L:    {len(resolved)}")
-print(f"  Winners:          {(resolved['winner']==True).sum()}")
-print(f"  Losers:           {(resolved['winner']==False).sum()}")
-print(f"  Win rate:         {(resolved['pnl']>0).mean()*100:.1f}%")
-print(f"  Total P&L:       ${resolved['pnl'].sum():+,.2f}")
-print(f"  Total buy cost:  ${resolved['buy_cost'].sum():,.2f}")
-print(f"Unresolved (open):  {len(unresolved)}")
+total = len(rows)
+resolved = [r for r in rows if r.get("pnl") not in ("", None)]
+unresolved = [r for r in rows if r.get("pnl") in ("", None)]
 
-if len(resolved) > 0:
-    print(f"\nP&L by price bucket:")
-    resolved = resolved.copy()
-    resolved["bucket"] = pd.cut(resolved["buy_cost"] / resolved["buy_cost"].replace(0, float("nan")),
-        bins=[0, 0.1, 0.3, 0.5, 0.7, 1.0], include_lowest=True)
-    # Instead, bucket by avg buy price
-    resolved["avg_buy"] = resolved["buy_cost"] / (resolved["buy_cost"] + resolved["net_cost"])
-    resolved["price_bucket"] = pd.cut(
-        resolved["buy_cost"] / resolved[["buy_cost","sell_revenue"]].sum(axis=1).replace(0, float("nan")),
-        bins=[0, 0.15, 0.30, 0.50, 0.70, 1.0],
-        labels=["<15c", "15-30c", "30-50c", "50-70c", "70c+"]
-    )
-    print(resolved.groupby("price_bucket", observed=True).agg(
-        count=("pnl", "count"),
-        total_pnl=("pnl", "sum"),
-        win_rate=("pnl", lambda x: f"{(x>0).mean()*100:.0f}%")
-    ).to_string())
+pnl_values = [float(r["pnl"]) for r in resolved]
+total_pnl = sum(pnl_values)
+winners = [r for r in resolved if r.get("winner") == "True"]
+losers  = [r for r in resolved if r.get("winner") == "False"]
+win_rate = len(winners) / len(resolved) * 100 if resolved else 0
+
+buy_costs = [float(r["buy_cost"]) for r in resolved if r.get("buy_cost")]
+total_buy_cost = sum(buy_costs)
+
+print(f"\nTotal positions:    {total:>6,}")
+print(f"Resolved w/ P&L:    {len(resolved):>6,}")
+print(f"  Winners:          {len(winners):>6,}")
+print(f"  Losers:           {len(losers):>6,}")
+print(f"  Win rate:             {win_rate:>5.1f}%")
+print(f"  Total P&L:       ${total_pnl:>+12,.2f}")
+print(f"  Total buy cost:  ${total_buy_cost:>12,.2f}")
+print(f"Unresolved (open):  {len(unresolved):>6,}")
+
+# P&L by price bucket
+if resolved:
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for r in resolved:
+        cost = float(r.get("buy_cost") or 0)
+        shares = float(r.get("buy_shares") or 1)
+        avg_price = cost / shares if shares > 0 else 0
+        if avg_price < 0.15:   bucket = "<15c"
+        elif avg_price < 0.30: bucket = "15-30c"
+        elif avg_price < 0.50: bucket = "30-50c"
+        elif avg_price < 0.70: bucket = "50-70c"
+        else:                  bucket = "70c+"
+        buckets[bucket].append(float(r["pnl"]))
+
+    print(f"\n{'Bucket':<10} {'Count':>6} {'Total P&L':>12} {'Win rate':>10}")
+    print("-" * 42)
+    for b in ["<15c", "15-30c", "30-50c", "50-70c", "70c+"]:
+        vals = buckets.get(b, [])
+        if not vals:
+            continue
+        wr = sum(1 for v in vals if v > 0) / len(vals) * 100
+        print(f"{b:<10} {len(vals):>6} ${sum(vals):>+11,.2f} {wr:>9.0f}%")
