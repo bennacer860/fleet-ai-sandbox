@@ -425,7 +425,7 @@ def _fetch_and_write(
     print(f"Saved:      {trades_path.resolve()}")
 
     if with_pnl:
-        positions_path = trades_path.with_stem(trades_path.stem + "_positions")
+        positions_path = trades_path.with_stem(trades_path.stem + "_closed_positions")
         print("Fetching closed positions for P&L...")
         closed_positions = fetch_closed_positions(wallet)
         print(f"  Closed positions fetched: {len(closed_positions)}")
@@ -521,7 +521,7 @@ Examples:
         "--with-pnl",
         action="store_true",
         help=(
-            "Also fetch /closed-positions and write a separate <label>_<start>_<end>_positions.csv "
+            "Also fetch /closed-positions and write a separate <label>_<start>_<end>_closed_positions.csv "
             "with one row per condition_id containing realized_pnl, closed_avg_price, "
             "and closed_total_bought. The trades CSV is unchanged."
         ),
