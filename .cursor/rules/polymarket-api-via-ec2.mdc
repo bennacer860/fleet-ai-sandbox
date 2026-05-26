@@ -1,0 +1,44 @@
+---
+description: Polymarket APIs are blocked on the local network — always use EC2 via AWS SSM
+alwaysApply: true
+---
+
+# Polymarket API Access
+
+The local network blocks all Polymarket API endpoints (`data-api.polymarket.com`, `gamma-api.polymarket.com`, `polymarket.com`). Direct `curl`, `requests`, or `WebFetch` calls to these URLs will fail with 503 or SSL errors.
+
+## Rule
+
+**Never** test, call, or verify Polymarket APIs from the local machine.
+
+**Always** run Polymarket API calls on the EC2 instance via AWS SSM:
+
+```bash
+AWS_PROFILE=rafik aws ssm send-command \
+  --instance-ids "i-0431a0aa517edf582" \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["sudo su - ec2-user -c '\''cd /opt/polymarket-bot && .venv/bin/python3 -c \"import requests; ...\"'\''"]' \
+  --region eu-west-1 \
+  --output json --query 'Command.CommandId'
+```
+
+## Applies to
+
+- Any script or code that calls `data-api.polymarket.com`
+- Any script or code that calls `gamma-api.polymarket.com`
+- Any `WebFetch` or `curl` targeting `polymarket.com`
+- Integration tests that hit Polymarket endpoints
+- Verifying API response shapes
+
+## Retrieving output
+
+Use `get-command-invocation` after the command completes:
+
+```bash
+AWS_PROFILE=rafik aws ssm get-command-invocation \
+  --command-id "<ID>" \
+  --instance-id "i-0431a0aa517edf582" \
+  --region eu-west-1 \
+  --query '{Status: Status, Output: StandardOutputContent}' \
+  --output json
+```
