@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket Bot 1 - Cheap Side BTC 5m Dry-Run (tmux)
+After=network.target litestream.service
+Requires=litestream.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/polymarket-bot
+EnvironmentFile=/opt/polymarket-bot/.env
+
+ExecStart=/usr/bin/bash -lc '/usr/bin/tmux has-session -t bot-p1-cheap 2>/dev/null || /usr/bin/tmux new-session -d -s bot-p1-cheap -e "HOME=/home/ec2-user" '\''/opt/polymarket-bot/.venv/bin/python main.py run --dry-run --dashboard --strategy cheap_side --markets BTC --durations 5 --profile 1 --fill-mode book --tag p1-cheap-side; exec bash'\'''
+ExecStop=/usr/bin/bash -lc '/usr/bin/tmux kill-session -t bot-p1-cheap || true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

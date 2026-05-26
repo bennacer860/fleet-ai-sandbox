@@ -285,6 +285,14 @@ class Bot:
                 eval_cache=self._eval_cache,
                 strategy_name=strategy_name,
             )
+            for strategy in self.strategies:
+                if strategy.name() == "cheap_side" and hasattr(
+                    strategy, "dashboard_snapshot"
+                ):
+                    self.dashboard.set_cheap_side_snapshot_fn(
+                        strategy.dashboard_snapshot
+                    )
+                    break
 
         self.telegram = TelegramNotifier(
             token=TELEGRAM_BOT_TOKEN,
@@ -649,6 +657,13 @@ class Bot:
                             display_slug = format_slug_with_est_time(event.slug)
                             self.dashboard.push_event(
                                 f"📊 [green]{strategy.name().upper()}[/green]  {display_slug}  BUY {intent.token_id[:12]}… @ {intent.price:.4f} x {intent.size:.2f}"
+                            )
+                    if self.dashboard and strategy.name() == "cheap_side":
+                        for intent in intents:
+                            display_slug = format_slug_with_est_time(event.slug)
+                            self.dashboard.push_event(
+                                f"🎫 [magenta]CHEAP[/magenta]  {display_slug}  "
+                                f"BUY @ {intent.price:.4f} x {intent.size:.2f}"
                             )
             except Exception:
                 logger.exception("Strategy %s error on book_update", strategy.name())

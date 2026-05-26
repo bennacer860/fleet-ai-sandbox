@@ -12,7 +12,7 @@ import re
 import time
 from collections import deque
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from rich.layout import Layout
 from rich.live import Live
@@ -95,6 +95,7 @@ class Dashboard:
         self._counted_filled_order_ids: set[str] = set()
         self._cash_balance_usdc: float | None = None
         self._cash_balance_updated_mono: float | None = None
+        self._cheap_side_snapshot_fn: Callable[[], dict[str, Any] | None] | None = None
 
         # Coverage tracking — set by bot after init via set_coverage_refs()
         self._monitored_ts: dict[int, dict[str, set[int]]] | None = None
@@ -465,6 +466,25 @@ class Dashboard:
         self._durations = durations
         self._market_selections = market_selections
         self._bot_started_mono = time.monotonic()
+
+    def set_cheap_side_snapshot_fn(
+        self, fn: Callable[[], dict[str, Any] | None]
+    ) -> None:
+        """Provide a callable that returns cheap_side strategy metrics for the TUI."""
+        self._cheap_side_snapshot_fn = fn
+
+    def _cheap_side_panel(self) -> Panel:
+        from .cheap_side_dashboard import build_cheap_side_panel
+
+        snap: dict[str, Any] | None = None
+        if self._cheap_side_snapshot_fn is not None:
+            try:
+                snap = self._cheap_side_snapshot_fn()
+            except Exception:
+                snap = None
+        if snap is not None:
+            snap = {**snap, "dry_run": self._dry_run}
+        return build_cheap_side_panel(snap)
 
     def seed_from_db(self, db_path: str) -> None:
         """Load recent filled/submitted orders and today's coverage from the DB."""
@@ -970,11 +990,18 @@ class Dashboard:
             Layout(self._markets_panel(), name="markets"),
             Layout(self._orders_panel(), name="orders"),
         )
-        layout["middle"].split_row(
-            Layout(self._pnl_panel(), name="pnl"),
-            Layout(self._risk_panel(), name="risk"),
-            Layout(self._coverage_panel(), name="coverage"),
-        )
+        if self._strategy_name == "cheap_side":
+            layout["middle"].split_row(
+                Layout(self._cheap_side_panel(), name="cheap_side", ratio=2),
+                Layout(self._pnl_panel(), name="pnl"),
+                Layout(self._risk_panel(), name="risk"),
+            )
+        else:
+            layout["middle"].split_row(
+                Layout(self._pnl_panel(), name="pnl"),
+                Layout(self._risk_panel(), name="risk"),
+                Layout(self._coverage_panel(), name="coverage"),
+            )
         layout["positions"].update(self._positions_panel())
         layout["recent_orders"].update(self._recent_orders_panel())
         layout["bottom"].split_column(
