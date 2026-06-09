@@ -42,6 +42,7 @@ def ensure_builtin_strategies_registered() -> None:
         "src.strategy.gabagool_dual_adapter",
         "src.strategy.end_market",
         "src.strategy.cheap_side_adapter",
+        "src.strategy.legged_arb_adapter",
     )
     for module_name in modules:
         import_module(module_name)
