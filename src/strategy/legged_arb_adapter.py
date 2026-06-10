@@ -23,6 +23,7 @@ from .legged_arb import (
     should_buy_phase3,
     should_enter_phase1,
     should_sell_phase2,
+    should_stop_loss,
 )
 from .registry import StrategySpec, register_strategy
 
@@ -57,8 +58,8 @@ def legged_arb_config_from_env() -> LeggedArbConfig:
         phase1_tte_max_s=float(os.getenv("LEGGED_ARB_PHASE1_TTE_MAX", "840")),
         max_spread=float(os.getenv("LEGGED_ARB_MAX_SPREAD", "0.02")),
         min_ask_depth=float(os.getenv("LEGGED_ARB_MIN_ASK_DEPTH", "1000")),
-        max_concurrent=int(os.getenv("LEGGED_ARB_MAX_CONCURRENT", "10")),
-        clip_size=float(os.getenv("LEGGED_ARB_CLIP_SIZE", "150")),
+        max_concurrent=int(os.getenv("LEGGED_ARB_MAX_CONCURRENT", "7")),
+        clip_size=float(os.getenv("LEGGED_ARB_CLIP_SIZE", "100")),
         phase2_uplift=float(os.getenv("LEGGED_ARB_PHASE2_UPLIFT", "0.14")),
         phase2_abs_bid=float(os.getenv("LEGGED_ARB_PHASE2_ABS", "0.90")),
         phase2_min_tte_s=float(os.getenv("LEGGED_ARB_PHASE2_MIN_TTE", "60")),
@@ -67,6 +68,8 @@ def legged_arb_config_from_env() -> LeggedArbConfig:
         phase3_min_tte_s=float(os.getenv("LEGGED_ARB_PHASE3_MIN_TTE", "30")),
         min_order_notional_usd=float(os.getenv("LEGGED_ARB_MIN_NOTIONAL_USD", "1.0")),
         min_shares=float(os.getenv("LEGGED_ARB_MIN_SHARES", "5")),
+        stop_loss_drop=float(os.getenv("LEGGED_ARB_STOP_LOSS_DROP", "0.10")),
+        stop_loss_min_tte_s=float(os.getenv("LEGGED_ARB_STOP_LOSS_MIN_TTE", "120")),
     )
 
 
@@ -78,6 +81,8 @@ class LeggedArbStats:
     phase2_fills: int = 0
     phase3_attempts: int = 0
     phase3_fills: int = 0
+    stop_loss_attempts: int = 0
+    stop_loss_fills: int = 0
     completed_arbs: int = 0
     markets_seen: int = 0
 
@@ -116,6 +121,8 @@ class LeggedArbStrategy(Strategy):
             "phase2_fills": self._stats.phase2_fills,
             "phase3_attempts": self._stats.phase3_attempts,
             "phase3_fills": self._stats.phase3_fills,
+            "stop_loss_attempts": self._stats.stop_loss_attempts,
+            "stop_loss_fills": self._stats.stop_loss_fills,
             "completed_arbs": self._stats.completed_arbs,
             "active_arbs": active,
             "tracked_markets": len(self._states),
@@ -127,6 +134,7 @@ class LeggedArbStrategy(Strategy):
                 "phase1_price_min": self._cfg.phase1_price_min,
                 "phase1_price_max": self._cfg.phase1_price_max,
                 "clip_size": self._cfg.clip_size,
+                "stop_loss_drop": self._cfg.stop_loss_drop,
             },
         }
 
@@ -201,21 +209,32 @@ class LeggedArbStrategy(Strategy):
             ]
 
         if state.phase == ArbState.PHASE1_FILLED:
-            decision = should_sell_phase2(state, book, tte_s, self._cfg)
-            if not decision.sell or decision.side is None:
-                self.last_skip_reason = decision.reason
-                state.last_skip_reason = decision.reason
-                return None
+            profit_decision = should_sell_phase2(state, book, tte_s, self._cfg)
+            if profit_decision.sell and profit_decision.side is not None:
+                decision = profit_decision
+                state.exit_is_stop_loss = False
+                self._stats.phase2_attempts += 1
+                log_label = "PHASE2 SELL"
+            else:
+                stop_decision = should_stop_loss(state, book, tte_s, self._cfg)
+                if not stop_decision.sell or stop_decision.side is None:
+                    self.last_skip_reason = profit_decision.reason
+                    state.last_skip_reason = profit_decision.reason
+                    return None
+                decision = stop_decision
+                state.exit_is_stop_loss = True
+                self._stats.stop_loss_attempts += 1
+                log_label = "STOP LOSS SELL"
 
             token_id = self._token_for_outcome(state, decision.side)
             tick_size = ctx.tick_sizes.get(token_id, 0.01)
             state.phase = ArbState.PHASE2_PENDING
             state.phase2_target_size = decision.size
-            self._stats.phase2_attempts += 1
             self.last_skip_reason = ""
             logger.info(
-                "[LEGGED_ARB] %s PHASE2 SELL %s @ %.4f x %.2f (tte=%.0fs)",
+                "[LEGGED_ARB] %s %s %s @ %.4f x %.2f (tte=%.0fs)",
                 slug,
+                log_label,
                 decision.side,
                 decision.price,
                 decision.size,
@@ -306,8 +325,12 @@ class LeggedArbStrategy(Strategy):
             state.phase1_entry_price = 0.0
             state.phase1_target_size = 0.0
         elif state.phase == ArbState.PHASE2_PENDING:
-            state.phase = ArbState.PHASE1_FILLED
+            if state.exit_is_stop_loss:
+                state.phase = ArbState.PHASE1_FILLED
+            else:
+                state.phase = ArbState.PHASE1_FILLED
             state.phase2_target_size = 0.0
+            state.exit_is_stop_loss = False
         elif state.phase == ArbState.PHASE3_PENDING:
             state.phase = ArbState.PHASE2_SOLD
 
@@ -346,16 +369,27 @@ class LeggedArbStrategy(Strategy):
         if state.phase == ArbState.PHASE2_PENDING and outcome == state.phase1_side:
             state.phase2_sold_size += fill_size
             state.phase1_filled_size = max(state.phase1_filled_size - fill_size, 0.0)
-            if state.phase2_sold_size + 1e-9 >= state.phase2_target_size:
+            if state.exit_is_stop_loss:
+                if state.phase2_sold_size + 1e-9 >= state.phase2_target_size:
+                    state.phase = ArbState.DONE
+                    self._stats.stop_loss_fills += 1
+                    state.exit_is_stop_loss = False
+                logger.info(
+                    "[LEGGED_ARB] Stop-loss fill %s: sold %.2f @ %.4f",
+                    slug,
+                    fill_size,
+                    fill_price,
+                )
+            elif state.phase2_sold_size + 1e-9 >= state.phase2_target_size:
                 state.phase = ArbState.PHASE2_SOLD
                 self._stats.phase2_fills += 1
-            logger.info(
-                "[LEGGED_ARB] Phase2 fill %s: sold %.2f @ %.4f (remaining=%.2f)",
-                slug,
-                fill_size,
-                fill_price,
-                state.phase1_filled_size,
-            )
+                logger.info(
+                    "[LEGGED_ARB] Phase2 fill %s: sold %.2f @ %.4f (remaining=%.2f)",
+                    slug,
+                    fill_size,
+                    fill_price,
+                    state.phase1_filled_size,
+                )
             return
 
         if state.phase == ArbState.PHASE3_PENDING and outcome != state.phase1_side:

@@ -45,6 +45,8 @@ class LeggedArbConfig:
     min_order_notional_usd: float = 1.0
     min_shares: float = 5.0
     keep_shares_after_sell: float = 1.0
+    stop_loss_drop: float = 0.10
+    stop_loss_min_tte_s: float = 120.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +148,7 @@ class MarketArbState:
     phase3_filled_size: float = 0.0
     phase3_filled_cost: float = 0.0
     last_skip_reason: str = ""
+    exit_is_stop_loss: bool = False
     stats: dict[str, int] = field(default_factory=dict)
 
 
@@ -266,6 +269,45 @@ def should_sell_phase2(
         price=bid,
         size=sell_size,
         reason=f"phase2 sell uplift={uplift:.3f}",
+    )
+
+
+def should_stop_loss(
+    state: MarketArbState,
+    book: MarketBook,
+    tte_s: float,
+    cfg: LeggedArbConfig,
+) -> Phase2Decision:
+    """Exit Phase-1 early when bid drops too far below entry (cap hold-to-expiry loss)."""
+    if state.phase != ArbState.PHASE1_FILLED:
+        return Phase2Decision(False, reason="not in phase1 filled")
+    if state.phase1_side is None or state.phase1_filled_size <= 0:
+        return Phase2Decision(False, reason="no phase1 position")
+    if cfg.stop_loss_drop <= 0:
+        return Phase2Decision(False, reason="stop loss disabled")
+
+    if tte_s < cfg.stop_loss_min_tte_s:
+        return Phase2Decision(False, reason="stop loss tte cutoff")
+
+    side_book = book.side(state.phase1_side)
+    bid = side_book.best_bid
+    if bid <= 0:
+        return Phase2Decision(False, reason="missing bid")
+
+    drop = state.phase1_entry_price - bid
+    if drop < cfg.stop_loss_drop - 1e-9:
+        return Phase2Decision(False, reason="stop loss not triggered")
+
+    sell_size = state.phase1_filled_size
+    if sell_size <= 0:
+        return Phase2Decision(False, reason="nothing to sell")
+
+    return Phase2Decision(
+        sell=True,
+        side=state.phase1_side,
+        price=bid,
+        size=sell_size,
+        reason=f"stop loss drop={drop:.3f}",
     )
 
 

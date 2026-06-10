@@ -19,6 +19,7 @@ from src.strategy.legged_arb import (
     should_buy_phase3,
     should_enter_phase1,
     should_sell_phase2,
+    should_stop_loss,
 )
 from src.strategy.legged_arb_adapter import LeggedArbStrategy
 
@@ -159,6 +160,49 @@ class TestPhase2Sell:
         assert decision.sell is False
 
 
+class TestStopLoss:
+    def _filled_state(self) -> MarketArbState:
+        return MarketArbState(
+            slug=SLUG,
+            yes_token_id=TOKEN_UP,
+            no_token_id=TOKEN_DOWN,
+            phase=ArbState.PHASE1_FILLED,
+            phase1_side="Up",
+            phase1_entry_price=0.70,
+            phase1_filled_size=150.0,
+        )
+
+    def test_triggers_when_bid_drops_below_threshold(self):
+        book = _favorite_book(fav_bid=0.58, fav_ask=0.59)
+        decision = should_stop_loss(self._filled_state(), book, tte_s=300, cfg=_cfg())
+        assert decision.sell is True
+        assert decision.size == 150.0
+        assert "stop loss" in decision.reason
+
+    def test_no_trigger_when_drop_insufficient(self):
+        book = _favorite_book(fav_bid=0.65, fav_ask=0.66)
+        decision = should_stop_loss(self._filled_state(), book, tte_s=300, cfg=_cfg())
+        assert decision.sell is False
+
+    def test_no_trigger_near_expiry(self):
+        book = _favorite_book(fav_bid=0.50, fav_ask=0.51)
+        decision = should_stop_loss(self._filled_state(), book, tte_s=60, cfg=_cfg())
+        assert decision.sell is False
+
+    def test_disabled_when_drop_zero(self):
+        book = _favorite_book(fav_bid=0.50, fav_ask=0.51)
+        decision = should_stop_loss(
+            self._filled_state(), book, tte_s=300, cfg=_cfg(stop_loss_drop=0.0)
+        )
+        assert decision.sell is False
+
+    def test_profit_sell_takes_priority_over_stop_loss(self):
+        state = self._filled_state()
+        book = _favorite_book(fav_bid=0.86, fav_ask=0.87)
+        assert should_sell_phase2(state, book, tte_s=300, cfg=_cfg()).sell is True
+        assert should_stop_loss(state, book, tte_s=300, cfg=_cfg()).sell is False
+
+
 class TestPhase3CheapLeg:
     def _sold_state(self) -> MarketArbState:
         return MarketArbState(
@@ -269,6 +313,66 @@ class TestLeggedArbAdapter:
         state = strategy.get_slug_state(SLUG)
         assert state is not None
         assert state.phase == ArbState.PHASE1_FILLED
+
+    async def test_stop_loss_emits_sell_and_exits(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.strategy.legged_arb_adapter.extract_market_end_ts",
+            lambda slug: 9999999999,
+        )
+        monkeypatch.setattr(
+            "src.strategy.legged_arb_adapter.time.time",
+            lambda: 9999999999 - 600,
+        )
+        strategy = LeggedArbStrategy(config=_cfg())
+        ctx = StrategyContext(
+            market_meta={
+                SLUG: {
+                    "token_ids": (TOKEN_UP, TOKEN_DOWN),
+                    "outcomes": ("Up", "Down"),
+                    "condition_id": "cond",
+                }
+            },
+            best_prices={
+                TOKEN_UP: {"bid": 0.81, "ask": 0.82, "ask_size": 500, "ask_depth": 5000, "bid_depth": 3000},
+                TOKEN_DOWN: {"bid": 0.17, "ask": 0.18, "ask_size": 500, "ask_depth": 5000, "bid_depth": 3000},
+            },
+            tick_sizes={TOKEN_UP: 0.01, TOKEN_DOWN: 0.01},
+            dry_run=True,
+        )
+        await strategy.on_book_update(
+            BookUpdate(
+                token_id=TOKEN_UP,
+                condition_id="cond",
+                slug=SLUG,
+                bids=((0.81, 500.0),),
+                asks=((0.82, 500.0),),
+                best_bid=0.81,
+                best_ask=0.82,
+            ),
+            ctx,
+        )
+        strategy.on_fill_event(TOKEN_UP, 150.0, 0.70)
+        ctx.best_prices[TOKEN_UP] = {
+            "bid": 0.58, "ask": 0.59, "ask_size": 500, "ask_depth": 5000, "bid_depth": 3000,
+        }
+        intents = await strategy.on_book_update(
+            BookUpdate(
+                token_id=TOKEN_UP,
+                condition_id="cond",
+                slug=SLUG,
+                bids=((0.58, 500.0),),
+                asks=((0.59, 500.0),),
+                best_bid=0.58,
+                best_ask=0.59,
+            ),
+            ctx,
+        )
+        assert intents is not None
+        assert intents[0].side == Side.SELL
+        strategy.on_fill_event(TOKEN_UP, 150.0, 0.58)
+        state = strategy.get_slug_state(SLUG)
+        assert state is not None
+        assert state.phase == ArbState.DONE
 
     async def test_market_resolved_cleans_up(self):
         strategy = LeggedArbStrategy(config=_cfg())
