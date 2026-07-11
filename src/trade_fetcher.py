@@ -11,6 +11,7 @@ from pytz import timezone as pytz_timezone
 
 from .logging_config import get_logger
 from .markets.fifteen_min import detect_duration_from_slug, duration_label, extract_market_end_ts
+from .utils.parsing import parse_float_list, parse_json_list
 
 logger = get_logger(__name__)
 
@@ -46,7 +47,7 @@ CSV_COLUMNS = [
 ]
 
 # Columns for the positions CSV written when --with-pnl is set.
-# One row per condition_id — do NOT merge into the trades CSV.
+# One row per (condition_id, outcome) — do NOT merge into the trades CSV.
 POSITIONS_CSV_COLUMNS = [
     "condition_id",
     "event_slug",
@@ -62,12 +63,15 @@ POSITIONS_CSV_COLUMNS = [
     "pnl",
 ]
 
-# CLOB API base URL — used for per-token last-trade-price lookups
-CLOB_API_BASE = "https://clob.polymarket.com"
-# Max concurrent workers for last-trade-price fetches
-OUTCOME_FETCH_WORKERS = 20
-# Price threshold: >= means winner, < means loser
-WINNER_PRICE_THRESHOLD = 0.9
+# Gamma API — fallback market resolution (outcomePrices)
+GAMMA_API_BASE = "https://gamma-api.polymarket.com"
+# Max concurrent workers for Gamma market lookups (keep low — Gamma 429s easily)
+OUTCOME_FETCH_WORKERS = 3
+# outcomePrices >= this ⇒ that token won (same heuristic as resolve_trades.py)
+RESOLVED_PRICE_THRESHOLD = 0.99
+# Closed-positions page size (Data API hard-caps around 50)
+CLOSED_POSITIONS_PAGE_SIZE = 50
+CLOSED_POSITIONS_PAGE_DELAY_S = 0.05
 
 
 def format_slug_with_est_time(slug: str, timestamp_ms: Optional[int] = None) -> str:
@@ -358,137 +362,282 @@ def fetch_trades_for_wallet_with_meta(
     return all_trades, meta
 
 
-def _fetch_single_outcome(asset: str, expiry_ts: int, now_ts: int) -> dict[str, Any]:
+def _empty_resolution() -> dict[str, Any]:
+    return {
+        "resolved": False,
+        "winning_outcome": None,
+        "winning_token": None,
+    }
+
+
+def _parse_gamma_winning_info(market: dict[str, Any]) -> dict[str, Any]:
+    """Extract winning token/outcome from a Gamma market payload."""
+    token_ids = parse_json_list(market.get("clobTokenIds"))
+    outcomes = parse_json_list(market.get("outcomes"))
+    prices = parse_float_list(market.get("outcomePrices"))
+
+    if len(token_ids) < 2 or len(prices) < 2:
+        return _empty_resolution()
+
+    for i, price in enumerate(prices):
+        if price >= RESOLVED_PRICE_THRESHOLD:
+            return {
+                "resolved": True,
+                "winning_token": str(token_ids[i]),
+                "winning_outcome": outcomes[i] if i < len(outcomes) else None,
+            }
+    return _empty_resolution()
+
+
+def _fetch_gamma_resolution(condition_id: str, retries: int = 4) -> dict[str, Any]:
     """
-    Fetch the last-trade-price for one asset token from the CLOB API.
+    Fetch market resolution from Gamma ``/markets?condition_id=…``.
 
     Returns:
-        {resolved: bool, winner: bool | None, last_price: float | None}
+        {resolved: bool, winning_outcome: str | None, winning_token: str | None}
     """
-    if expiry_ts and now_ts < expiry_ts:
-        return {"resolved": False, "winner": None, "last_price": None}
-
-    url = f"{CLOB_API_BASE}/last-trade-price"
-    try:
-        resp = requests.get(url, params={"token_id": asset}, timeout=10)
-        if resp.status_code != 200:
-            return {"resolved": True, "winner": None, "last_price": None}
-        price = float(resp.json().get("price", -1))
-        winner: bool | None = None
-        if price >= WINNER_PRICE_THRESHOLD:
-            winner = True
-        elif price >= 0:
-            winner = False
-        return {"resolved": True, "winner": winner, "last_price": price}
-    except Exception as exc:
-        logger.debug("last-trade-price failed for asset %s: %s", asset[:20], exc)
-        return {"resolved": True, "winner": None, "last_price": None}
+    url = f"{GAMMA_API_BASE}/markets"
+    delay = 0.5
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, params={"condition_id": condition_id}, timeout=30)
+            if resp.status_code == 429:
+                time.sleep(delay)
+                delay = min(delay * 2, 8.0)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, list):
+                market = data[0] if data else None
+            else:
+                market = data if data else None
+            if not market:
+                return _empty_resolution()
+            return _parse_gamma_winning_info(market)
+        except Exception as exc:
+            logger.debug(
+                "Gamma resolution failed for %s (attempt %d/%d): %s",
+                condition_id[:18], attempt, retries, exc,
+            )
+            if attempt == retries:
+                break
+            time.sleep(delay)
+            delay = min(delay * 2, 8.0)
+    return _empty_resolution()
 
 
 def fetch_market_outcomes(trades: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """
     Fetch market resolution outcomes for all positions in a trades list.
 
-    Uses the CLOB API ``last-trade-price`` endpoint per asset token.
-    Requests run concurrently (OUTCOME_FETCH_WORKERS threads) for speed.
-
-    After a market expires, the winning token's last traded price is ~1.0
-    and the losing token's price is ~0.0.  Any price >= WINNER_PRICE_THRESHOLD
-    is treated as a win.
+    Uses the Gamma API ``/markets?condition_id=…`` endpoint and treats a market
+    as resolved when one ``outcomePrices`` entry is >= RESOLVED_PRICE_THRESHOLD
+    (typically 0.99 after settlement).
 
     Args:
-        trades: List of enriched trade dicts containing ``condition_id``,
-                ``asset``, and ``expiry_ts``.
+        trades: List of enriched trade dicts containing ``condition_id``.
 
     Returns:
-        Dict mapping condition_id -> {resolved: bool, winner: bool | None}
+        Dict mapping condition_id -> {
+            resolved: bool,
+            winning_outcome: str | None,
+            winning_token: str | None,
+        }
     """
-    now_ts = int(time.time())
-
-    # Build one representative asset + expiry per condition_id (any trade will do)
-    cid_to_meta: dict[str, dict[str, Any]] = {}
-    for trade in trades:
-        cid = trade.get("condition_id", "")
-        if cid and cid not in cid_to_meta:
-            cid_to_meta[cid] = {
-                "asset": str(trade.get("asset", "")),
-                "expiry_ts": int(trade.get("expiry_ts") or 0),
-            }
+    cids = sorted({t.get("condition_id", "") for t in trades if t.get("condition_id")})
 
     logger.info(
-        "Fetching market outcomes via CLOB last-trade-price: %d unique markets, "
-        "%d workers",
-        len(cid_to_meta), OUTCOME_FETCH_WORKERS,
+        "Fetching market outcomes via Gamma API: %d unique markets, %d workers",
+        len(cids), OUTCOME_FETCH_WORKERS,
     )
 
     outcomes: dict[str, dict[str, Any]] = {}
-
     with ThreadPoolExecutor(max_workers=OUTCOME_FETCH_WORKERS) as pool:
         future_to_cid = {
-            pool.submit(
-                _fetch_single_outcome,
-                meta["asset"],
-                meta["expiry_ts"],
-                now_ts,
-            ): cid
-            for cid, meta in cid_to_meta.items()
+            pool.submit(_fetch_gamma_resolution, cid): cid for cid in cids
         }
         for future in as_completed(future_to_cid):
             cid = future_to_cid[future]
-            result = future.result()
-            outcomes[cid] = {"resolved": result["resolved"], "winner": result["winner"]}
+            outcomes[cid] = future.result()
 
     resolved = sum(1 for v in outcomes.values() if v["resolved"])
-    winners  = sum(1 for v in outcomes.values() if v.get("winner") is True)
-    losers   = sum(1 for v in outcomes.values() if v.get("winner") is False)
     logger.info(
-        "Outcomes: %d resolved (%d wins, %d losses), %d unresolved",
-        resolved, winners, losers, len(outcomes) - resolved,
+        "Outcomes: %d resolved, %d unresolved",
+        resolved, len(outcomes) - resolved,
     )
     return outcomes
+
+
+def fetch_closed_positions(
+    wallet: str,
+    start_ts: int,
+    end_ts: int,
+) -> list[dict[str, Any]]:
+    """
+    Fetch Data API ``/closed-positions`` for a wallet within [start_ts, end_ts].
+
+    Pages newest-first and stops once timestamps fall before ``start_ts``.
+    Each row includes Polymarket's own ``realizedPnl`` — the figure that matches
+    the profile "profit" chart much more closely than reconstructed settlement.
+    """
+    wallet = wallet.strip()
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    pages = 0
+
+    while True:
+        resp = requests.get(
+            f"{DATA_API_BASE}/closed-positions",
+            params={
+                "user": wallet,
+                "limit": CLOSED_POSITIONS_PAGE_SIZE,
+                "offset": offset,
+                "sortBy": "TIMESTAMP",
+                "sortDirection": "DESC",
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not isinstance(batch, list) or not batch:
+            break
+        pages += 1
+
+        oldest = None
+        for item in batch:
+            ts = item.get("timestamp")
+            if ts is None:
+                continue
+            ts = int(ts)
+            if ts > 10_000_000_000:
+                ts //= 1000
+            oldest = ts if oldest is None else min(oldest, ts)
+            if start_ts <= ts <= end_ts:
+                rows.append(item)
+
+        if pages % 25 == 0:
+            logger.info(
+                "closed-positions pages=%d offset=%d kept=%d oldest_ts=%s",
+                pages, offset, len(rows), oldest,
+            )
+
+        if oldest is not None and oldest < start_ts:
+            break
+        if len(batch) < CLOSED_POSITIONS_PAGE_SIZE:
+            break
+        offset += CLOSED_POSITIONS_PAGE_SIZE
+        if offset > 100_000:
+            logger.warning("closed-positions safety stop at offset=%d", offset)
+            break
+        time.sleep(CLOSED_POSITIONS_PAGE_DELAY_S)
+
+    # Dedup (conditionId, asset)
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in rows:
+        key = (str(item.get("conditionId") or ""), str(item.get("asset") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    total_pnl = sum(float(item.get("realizedPnl") or 0) for item in deduped)
+    logger.info(
+        "closed-positions for %s: %d rows in window, realizedPnl=$%.2f",
+        wallet[:12], len(deduped), total_pnl,
+    )
+    return deduped
+
+
+def closed_positions_pnl_index(
+    closed: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Map (condition_id, asset) -> {realized_pnl, cur_price, winner, outcome}."""
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in closed:
+        cid = str(item.get("conditionId") or "")
+        asset = str(item.get("asset") or "")
+        if not cid or not asset:
+            continue
+        cur = item.get("curPrice")
+        try:
+            cur_f = float(cur) if cur is not None else None
+        except (TypeError, ValueError):
+            cur_f = None
+        winner: bool | None = None
+        if cur_f is not None:
+            if cur_f >= RESOLVED_PRICE_THRESHOLD:
+                winner = True
+            elif cur_f <= (1.0 - RESOLVED_PRICE_THRESHOLD):
+                winner = False
+        index[(cid, asset)] = {
+            "realized_pnl": float(item.get("realizedPnl") or 0),
+            "cur_price": cur_f,
+            "winner": winner,
+            "outcome": item.get("outcome"),
+        }
+    return index
+
+def _token_is_winner(
+    outcome: str,
+    asset: str,
+    resolution: dict[str, Any],
+) -> bool | None:
+    """Return True/False if resolved, else None."""
+    if not resolution.get("resolved"):
+        return None
+    winning_token = resolution.get("winning_token")
+    winning_outcome = resolution.get("winning_outcome")
+    if winning_token and asset and str(asset) == str(winning_token):
+        return True
+    if winning_token and asset and str(asset) != str(winning_token):
+        return False
+    if winning_outcome is not None and outcome:
+        return str(outcome).lower() == str(winning_outcome).lower()
+    return None
 
 
 def compute_and_write_positions_csv(
     trades: list[dict[str, Any]],
     market_outcomes: dict[str, dict[str, Any]],
     output_path: str,
+    closed_pnl: dict[tuple[str, str], Any] | None = None,
 ) -> tuple[int, int]:
     """
-    Compute per-position P&L from trades + Gamma market outcomes and write CSV.
+    Compute per-position P&L from trades + resolutions and write CSV.
 
-    For each condition_id:
-      - Aggregate buy cost, buy shares, sell revenue, sell shares from trades.
-      - Look up whether the outcome token won (winner=True → settles at $1,
-        winner=False → settles at $0).
-      - P&L = sell_revenue - buy_cost + net_shares * settlement_price
+    For each (condition_id, outcome):
+      - Aggregate buy/sell shares and USDC from trades (never mix Up/Down).
+      - Prefer Polymarket ``realizedPnl`` from closed-positions when available.
+      - Otherwise settle via Gamma winning token: 
+        P&L = sell_revenue - buy_cost + net_shares * settlement_price
 
-    Positions whose market is not yet resolved have pnl left empty.
-
-    Args:
-        trades: List of enriched trade dicts.
-        market_outcomes: Dict returned by fetch_market_outcomes().
-        output_path: File path for the output CSV.
-
-    Returns:
-        Tuple of (total_rows_written, rows_with_resolved_pnl).
+    Positions without resolution or closed-positions P&L leave ``pnl`` empty.
     """
-    # Aggregate trades per condition_id
-    positions: dict[str, dict[str, Any]] = {}
+    closed_pnl = closed_pnl or {}
+
+    # Aggregate trades per (condition_id, outcome) so Up/Down are not mixed.
+    positions: dict[tuple[str, str], dict[str, Any]] = {}
     for trade in trades:
         cid = trade.get("condition_id", "")
+        outcome = str(trade.get("outcome", "") or "")
         if not cid:
             continue
-        if cid not in positions:
-            positions[cid] = {
+        key = (cid, outcome)
+        if key not in positions:
+            positions[key] = {
                 "condition_id": cid,
                 "event_slug": trade.get("event_slug", ""),
-                "outcome": trade.get("outcome", ""),
+                "outcome": outcome,
+                "asset": str(trade.get("asset", "") or ""),
                 "buy_shares": 0.0,
                 "buy_cost": 0.0,
                 "sell_shares": 0.0,
                 "sell_revenue": 0.0,
             }
-        pos = positions[cid]
+        pos = positions[key]
+        if not pos["asset"] and trade.get("asset"):
+            pos["asset"] = str(trade.get("asset"))
         size = float(trade.get("size", 0))
         value = float(trade.get("usdc_value", 0))
         if trade.get("side") == "BUY":
@@ -500,27 +649,41 @@ def compute_and_write_positions_csv(
 
     rows = []
     resolved_count = 0
-    for cid, pos in positions.items():
+    for (_cid, _outcome), pos in positions.items():
         net_shares = pos["buy_shares"] - pos["sell_shares"]
         net_cost = pos["buy_cost"] - pos["sell_revenue"]
 
-        outcome_data = market_outcomes.get(cid, {})
-        resolved = outcome_data.get("resolved", False)
-        winner = outcome_data.get("winner")  # True / False / None
-
-        if resolved and winner is not None:
-            settlement = 1.0 if winner else 0.0
-            pnl = round(pos["sell_revenue"] - pos["buy_cost"] + net_shares * settlement, 6)
+        api_key = (pos["condition_id"], pos["asset"])
+        closed_row = closed_pnl.get(api_key) if pos["asset"] else None
+        if closed_row is not None:
+            # closed_pnl values may be bare floats (legacy) or detail dicts
+            if isinstance(closed_row, dict):
+                pnl = round(float(closed_row["realized_pnl"]), 6)
+                winner = closed_row.get("winner")
+            else:
+                pnl = round(float(closed_row), 6)
+                winner = None
+            resolved = True
             resolved_count += 1
         else:
-            pnl = ""
+            resolution = market_outcomes.get(pos["condition_id"], {})
+            winner = _token_is_winner(pos["outcome"], pos["asset"], resolution)
+            resolved = winner is not None
+            if resolved:
+                settlement = 1.0 if winner else 0.0
+                pnl = round(
+                    pos["sell_revenue"] - pos["buy_cost"] + net_shares * settlement, 6
+                )
+                resolved_count += 1
+            else:
+                pnl = ""
 
         rows.append({
-            "condition_id": cid,
+            "condition_id": pos["condition_id"],
             "event_slug": pos["event_slug"],
             "outcome": pos["outcome"],
             "resolved": resolved,
-            "winner": winner if resolved else "",
+            "winner": winner if winner is not None else "",
             "buy_shares": round(pos["buy_shares"], 6),
             "buy_cost": round(pos["buy_cost"], 6),
             "sell_shares": round(pos["sell_shares"], 6),
@@ -530,7 +693,7 @@ def compute_and_write_positions_csv(
             "pnl": pnl,
         })
 
-    rows.sort(key=lambda r: r["event_slug"])
+    rows.sort(key=lambda r: (r["event_slug"], r["outcome"]))
 
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=POSITIONS_CSV_COLUMNS)
@@ -542,6 +705,26 @@ def compute_and_write_positions_csv(
         len(rows), output_path, resolved_count,
     )
     return len(rows), resolved_count
+
+
+def write_closed_positions_csv(
+    closed: list[dict[str, Any]],
+    output_path: str,
+) -> float:
+    """Write Data API closed-positions rows; return sum of realizedPnl."""
+    fields = [
+        "conditionId", "asset", "outcome", "title", "slug", "eventSlug",
+        "endDate", "timestamp", "avgPrice", "totalBought", "realizedPnl", "curPrice",
+    ]
+    total = 0.0
+    with open(output_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for item in closed:
+            writer.writerow({k: item.get(k, "") for k in fields})
+            total += float(item.get("realizedPnl") or 0)
+    logger.info("Wrote %d closed-positions to %s (pnl=$%.2f)", len(closed), output_path, total)
+    return total
 
 
 def write_trades_csv(trades: list[dict[str, Any]], output_path: str) -> None:

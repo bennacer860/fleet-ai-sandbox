@@ -26,13 +26,23 @@ from pytz import timezone as pytz_timezone
 from src.logging_config import setup_logging
 from src.trade_fetcher import (
     compute_and_write_positions_csv,
+    closed_positions_pnl_index,
+    fetch_closed_positions,
     fetch_market_outcomes,
     fetch_trades_for_wallet_with_meta,
     print_summary,
+    write_closed_positions_csv,
     write_trades_csv,
 )
 
 DEFAULT_S3_PREFIX = "research/wallet-trades"
+
+# Known handles → proxy wallets. Profile-page scraping (NEXT_DATA) is unreliable
+# on EC2 (CloudFront blocks, no JS). Keep this map up to date when tracking new users.
+KNOWN_WALLETS: dict[str, str] = {
+    "certova": "0x8d1d5d1c6041b13fc708b5d9f668070e1724ed4a",
+    "ivy56": "0xddb062ade7d4e92ef636a3bfb94a4e2feab30310",
+}
 
 
 def parse_date(date_str: str) -> int:
@@ -68,19 +78,23 @@ def parse_date_end(date_str: str) -> int:
 
 
 def _resolve_handle_to_wallet(handle: str) -> str:
-    """Resolve a Polymarket @handle to a proxy wallet address via profile page scraping.
+    """Resolve a Polymarket @handle to a proxy wallet address.
 
-    The Data API ``user`` parameter only filters by ``0x`` wallet address;
-    passing an ``@handle`` returns *all* market trades unfiltered.  This
-    function fetches the profile page, parses the Next.js JSON payload, and
-    extracts the ``proxyWallet`` / ``proxyAddress`` field.
+    Checks the KNOWN_WALLETS map first (reliable on EC2 where profile-page
+    scraping fails), then falls back to scraping the Next.js payload.
     """
     import json
     import re
 
     import requests as _requests
 
-    slug = handle.lstrip("@")
+    slug = handle.lstrip("@").lower()
+
+    known = KNOWN_WALLETS.get(slug)
+    if known:
+        print(f"Resolved @{slug} → {known} (known wallet)")
+        return known
+
     url = f"https://polymarket.com/@{slug}"
     print(f"Resolving @{slug} → wallet via {url}")
     try:
@@ -426,14 +440,48 @@ def _fetch_and_write(
 
     if with_pnl:
         positions_path = trades_path.with_stem(trades_path.stem + "_positions")
-        unique_markets = len({t["condition_id"] for t in trades if t.get("condition_id")})
-        print(f"Fetching market outcomes for {unique_markets} unique markets...")
-        outcomes = fetch_market_outcomes(trades)
-        resolved = sum(1 for v in outcomes.values() if v["resolved"])
-        winners  = sum(1 for v in outcomes.values() if v.get("winner") is True)
-        print(f"  Resolved: {resolved} ({winners} wins, {resolved - winners} losses)  Unresolved: {len(outcomes) - resolved}")
-        n, with_pnl_count = compute_and_write_positions_csv(trades, outcomes, str(positions_path))
-        print(f"  Positions CSV: {positions_path.resolve()} ({n} rows, {with_pnl_count} with P&L)")
+        closed_path = trades_path.with_stem(trades_path.stem + "_closed_positions")
+
+        print(f"Fetching closed-positions P&L for {wallet}...")
+        closed = fetch_closed_positions(wallet, start_ts, end_ts)
+        closed_total = write_closed_positions_csv(closed, str(closed_path))
+        print(
+            f"  Closed positions: {len(closed)}  "
+            f"realizedPnl=${closed_total:,.2f}  -> {closed_path.resolve()}"
+        )
+        closed_idx = closed_positions_pnl_index(closed)
+
+        # Gamma only for trade positions missing from closed-positions
+        missing_cids = {
+            t["condition_id"]
+            for t in trades
+            if t.get("condition_id")
+            and (t["condition_id"], str(t.get("asset") or "")) not in closed_idx
+        }
+        outcomes: dict = {}
+        if missing_cids:
+            print(
+                f"Fetching Gamma outcomes for {len(missing_cids)} markets "
+                f"not in closed-positions..."
+            )
+            outcomes = fetch_market_outcomes(
+                [t for t in trades if t.get("condition_id") in missing_cids]
+            )
+            resolved = sum(1 for v in outcomes.values() if v["resolved"])
+            print(
+                f"  Gamma resolved: {resolved}  "
+                f"Unresolved: {len(outcomes) - resolved}"
+            )
+        else:
+            print("  All trade positions covered by closed-positions; skipping Gamma")
+
+        n, with_pnl_count = compute_and_write_positions_csv(
+            trades, outcomes, str(positions_path), closed_pnl=closed_idx
+        )
+        print(
+            f"  Positions CSV: {positions_path.resolve()} "
+            f"({n} rows, {with_pnl_count} with P&L)"
+        )
 
     if not no_upload:
         bucket = _resolve_bucket(s3_bucket)
@@ -447,6 +495,15 @@ def _fetch_and_write(
         s3_key = _build_s3_key(s3_prefix, trades_path.name)
         s3_uri = _upload_with_retries(str(trades_path), bucket, s3_key, region)
         print(f"Uploaded:   {s3_uri}")
+        if with_pnl:
+            for extra in (
+                trades_path.with_stem(trades_path.stem + "_positions"),
+                trades_path.with_stem(trades_path.stem + "_closed_positions"),
+            ):
+                if extra.exists():
+                    pos_key = _build_s3_key(s3_prefix, extra.name)
+                    pos_uri = _upload_with_retries(str(extra), bucket, pos_key, region)
+                    print(f"Uploaded:   {pos_uri}")
 
     print_summary(trades)
     return 0
