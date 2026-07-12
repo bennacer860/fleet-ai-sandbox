@@ -15,6 +15,10 @@ market_events.csv
 *.db-shm
 data/*.log*
 
+# Collected wallet trade data + generated analysis outputs (not committed)
+data/*.csv
+analysis/
+
 
 # Terraform
 .terraform/
