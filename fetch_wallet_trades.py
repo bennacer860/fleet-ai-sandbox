@@ -42,6 +42,8 @@ DEFAULT_S3_PREFIX = "research/wallet-trades"
 KNOWN_WALLETS: dict[str, str] = {
     "certova": "0x8d1d5d1c6041b13fc708b5d9f668070e1724ed4a",
     "ivy56": "0xddb062ade7d4e92ef636a3bfb94a4e2feab30310",
+    "doggystyle": "0x3f565fed99a5a927cf6a7524ffa8858c38c53ce4",
+    "doggystyie": "0x0484e64092ba4108c2786b61e6fc052d3bf41b1a",
 }
 
 
