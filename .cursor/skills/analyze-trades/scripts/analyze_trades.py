@@ -56,10 +56,13 @@ def parse_slug(slug: str) -> tuple[str, str]:
             word_crypto = token in ("bitcoin", "ethereum", "solana", "ripple")
             break
 
-    if "5min" in s or "-5m-" in s or "updown-5m" in s:
-        dur = "5min"
-    elif "15min" in s or "-15m-" in s or "updown-15m" in s:
+    # Check longer tokens first: "15min" contains "5min" as a substring.
+    if "15min" in s or "-15m-" in s or "updown-15m" in s:
         dur = "15min"
+    elif "30min" in s or "-30m-" in s or "updown-30m" in s:
+        dur = "30min"
+    elif "5min" in s or "-5m-" in s or "updown-5m" in s:
+        dur = "5min"
     elif "1hour" in s or "-1h-" in s or "1-hour" in s:
         dur = "1hour"
     elif word_crypto and "-up-or-down-" in s:
@@ -332,6 +335,149 @@ def accumulation_metrics(
     return m, lean_by_trade
 
 
+def direction_and_calibration(
+    trades: pd.DataFrame, pos: pd.DataFrame
+) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
+    """One-sidedness, direction accuracy, and entry-price calibration (BTC).
+
+    Answers: does it pick one direction? how often is the direction right? and is
+    the entry price just the market's implied probability (calibrated)?
+    """
+    btc_t = trades[trades["crypto"] == "BTC"]
+    btc_p = pos[pos["crypto"] == "BTC"]
+    buy = btc_t[btc_t["side"] == "BUY"]
+    mpnl = btc_p.groupby("condition_id")["pnl"].sum()
+    m: dict = {}
+    if buy.empty or mpnl.empty:
+        return m, pd.DataFrame(), pd.DataFrame()
+
+    sides = buy.groupby("condition_id")["outcome"].nunique()
+    one_sided = set(sides[sides == 1].index)
+    m["one_sided_pct"] = 100 * float((sides == 1).mean())
+    m["both_sided_pct"] = 100 * float((sides >= 2).mean())
+
+    # Direction accuracy on one-sided markets (unbiased: use realized pnl sign)
+    os_pnl = mpnl[mpnl.index.isin(one_sided)]
+    if len(os_pnl):
+        m["direction_correct_pct"] = 100 * float((os_pnl > 0).mean())
+        m["direction_wrong_pct"] = 100 * float((os_pnl < 0).mean())
+
+    # First-entry per market
+    first = buy.sort_values("timestamp").groupby("condition_id").head(1).set_index("condition_id")
+    first = first.join(mpnl.rename("mpnl")).dropna(subset=["mpnl"])
+    first["won"] = first["mpnl"] > 0
+    corr, wrong = first[first["won"]], first[~first["won"]]
+    if len(corr):
+        m["entry_price_when_correct"] = float(corr["price"].mean())
+        m["entry_time_when_correct_s"] = float(corr["entry_offset_s"].median())
+    if len(wrong):
+        m["entry_price_when_wrong"] = float(wrong["price"].mean())
+        m["entry_time_when_wrong_s"] = float(wrong["entry_offset_s"].median())
+    m["first_entry_on_favorite_pct"] = 100 * float((first["price"] > 0.5).mean())
+
+    # Calibration: first-entry price bucket -> actual win rate
+    first["pb"] = pd.cut(first["price"], np.arange(0, 1.01, 0.1))
+    cal = first.groupby("pb", observed=True).agg(
+        markets=("won", "size"),
+        entry_price=("price", "mean"),
+        actual_winrate_pct=("won", lambda s: 100 * s.mean()),
+    ).round(3)
+    return m, cal, first.reset_index()
+
+
+def coverage_and_timing(trades: pd.DataFrame) -> dict:
+    """Does it enter every BTC 5-min market, and when? (selectivity + timing)."""
+    t5 = trades[(trades["crypto"] == "BTC") & (trades["market_type"] == "5min")]
+    buy = t5[t5["side"] == "BUY"]
+    m: dict = {}
+    if t5.empty:
+        return m
+    traded = t5["condition_id"].nunique()
+    starts = t5.groupby("condition_id")["expiry_ts"].first() - 300
+    total = int((starts.max() - starts.min()) / 300) + 1 if len(starts) else 0
+    m["btc5_markets_traded"] = int(traded)
+    m["btc5_windows_available"] = int(total)
+    if total:
+        m["btc5_coverage_pct"] = 100 * traded / total
+    first = buy.sort_values("timestamp").groupby("condition_id").head(1)
+    off = first["entry_offset_s"].dropna()
+    off = off[(off >= 0) & (off < 400)]
+    if len(off):
+        m["first_entry_median_s"] = float(off.median())
+        m["first_entry_p10_s"] = float(off.quantile(0.10))
+        m["first_entry_p90_s"] = float(off.quantile(0.90))
+        m["entries_first_30s_pct"] = 100 * float((off < 30).mean())
+        m["entries_after_150s_pct"] = 100 * float((off > 150).mean())
+    return m
+
+
+def sell_and_three_leg(
+    trades: pd.DataFrame, pos: pd.DataFrame
+) -> tuple[dict, pd.DataFrame]:
+    """Sell behavior + 3-leg play (favorite round-trip -> lottery) prevalence,
+    P&L by strategy class, and whether the lottery legs are net +EV.
+
+    Runs on ALL cryptos (the round-trip/lottery pattern spans durations)."""
+    m: dict = {}
+    vol = trades.groupby("side")["size"].sum()
+    m["sell_pct_of_bought"] = 100 * float(vol.get("SELL", 0) / max(vol.get("BUY", 0), 1))
+    sells = trades[trades["side"] == "SELL"]
+    if len(sells):
+        m["sell_price_median"] = float(sells["price"].median())
+        m["markets_with_sells_pct"] = 100 * float(
+            trades[trades["side"] == "SELL"]["condition_id"].nunique()
+            / max(trades["condition_id"].nunique(), 1)
+        )
+
+    # Classify each market: directional / roundtrip_only / 3-leg
+    leg = trades.groupby(["condition_id", "outcome", "side"]).agg(
+        sh=("size", "sum"), usd=("usdc_value", "sum")
+    ).reset_index()
+    mpnl = pos.groupby("condition_id")["pnl"].sum()
+    cls: dict = {}
+    for cid, d in leg.groupby("condition_id"):
+        outs = d["outcome"].unique()
+        rt_fav = None
+        for oc in outs:
+            b = d[(d["outcome"] == oc) & (d["side"] == "BUY")]
+            s = d[(d["outcome"] == oc) & (d["side"] == "SELL")]
+            if len(b) and len(s) and b["sh"].sum() and b["usd"].sum() / b["sh"].sum() > 0.5:
+                rt_fav = oc
+        if rt_fav is None:
+            cls[cid] = "directional"
+            continue
+        lottery = False
+        for oc in outs:
+            if oc == rt_fav:
+                continue
+            b = d[(d["outcome"] == oc) & (d["side"] == "BUY")]
+            if len(b) and b["sh"].sum() and b["usd"].sum() / b["sh"].sum() < 0.15:
+                lottery = True
+        cls[cid] = "3-leg" if lottery else "roundtrip_only"
+
+    cdf = pd.DataFrame({"pnl": mpnl})
+    cdf["cls"] = cdf.index.map(cls).fillna("directional")
+    by_class = cdf.groupby("cls").agg(
+        markets=("pnl", "size"),
+        total_pnl=("pnl", "sum"),
+        avg_pnl=("pnl", "mean"),
+        win_rate_pct=("pnl", lambda s: 100 * (s > 0).mean()),
+    ).round(2)
+
+    # Lottery-leg EV
+    pp = pos.copy()
+    pp["avg_buy"] = pp["buy_cost"] / pp["buy_shares"].replace(0, np.nan)
+    lot = pp[(pp["buy_shares"] > 0) & (pp["avg_buy"] < 0.15)]
+    if len(lot):
+        m["lottery_legs"] = int(len(lot))
+        m["lottery_cost"] = float(lot["buy_cost"].sum())
+        m["lottery_pnl"] = float(lot["pnl"].sum())
+        m["lottery_avg_price"] = float(lot["buy_cost"].sum() / lot["buy_shares"].sum())
+        if lot["buy_cost"].sum():
+            m["lottery_roi_pct"] = 100 * float(lot["pnl"].sum() / lot["buy_cost"].sum())
+    return m, by_class
+
+
 def choppiness_table(trades: pd.DataFrame, pos: pd.DataFrame) -> pd.DataFrame:
     """P&L and per-share edge by within-market price choppiness quartile."""
     btc_t = trades[trades["crypto"] == "BTC"]
@@ -531,6 +677,97 @@ def make_charts(
         save(fig, "btc_choppiness_edge.png",
              "Per-share edge vs market choppiness; calmer markets = better fills.")
 
+    # ---- BTC behavior charts (entry, calibration, price paths) ----
+    btc = pos[pos["crypto"] == "BTC"]
+    btc_t2 = trades[trades["crypto"] == "BTC"]
+    if len(btc) and len(btc_t2):
+        mpnl = btc.groupby("condition_id")["pnl"].sum()
+        buy = btc_t2[btc_t2["side"] == "BUY"].copy()
+        buy["mpnl"] = buy["condition_id"].map(mpnl)
+        first = buy.sort_values("timestamp").groupby("condition_id").head(1).copy()
+        first["mpnl"] = first["condition_id"].map(mpnl)
+        first = first.dropna(subset=["mpnl"])
+        first["won"] = first["mpnl"] > 0
+
+        # 13. Entry-price calibration
+        if len(first):
+            first["pb"] = pd.cut(first["price"], np.arange(0, 1.01, 0.1))
+            cal = first.groupby("pb", observed=True).agg(
+                ep=("price", "mean"), wr=("won", "mean")).dropna()
+            if len(cal):
+                fig, ax = plt.subplots(figsize=(6.5, 6))
+                ax.plot([0, 1], [0, 1], "--", color="gray",
+                        label="entry price = win probability (fair)")
+                ax.plot(cal["ep"], cal["wr"], "o-", color="#8e44ad",
+                        label="actual win rate")
+                ax.set_xlabel("first-entry price (market implied probability)")
+                ax.set_ylabel("actual win rate")
+                ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+                ax.set_title("Entry price IS the market's probability (calibration)\n"
+                             "above the line = edge")
+                ax.legend(loc="upper left", fontsize=8)
+                save(fig, "btc_entry_calibration.png",
+                     "First-entry price vs actual win rate; on the diagonal = "
+                     "entering at fair market probability.")
+
+            # 14. Entry-price distribution (profit vs loss)
+            fig, ax = plt.subplots(figsize=(8, 4.5))
+            ax.hist(first[first["won"]]["price"], bins=25, alpha=0.6,
+                    color="#27ae60", label="profitable")
+            ax.hist(first[~first["won"]]["price"], bins=25, alpha=0.6,
+                    color="#c0392b", label="losing")
+            ax.set_xlabel("first-entry price"); ax.set_ylabel("markets")
+            ax.set_title("First-entry price distribution (profitable vs losing)")
+            ax.legend()
+            save(fig, "btc_entry_price_hist.png",
+                 "Where entries land: favorites (high) vs longshots (low).")
+
+            # 15. Entry price vs time (profit vs loss)
+            fig, ax = plt.subplots(figsize=(8, 4.5))
+            for won, color, lab in [(True, "#27ae60", "profitable"),
+                                    (False, "#c0392b", "losing")]:
+                d = first[first["won"] == won]
+                ax.scatter(d["entry_offset_s"], d["price"], s=7, alpha=0.25,
+                           color=color, label=lab)
+            ax.axhline(0.5, color="gray", ls=":", lw=0.8)
+            ax.set_xlim(0, 300); ax.set_ylim(0, 1)
+            ax.set_xlabel("first-entry time (s after open)")
+            ax.set_ylabel("first-entry price")
+            ax.set_title("Entry price & timing: profitable vs losing markets")
+            ax.legend(loc="center right", fontsize=8)
+            save(fig, "btc_entry_price_vs_time.png",
+                 "Profitable = early favorites; losing = late longshots.")
+
+        # 16 & 17. Fill-price density over the window (5min), profit vs loss
+        b5 = btc_t2[(btc_t2["market_type"] == "5min") & (btc_t2["side"] == "BUY")].copy()
+        b5["mpnl"] = b5["condition_id"].map(mpnl)
+        b5 = b5[(b5["entry_offset_s"] >= 0) & (b5["entry_offset_s"] <= 300)].dropna(subset=["mpnl"])
+        for won, fname, cmap, lab in [
+            (True, "btc5_price_path_profit.png", "Greens", "PROFITABLE"),
+            (False, "btc5_price_path_loss.png", "Reds", "LOSING"),
+        ]:
+            d = b5[b5["mpnl"] > 0] if won else b5[b5["mpnl"] < 0]
+            if len(d) < 50:
+                continue
+            fig, ax = plt.subplots(figsize=(8, 4.5))
+            hb = ax.hexbin(d["entry_offset_s"], d["price"], C=d["size"],
+                           reduce_C_function=np.sum, gridsize=40, cmap=cmap,
+                           mincnt=1, extent=[0, 300, 0, 1])
+            bb = pd.cut(d["entry_offset_s"], np.arange(0, 301, 15))
+            med = d.groupby(bb, observed=True).apply(
+                lambda x: np.average(x["price"], weights=x["size"]), include_groups=False)
+            ax.plot([iv.mid for iv in med.index], med.values, color="black", lw=2,
+                    label="size-weighted avg price")
+            ax.axhline(0.5, color="white", ls=":", lw=1)
+            ax.set_xlim(0, 300); ax.set_ylim(0, 1)
+            ax.set_xlabel("seconds after market open"); ax.set_ylabel("fill price")
+            ax.set_title(f"Fill price over window — {lab} BTC 5-min markets "
+                         f"(n={d['condition_id'].nunique()})")
+            ax.legend(loc="upper left", fontsize=8)
+            fig.colorbar(hb, label="shares")
+            save(fig, fname,
+                 f"{lab.title()} markets: fill price path through the 5-min window.")
+
     return charts
 
 
@@ -569,6 +806,11 @@ def write_report(
     decomp_btc: dict,
     accum: dict,
     chop: pd.DataFrame,
+    dir_metrics: dict,
+    calibration: pd.DataFrame,
+    coverage: dict,
+    sell_metrics: dict,
+    class_pnl: pd.DataFrame,
     charts: list[tuple[str, str]],
     outdir: Path,
 ) -> Path:
@@ -625,7 +867,44 @@ def write_report(
         lines.append(chop.to_markdown())
     lines.append("")
 
-    lines.append("## 8. Charts\n")
+    lines.append("## 8. Direction & entry-price calibration (BTC)\n")
+    lines.append(
+        "Does it pick one direction, how often is it right, and is the entry "
+        "price just the market's implied probability? Direction accuracy uses "
+        "realized-P&L sign on one-sided markets (unbiased).\n"
+    )
+    for k, v in dir_metrics.items():
+        lines.append(f"- **{k}**: {v:,.4f}" if isinstance(v, float) else f"- **{k}**: {v}")
+    if calibration is not None and len(calibration):
+        lines.append("\nEntry-price calibration (entry price → actual win rate):\n")
+        lines.append(calibration.to_markdown())
+    lines.append("")
+
+    lines.append("## 9. Market coverage & entry timing (BTC 5-min)\n")
+    lines.append(
+        "Does it enter every 5-min market, and when? Low coverage + mid-window "
+        "entry = selective, momentum-confirmation entry (waits for the move).\n"
+    )
+    for k, v in coverage.items():
+        lines.append(f"- **{k}**: {v:,.4f}" if isinstance(v, float) else f"- **{k}**: {v}")
+    lines.append("")
+
+    lines.append("## 10. Sell behavior & 3-leg play (all cryptos)\n")
+    lines.append(
+        "Does it sell? And does it run the 3-leg play (buy favorite → sell for "
+        "profit → buy the other side as a lottery)? `lottery_roi_pct` shows "
+        "whether the longshot legs are net +EV.\n"
+    )
+    for k, v in sell_metrics.items():
+        lines.append(f"- **{k}**: {v:,.4f}" if isinstance(v, float) else f"- **{k}**: {v}")
+    if class_pnl is not None and len(class_pnl):
+        lines.append("\nP&L by strategy class (note: 3-leg vs roundtrip-only is "
+                     "outcome-dependent — the lottery leg is only added after a "
+                     "profitable sell):\n")
+        lines.append(class_pnl.to_markdown())
+    lines.append("")
+
+    lines.append("## 11. Charts\n")
     for name, caption in charts:
         title = name.replace(".png", "").replace("_", " ")
         lines.append(f"### {title}\n")
@@ -663,10 +942,15 @@ def main() -> int:
     decomp_btc = profit_decomposition(pos, crypto="BTC")
     accum, lean_by_trade = accumulation_metrics(trades, pos)
     chop = choppiness_table(trades, pos)
+    dir_metrics, calibration, _first = direction_and_calibration(trades, pos)
+    coverage = coverage_and_timing(trades)
+    sell_metrics, class_pnl = sell_and_three_leg(trades, pos)
     charts = make_charts(pos, trades, outdir, lean_by_trade=lean_by_trade, chop=chop)
     report = write_report(
         label, crypto_tbl, mkt_tbl, btc_stats, metrics,
-        decomp_overall, decomp_btc, accum, chop, charts, outdir,
+        decomp_overall, decomp_btc, accum, chop,
+        dir_metrics, calibration, coverage, sell_metrics, class_pnl,
+        charts, outdir,
     )
 
     # Console summary
@@ -693,6 +977,19 @@ def main() -> int:
     print("\n=== CHOPPINESS vs EDGE (BTC) ===")
     if len(chop):
         print(chop.to_string())
+    print("\n=== DIRECTION & CALIBRATION (BTC) ===")
+    for k, v in dir_metrics.items():
+        print(f"  {k}: {v}")
+    if len(calibration):
+        print(calibration.to_string())
+    print("\n=== COVERAGE & ENTRY TIMING (BTC 5-min) ===")
+    for k, v in coverage.items():
+        print(f"  {k}: {v}")
+    print("\n=== SELL & 3-LEG (all cryptos) ===")
+    for k, v in sell_metrics.items():
+        print(f"  {k}: {v}")
+    if len(class_pnl):
+        print(class_pnl.to_string())
     print(f"\nReport: {report}")
     print(f"Charts ({len(charts)}): {', '.join(n for n, _ in charts)}")
     return 0

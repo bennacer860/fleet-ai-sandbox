@@ -60,7 +60,7 @@ The script prints all tables to stdout and writes a self-contained
 `analysis/<label>/REPORT.md` that **embeds all charts** (with captions) plus the
 PNG files beside it. It computes everything in the sections below.
 
-The report contains 12 charts:
+The report has 11 sections and 17 charts:
 
 | Chart | Shows |
 |-------|-------|
@@ -76,6 +76,11 @@ The report contains 12 charts:
 | `btc_edge_bar.png` | share win rate vs avg price (edge source) |
 | `btc_winner_lean_by_trade.png` | winner-side lean by fill index (direction timing) |
 | `btc_choppiness_edge.png` | per-share edge by market choppiness |
+| `btc_entry_calibration.png` | entry price vs actual win rate (is it fair value?) |
+| `btc_entry_price_hist.png` | first-entry price distribution, profit vs loss |
+| `btc_entry_price_vs_time.png` | entry price & timing, profit vs loss |
+| `btc5_price_path_profit.png` | fill-price density over window, winning markets |
+| `btc5_price_path_loss.png` | fill-price density over window, losing markets |
 
 When reporting to the user, embed the charts inline (the report file already
 does) so the final answer includes all graphs.
@@ -159,6 +164,29 @@ Plus `btc_winner_lean_by_trade.png`: **flat ~50%** = static symmetric ladder;
 whether calm or choppy markets give better *per-share* edge (controls for size).
 Choppy markets usually have more fills/bigger P&L but thinner per-share edge.
 
+**Direction & entry-price calibration** (`direction_and_calibration`, report §8):
+
+| Field | Interpretation |
+|-------|----------------|
+| `one_sided_pct` | high = directional bettor; low = hedger |
+| `direction_correct_pct` | unbiased hit rate (realized-P&L sign on one-sided markets) |
+| `entry_price_when_correct` / `_wrong` | favorites win; late cheap longshots lose |
+| `first_entry_on_favorite_pct` | backs the market favorite vs underdog |
+| calibration table + `btc_entry_calibration.png` | if the curve sits on the diagonal, the entry price is just the market's implied probability — they're a price-taker on level. Points **above** the diagonal at high prices = momentum-amplification edge. |
+
+**Market coverage & entry timing** (`coverage_and_timing`, report §9): does it
+enter *every* 5-min market or select? `btc5_coverage_pct` well under 100% plus a
+mid-window `first_entry_median_s` (and near-zero `entries_first_30s_pct`) means
+**selective momentum-confirmation entry** — it waits for the move, then reacts.
+
+**Sell behavior & the 3-leg play** (`sell_and_three_leg`, report §10): detects
+the *buy favorite → sell for profit → buy the other side as a lottery* pattern.
+`markets_with_sells_pct`, the by-class P&L table (`directional` /
+`roundtrip_only` / `3-leg`), and `lottery_roi_pct` (is the longshot leg net +EV?).
+Note the class split is outcome-dependent — the lottery leg is only added after a
+profitable sell, so `3-leg` ≈ round-trips that worked and `roundtrip_only` ≈ ones
+that failed; read them together.
+
 **Strategy archetypes:**
 
 - **Static GTC cent-ladder** (e.g. @doggystyie): bell-curve fills centered ~$0.50,
@@ -166,6 +194,11 @@ Choppy markets usually have more fills/bigger P&L but thinner per-share edge.
   Passive two-sided liquidity; edge is thin volatility harvesting.
 - **Active directional maker** (gabagool22): starts on loser, lean rises to
   ~75%+ by mid-window via tighter refresh on the favored side; edge is directional.
+- **Selective momentum bettor** (e.g. @certova): one-sided (low `both_sided_pct`),
+  enters ~30% of windows, waits ~2 min then backs the emergent favorite (~$0.80);
+  entry price is calibrated to market probability; edge is favorites beating their
+  price. Often layers the 3-leg play (round-trip favorite + longshot lottery),
+  though the lottery leg is typically net −EV.
 
 ### Step 5 — How the strategy is run + reproduce
 
@@ -229,3 +262,17 @@ Keep it short. Use the template below.
 - Charts land in `analysis/<label>/`; embed them when reporting to the user.
 - For multi-user comparison, run the script per user and compare the printed
   ranking tables.
+
+## Limits — what fill data cannot answer
+
+This analysis only sees the wallet's own **fills**. It cannot recover:
+
+- The markets the wallet **skipped** (no negative class → can't fit the exact
+  entry rule). Needs the full BTC 5-min market universe + resolutions.
+- The **per-second order-book / price path** before entry (the trigger threshold)
+  and the wallet's **cancels/resting orders** (maker quote management).
+- The underlying **BTC spot/oracle feed** (to test oracle-lag / momentum signals).
+
+To pin the entry signal, extend collection with a per-second order-book + Binance
+spot + resolution snapshotter across *all* windows, then label entered-vs-skipped
+and fit a classifier.

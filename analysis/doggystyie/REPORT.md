@@ -95,7 +95,66 @@ P&L and per-share edge by within-market price choppiness. Per-share edge control
 | q3      |      1825 |     22.1616 |   14.1242 |           0.0091 |     25776.7 |
 | choppy  |      1825 |     34.5704 |   15.981  |           0.0074 |     29165.3 |
 
-## 8. Charts
+## 8. Direction & entry-price calibration (BTC)
+
+Does it pick one direction, how often is it right, and is the entry price just the market's implied probability? Direction accuracy uses realized-P&L sign on one-sided markets (unbiased).
+
+- **one_sided_pct**: 0.3342
+- **both_sided_pct**: 99.6658
+- **direction_correct_pct**: 76.0000
+- **direction_wrong_pct**: 0.0000
+- **entry_price_when_correct**: 0.5182
+- **entry_time_when_correct_s**: 4.0000
+- **entry_price_when_wrong**: 0.5169
+- **entry_time_when_wrong_s**: 6.0000
+- **first_entry_on_favorite_pct**: 61.0829
+
+Entry-price calibration (entry price → actual win rate):
+
+| pb         |   markets |   entry_price |   actual_winrate_pct |
+|:-----------|----------:|--------------:|---------------------:|
+| (0.0, 0.1] |        27 |         0.084 |               48.148 |
+| (0.1, 0.2] |        62 |         0.16  |               53.226 |
+| (0.2, 0.3] |       116 |         0.266 |               64.655 |
+| (0.3, 0.4] |       322 |         0.363 |               69.255 |
+| (0.4, 0.5] |      2384 |         0.478 |               82.173 |
+| (0.5, 0.6] |      3802 |         0.537 |               82.851 |
+| (0.6, 0.7] |       511 |         0.64  |               73.386 |
+| (0.7, 0.8] |       154 |         0.748 |               65.584 |
+| (0.8, 0.9] |        72 |         0.849 |               61.111 |
+| (0.9, 1.0] |        30 |         0.941 |               43.333 |
+
+## 9. Market coverage & entry timing (BTC 5-min)
+
+Does it enter every 5-min market, and when? Low coverage + mid-window entry = selective, momentum-confirmation entry (waits for the move).
+
+- **btc5_markets_traded**: 7480
+- **btc5_windows_available**: 8570
+- **btc5_coverage_pct**: 87.2812
+- **first_entry_median_s**: 4.0000
+- **first_entry_p10_s**: 2.0000
+- **first_entry_p90_s**: 58.0000
+- **entries_first_30s_pct**: 82.2727
+- **entries_after_150s_pct**: 1.9786
+
+## 10. Sell behavior & 3-leg play (all cryptos)
+
+Does it sell? And does it run the 3-leg play (buy favorite → sell for profit → buy the other side as a lottery)? `lottery_roi_pct` shows whether the longshot legs are net +EV.
+
+- **sell_pct_of_bought**: 0.0000
+- **lottery_legs**: 296
+- **lottery_cost**: 12,705.8769
+- **lottery_pnl**: -11,627.0848
+- **lottery_avg_price**: 0.1258
+- **lottery_roi_pct**: -91.5095
+
+P&L by strategy class (note: 3-leg vs roundtrip-only is outcome-dependent — the lottery leg is only added after a profitable sell):
+
+| cls         |   markets |   total_pnl |   avg_pnl |   win_rate_pct |
+|:------------|----------:|------------:|----------:|---------------:|
+| directional |      7480 |     87411.9 |     11.69 |          80.03 |
+
+## 11. Charts
 
 ### pnl by crypto
 
@@ -168,4 +227,34 @@ P&L and per-share edge by within-market price choppiness. Per-share edge control
 ![Per-share edge vs market choppiness; calmer markets = better fills.](btc_choppiness_edge.png)
 
 *Per-share edge vs market choppiness; calmer markets = better fills.*
+
+### btc entry calibration
+
+![First-entry price vs actual win rate; on the diagonal = entering at fair market probability.](btc_entry_calibration.png)
+
+*First-entry price vs actual win rate; on the diagonal = entering at fair market probability.*
+
+### btc entry price hist
+
+![Where entries land: favorites (high) vs longshots (low).](btc_entry_price_hist.png)
+
+*Where entries land: favorites (high) vs longshots (low).*
+
+### btc entry price vs time
+
+![Profitable = early favorites; losing = late longshots.](btc_entry_price_vs_time.png)
+
+*Profitable = early favorites; losing = late longshots.*
+
+### btc5 price path profit
+
+![Profitable markets: fill price path through the 5-min window.](btc5_price_path_profit.png)
+
+*Profitable markets: fill price path through the 5-min window.*
+
+### btc5 price path loss
+
+![Losing markets: fill price path through the 5-min window.](btc5_price_path_loss.png)
+
+*Losing markets: fill price path through the 5-min window.*
 
